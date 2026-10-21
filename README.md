@@ -107,6 +107,8 @@ When a companion needs something only you can provide, it asks you through a sma
 
 ---
 
+Chat images: [+ file selection and clipboard paste](docs/image-attachments.md).
+
 Graphical desktop and model control: [computer use setup and tests](docs/computer-use.md).
 
 ## Quick start

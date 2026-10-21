@@ -1,5 +1,14 @@
 /** Dictionnaire anglais : clé = texte français. */
 export const EN: Record<string, string> = {
+  "Tu peux joindre jusqu’à 6 images par message.": "You can attach up to 6 images per message.",
+  "Choisis une image JPEG, PNG, WebP ou GIF.": "Choose a JPEG, PNG, WebP or GIF image.",
+  "Chaque image doit faire moins de 10 Mo.": "Each image must be smaller than 10 MB.",
+  "Impossible de joindre les images. Réessaie.": "Could not attach images. Try again.",
+  "Choisir des images": "Choose images",
+  "Images jointes": "Attached images",
+  "Retirer {name}": "Remove {name}",
+  "Joindre des images": "Attach images",
+  "Image jointe": "Attached image",
   "Ordinateur": "Computer",
   "Un bureau Linux privé avec Chromium, réservé à ton compte.": "A private Linux desktop with Chromium for your account.",
   "Connexion au bureau interrompue.": "Desktop connection interrupted.",

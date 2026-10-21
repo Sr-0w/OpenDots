@@ -101,6 +101,13 @@ export interface ComputerStatus {
 export interface DesktopStatus { enabled: boolean; manualControl: boolean; available: boolean; running: boolean; width: number; height: number }
 
 export const api = {
+  uploadImage: async (file: File) => {
+    const body = new FormData(); body.set('file', file);
+    const response = await fetch('/api/attachments', { method: 'POST', headers: { 'x-opendots-client': '1' }, body });
+    const value = await response.json();
+    if (!response.ok) { if (response.status === 401) window.dispatchEvent(new Event('opendots:unauthorized')); throw new ApiError(value.error ?? 'Impossible de joindre cette image.', response.status); }
+    return value as { id: string; url: string; filename: string; mediaType: 'image/jpeg'; width: number; height: number; size: number };
+  },
   desktop: () => request<DesktopStatus>('GET', '/computer/desktop'),
   startDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/start'),
   stopDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/stop'),

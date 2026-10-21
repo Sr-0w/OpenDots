@@ -225,7 +225,7 @@ export function MessageView({ message, streaming }: { message: ODMessage; stream
           }
           if (g.kind === "file") {
             return g.part.mediaType?.startsWith("image/") ? (
-              <img key={key} src={g.part.url} alt={g.part.filename ?? ""} className="max-h-64 rounded-xl border" />
+              <a key={key} href={g.part.url} target="_blank" rel="noreferrer"><img src={g.part.url} alt={g.part.filename ?? t("Image jointe")} className="max-h-64 max-w-full rounded-xl border" loading="lazy" /></a>
             ) : (
               <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? t("Fichier")}</span>
             );

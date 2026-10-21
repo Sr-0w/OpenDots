@@ -374,3 +374,7 @@ export function cleanModelText(text: string): string {
     .replace(/ +([.,])/g, '$1')
     .trim();
 }
+
+/** Limites communes aux images jointes au chat. */
+export const IMAGE_MAX_COUNT = 6;
+export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;

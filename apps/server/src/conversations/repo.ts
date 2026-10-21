@@ -8,11 +8,13 @@ import { newId } from '../util.ts';
 export type OpenDotsUIMessage = UIMessage<MessageMetadata>;
 
 export function messageText(msg: Pick<UIMessage, 'parts'>): string {
-  return msg.parts
+  const text = msg.parts
     .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
     .map((p) => p.text)
     .join('\n')
     .trim();
+  const images = msg.parts.filter((part) => part.type === 'file' && part.mediaType?.startsWith('image/')).length;
+  return text || (images ? `[${images} image${images > 1 ? 's' : ''} jointe${images > 1 ? 's' : ''}]` : '');
 }
 
 export async function getConversation(id: string) {

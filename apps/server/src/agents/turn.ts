@@ -1,3 +1,4 @@
+import { hydrateMessageImages } from '../attachments/service.ts';
 import { accountKey } from '../auth/context.ts';
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
@@ -204,7 +205,7 @@ async function executeTurn(
     const result = streamText({
       model: resolved.model,
       instructions: system,
-      messages: await convertToModelMessages(history, { ignoreIncompleteToolCalls: true, tools }),
+      messages: await convertToModelMessages(await hydrateMessageImages(history), { ignoreIncompleteToolCalls: true, tools }),
       tools,
       stopWhen: [isStepCount(config.maxStepsPerTurn), formShown],
       providerOptions: resolved.providerOptions,

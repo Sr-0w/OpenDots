@@ -1,3 +1,6 @@
+import { bodyLimit } from 'hono/body-limit';
+import { attachmentRoutes } from '../attachments/routes.ts';
+import { AttachmentError, validateMessageParts } from '../attachments/service.ts';
 import { desktopEnabled, stopDesktop } from '../computer/desktop.ts';
 import { desktopRoutes } from '../computer/routes.ts';
 import { Hono } from 'hono';
@@ -64,6 +67,7 @@ export function createApi() {
     const status =
       err instanceof z.ZodError ||
       err instanceof ActivityError ||
+      err instanceof AttachmentError ||
       err instanceof ApprovalError ||
       err instanceof SkillError ||
       err instanceof ConnectorError ||
@@ -92,6 +96,7 @@ export function createApi() {
   // --- Démarrage & onboarding ---------------------------------------------
   api.route('/integrations', integrationRoutes());
   api.route('/computer', desktopRoutes());
+  api.route('/attachments', attachmentRoutes());
 
   api.get('/bootstrap', async (c) => {
     const dto: BootstrapDTO = {
@@ -292,7 +297,7 @@ export function createApi() {
     return c.json({ conversationId, messages, cursor: rows.length === 80 ? rows[0].seq : null, active: Boolean(getActiveStream(conversationId)) });
   });
 
-  api.post('/agents/:id/chat', async (c) => {
+  api.post('/agents/:id/chat', bodyLimit({ maxSize: 1_000_000, onError: (c) => c.json({ error: 'Message trop volumineux.' }, 413) }), async (c) => {
     const agent = await getAgent(c.req.param('id'));
     if (!agent) return c.json({ error: 'Introuvable' }, 404);
     const body = (await c.req.json()) as { message?: OpenDotsUIMessage };
@@ -301,7 +306,7 @@ export function createApi() {
       return c.json({ error: 'Message invalide' }, 400);
     }
     // Seules les parties texte et fichiers sont acceptées depuis le client.
-    const parts = message.parts.filter((p) => p.type === 'text' || p.type === 'file');
+    const parts = await validateMessageParts(message.parts);
     if (!parts.length) return c.json({ error: 'Message vide' }, 400);
     const conversationId = await mainConversationId(agent.id);
     let finalParts = parts;

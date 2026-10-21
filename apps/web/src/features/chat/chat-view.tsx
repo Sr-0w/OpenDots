@@ -43,6 +43,7 @@ export function ChatView({ agent }: { agent: AgentDTO }) {
 }
 
 function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }) {
+  const uploaded = useRef(new WeakMap<File, { type: 'file'; url: string; filename: string; mediaType: string }>());
   const transport = useMemo(
     () =>
       new DefaultChatTransport<ODMessage>({
@@ -140,7 +141,15 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
           busy={busy}
           autoFocus
           placeholder={agent.named ? t("Écrire à {v0}…", { v0: agent.name }) : t("Dis bonjour à ton compagnon…")}
-          onSubmit={(text) => sendMessage({ text })}
+          onSubmit={async (text, images) => {
+            const files = [];
+            for (const image of images) {
+              let part = uploaded.current.get(image);
+              if (!part) { const attachment = await api.uploadImage(image); part = { type: 'file' as const, url: attachment.url, filename: attachment.filename, mediaType: attachment.mediaType }; uploaded.current.set(image, part); }
+              files.push(part);
+            }
+            void sendMessage({ text, files });
+          }}
           onStop={() => {
             void api.stop(agent.id);
             chat.stop();
