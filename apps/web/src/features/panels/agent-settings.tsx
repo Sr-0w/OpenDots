@@ -23,6 +23,7 @@ const PERMS: { key: Exclude<keyof AgentPermissions, "createAgents">; label: stri
   { key: "manageMemory", label: t("Gérer sa mémoire") },
   { key: "mail", label: t("Lire les e-mails (l’envoi demande ton accord)") },
   { key: "connectors", label: t("Utiliser les connecteurs MCP") },
+  { key: "computer", label: t("Voir et piloter le bureau graphique") },
   { key: "shell", label: t("Utiliser l’ordinateur (shell)") },
 ];
 

@@ -48,6 +48,7 @@ export function ApprovalCard({ approvalId, fallbackSummary }: { approvalId: stri
         <div className="min-w-0 flex-1 space-y-1">
           <p className="font-medium text-sm leading-snug">{approval?.summary ?? fallbackSummary ?? t("Action à valider")}</p>
           <p className={cn("text-xs", meta.className)}>{meta.label}</p>
+          {approval?.action === "computer.action" && <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-2 text-xs">{JSON.stringify((approval.input as {action?: unknown})?.action, null, 2)}</pre>}
           {approval?.error && <p className="text-destructive text-xs">{approval.error}</p>}
         </div>
       </div>

@@ -66,6 +66,7 @@ export interface ModelInfo {
   contextLength: number | null;
   tools: boolean;
   reasoning: boolean;
+  vision?: boolean;
   promptPrice: number | null;
   completionPrice: number | null;
 }
@@ -97,7 +98,13 @@ export interface ComputerStatus {
   workspaces: string;
 }
 
+export interface DesktopStatus { enabled: boolean; manualControl: boolean; available: boolean; running: boolean; width: number; height: number }
+
 export const api = {
+  desktop: () => request<DesktopStatus>('GET', '/computer/desktop'),
+  startDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/start'),
+  stopDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/stop'),
+  desktopControl: (enabled: boolean) => request<{ok: boolean}>('POST', '/computer/desktop/control', { enabled }),
   integrationCatalog: () => request<{ entries: IntegrationCatalogEntry[]; apps: OAuthAppDTO[] }>('GET', '/integrations/catalog'),
   saveOAuthApp: (provider: OAuthProvider, clientId: string, clientSecret?: string) => request<{ apps: OAuthAppDTO[] }>('PUT', `/integrations/oauth/apps/${provider}`, { clientId, clientSecret }),
   startOAuth: (provider: IntegrationProvider, permissions: string[], connectorId?: string, requestedBy?: string) => request<{ url: string; expiresAt: number }>('POST', '/integrations/oauth/start', { provider, permissions, connectorId, requestedBy }),

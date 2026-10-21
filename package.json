@@ -13,7 +13,9 @@
     "search:logs": "pnpm --filter @opendots/server search:logs",
     "test:search:live": "pnpm --filter @opendots/server test:search:live",
     "auth:admin": "pnpm --filter @opendots/server auth:admin",
-    "test:ui": "pnpm --filter @opendots/server exec tsx scripts/ui-smoke.ts"
+    "test:ui": "pnpm --filter @opendots/server exec tsx scripts/ui-smoke.ts",
+    "desktop:build": "pnpm --filter @opendots/server exec tsx scripts/desktop-build.ts",
+    "test:computer:live": "pnpm --filter @opendots/server exec tsx scripts/desktop-smoke.ts"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",

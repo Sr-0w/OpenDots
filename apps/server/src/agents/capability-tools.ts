@@ -1,3 +1,4 @@
+import { desktopTools } from '../computer/tools.ts';
 import { currentAccount } from '../auth/context.ts';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
@@ -366,5 +367,6 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       });
     }
   }
+  Object.assign(tools, await desktopTools(ctx));
   return { tools, info };
 }

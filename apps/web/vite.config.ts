@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   server: {
     port: 5173,
-    proxy: { '/api': { target: `http://127.0.0.1:${process.env.OPENDOTS_PORT ?? 4317}`, changeOrigin: false } },
+    proxy: { '/api': { target: `http://127.0.0.1:${process.env.OPENDOTS_PORT ?? 4317}`, changeOrigin: false, ws: true } },
   },
   build: {
     chunkSizeWarningLimit: 700,

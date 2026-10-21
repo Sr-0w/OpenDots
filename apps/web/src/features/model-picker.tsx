@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrainIcon, CheckIcon, SearchIcon, WrenchIcon } from "lucide-react";
+import { BrainIcon, EyeIcon, CheckIcon, SearchIcon, WrenchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { api, type ModelInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { t } from "@/lib/i18n";
 const RECOMMENDED = [
+  "qwen/qwen3.8-27b",
   "openai/gpt-oss-120b",
   "anthropic/claude-sonnet-4.5",
   "google/gemini-2.5-flash",
@@ -99,6 +100,7 @@ export function ModelPicker({
               ) : (
                 <span className="text-[10px] text-foreground font-medium">{t("sans outils")}</span>
               )}
+              {m.vision && <EyeIcon className="size-3.5" aria-label={t("Comprend les images")} />}
               {m.reasoning && <BrainIcon className="size-3.5" aria-label={t("Raisonnement")} />}
               {value === m.id && <CheckIcon className="size-4 text-foreground" />}
             </div>

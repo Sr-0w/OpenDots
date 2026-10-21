@@ -53,6 +53,8 @@ export interface AgentPermissions {
   connectors: boolean;
   /** Exécuter des commandes sur l'ordinateur des compagnons. */
   shell: boolean;
+  /** Voir le bureau et préparer des actions graphiques avec validation. */
+  computer: boolean;
 }
 
 export const DEFAULT_PERMISSIONS: AgentPermissions = {
@@ -64,6 +66,7 @@ export const DEFAULT_PERMISSIONS: AgentPermissions = {
   mail: true,
   connectors: true,
   shell: true,
+  computer: false,
 };
 
 export interface AgentDTO {

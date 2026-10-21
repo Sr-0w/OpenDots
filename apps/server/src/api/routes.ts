@@ -1,3 +1,5 @@
+import { desktopEnabled, stopDesktop } from '../computer/desktop.ts';
+import { desktopRoutes } from '../computer/routes.ts';
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { onSessionRevoked, sessionAccount } from '../auth/store.ts';
@@ -89,6 +91,7 @@ export function createApi() {
 
   // --- Démarrage & onboarding ---------------------------------------------
   api.route('/integrations', integrationRoutes());
+  api.route('/computer', desktopRoutes());
 
   api.get('/bootstrap', async (c) => {
     const dto: BootstrapDTO = {
@@ -181,6 +184,7 @@ export function createApi() {
     if (body.shell) {
       const next = { ...(await getShellSettings()), ...body.shell };
       await setSetting('shell.config', next);
+      if ((next.mode === 'off' || !next.network) && await desktopEnabled()) await stopDesktop();
       await log(null, 'computer.settings', `Ordinateur : mode ${next.mode}, validation ${next.approval}`);
     }
     if (body.openrouterKey) {
@@ -240,6 +244,7 @@ export function createApi() {
             mail: z.boolean(),
             connectors: z.boolean(),
             shell: z.boolean(),
+            computer: z.boolean(),
             createAgents: z.enum(['allow', 'ask', 'deny']),
           })
           .partial()
