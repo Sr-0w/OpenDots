@@ -1,5 +1,9 @@
 packages:
   - apps/*
   - packages/*
+
 onlyBuiltDependencies:
   - esbuild
+
+patchedDependencies:
+  '@novnc/novnc@1.7.0': patches/@novnc__novnc@1.7.0.patch
