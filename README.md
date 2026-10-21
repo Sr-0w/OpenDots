@@ -197,7 +197,7 @@ All companions can then use its tools. Calls that need approval show up as cards
 Ask a companion to "create a webhook that tells me when a deploy fails", then copy its URL from **Scheduled tasks**:
 
 ```bash
-curl -X POST http://127.0.0.1:4317/api/hooks/<id> \
+curl -X POST http://127.0.0.1:4317/api/hooks/<token> \
   -H 'content-type: application/json' \
   -d '{"service":"api","status":"failed","commit":"a1b2c3"}'
 ```
