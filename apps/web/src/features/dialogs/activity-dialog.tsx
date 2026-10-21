@@ -11,6 +11,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+import { t } from "@/lib/i18n";
 const DAYS = [
   { v: "1", l: "L" },
   { v: "2", l: "M" },
@@ -139,10 +140,10 @@ export function ActivityDialog({
       if (activity) {
         const { kind: _kind, ...patch } = input;
         await api.updateActivity(activity.id, patch);
-        toast.success("Tâche mise à jour");
+        toast.success(t("Tâche mise à jour"));
       } else {
         await api.createActivity({ ...input, agentId: d.agentId });
-        toast.success("Tâche créée");
+        toast.success(t("Tâche créée"));
       }
       onClose();
     } catch (e) {
@@ -156,16 +157,16 @@ export function ActivityDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{activity ? "Modifier la tâche" : "Nouvelle tâche planifiée"}</DialogTitle>
+          <DialogTitle>{activity ? t("Modifier la tâche") : t("Nouvelle tâche planifiée")}</DialogTitle>
           <DialogDescription>
-            {activity ? "Ajustement manuel — tu peux aussi le demander au compagnon." : "Le plus simple reste de le demander au compagnon, mais tu peux aussi la créer ici."}
+            {activity ? t("Ajustement manuel — tu peux aussi le demander au compagnon.") : t("Le plus simple reste de le demander au compagnon, mais tu peux aussi la créer ici.")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {!activity && (
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Compagnon">
+              <Field label={t("Compagnon")}>
                 <Select value={d.agentId} onValueChange={(v) => set({ agentId: v })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -179,58 +180,58 @@ export function ActivityDialog({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Déclencheur">
+              <Field label={t("Déclencheur")}>
                 <Select value={d.kind} onValueChange={(v) => set({ kind: v as Draft["kind"], repeat: v === "watch" ? "interval" : d.repeat })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="schedule">Horaire</SelectItem>
-                    <SelectItem value="watch">Surveillance d’une page</SelectItem>
-                    <SelectItem value="mail">Réception d’un e-mail</SelectItem>
-                    <SelectItem value="webhook">Webhook</SelectItem>
+                    <SelectItem value="schedule">{t("Horaire")}</SelectItem>
+                    <SelectItem value="watch">{t("Surveillance d’une page")}</SelectItem>
+                    <SelectItem value="mail">{t("Réception d’un e-mail")}</SelectItem>
+                    <SelectItem value="webhook">{t("Webhook")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
             </div>
           )}
 
-          <Field label="Titre">
-            <Input value={d.title} onChange={(e) => set({ title: e.target.value })} placeholder="Point du matin" />
+          <Field label={t("Titre")}>
+            <Input value={d.title} onChange={(e) => set({ title: e.target.value })} placeholder={t("Point du matin")} />
           </Field>
-          <Field label="Instructions pour le compagnon">
+          <Field label={t("Instructions pour le compagnon")}>
             <Textarea
               rows={4}
               value={d.instructions}
               onChange={(e) => set({ instructions: e.target.value })}
-              placeholder="Ce qu’il doit faire à chaque déclenchement, quand te prévenir, ce qui demande ton accord…"
+              placeholder={t("Ce qu’il doit faire à chaque déclenchement, quand te prévenir, ce qui demande ton accord…")}
             />
           </Field>
 
           {d.kind === "schedule" && (
             <div className="space-y-3 rounded-xl border p-3">
-              <Field label="Répétition">
+              <Field label={t("Répétition")}>
                 <Select value={d.repeat} onValueChange={(v) => set({ repeat: v as Repeat })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="once">Une seule fois</SelectItem>
-                    <SelectItem value="daily">Tous les jours</SelectItem>
-                    <SelectItem value="weekdays">En semaine</SelectItem>
-                    <SelectItem value="days">Certains jours</SelectItem>
-                    <SelectItem value="interval">À intervalle régulier</SelectItem>
-                    <SelectItem value="cron">Expression cron (avancé)</SelectItem>
+                    <SelectItem value="once">{t("Une seule fois")}</SelectItem>
+                    <SelectItem value="daily">{t("Tous les jours")}</SelectItem>
+                    <SelectItem value="weekdays">{t("En semaine")}</SelectItem>
+                    <SelectItem value="days">{t("Certains jours")}</SelectItem>
+                    <SelectItem value="interval">{t("À intervalle régulier")}</SelectItem>
+                    <SelectItem value="cron">{t("Expression cron (avancé)")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
               {d.repeat === "once" && (
-                <Field label="Date et heure">
+                <Field label={t("Date et heure")}>
                   <Input type="datetime-local" value={d.at} onChange={(e) => set({ at: e.target.value })} />
                 </Field>
               )}
               {(d.repeat === "daily" || d.repeat === "weekdays" || d.repeat === "days") && (
-                <Field label="Heure">
+                <Field label={t("Heure")}>
                   <Input type="time" value={d.time} onChange={(e) => set({ time: e.target.value })} className="w-32" />
                 </Field>
               )}
@@ -256,7 +257,7 @@ export function ActivityDialog({
               )}
               {d.repeat === "interval" && <MinutesField value={d.minutes} onChange={(minutes) => set({ minutes })} />}
               {d.repeat === "cron" && (
-                <Field label="Expression cron (minute heure jour mois jour-semaine)">
+                <Field label={t("Expression cron (minute heure jour mois jour-semaine)")}>
                   <Input value={d.cron} onChange={(e) => set({ cron: e.target.value })} className="font-mono" />
                 </Field>
               )}
@@ -265,44 +266,44 @@ export function ActivityDialog({
 
           {d.kind === "watch" && (
             <div className="space-y-3 rounded-xl border p-3">
-              <Field label="Page à surveiller">
+              <Field label={t("Page à surveiller")}>
                 <Input value={d.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://…" />
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Condition">
+                <Field label={t("Condition")}>
                   <Select value={d.mode} onValueChange={(v) => set({ mode: v as WatchMode })}>
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="changed">La page change</SelectItem>
-                      <SelectItem value="contains">Contient un texte</SelectItem>
-                      <SelectItem value="not_contains">Ne contient plus un texte</SelectItem>
-                      <SelectItem value="regex">Expression régulière</SelectItem>
+                      <SelectItem value="changed">{t("La page change")}</SelectItem>
+                      <SelectItem value="contains">{t("Contient un texte")}</SelectItem>
+                      <SelectItem value="not_contains">{t("Ne contient plus un texte")}</SelectItem>
+                      <SelectItem value="regex">{t("Expression régulière")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
                 {d.mode !== "changed" && (
-                  <Field label="Texte">
+                  <Field label={t("Texte")}>
                     <Input value={d.value} onChange={(e) => set({ value: e.target.value })} />
                   </Field>
                 )}
               </div>
-              <MinutesField label="Vérifier toutes les" value={d.minutes} onChange={(minutes) => set({ minutes })} />
-              <p className="text-muted-foreground text-xs">La vérification ne sollicite pas l’IA : le compagnon n’est réveillé que si la condition est remplie.</p>
+              <MinutesField label={t("Vérifier toutes les")} value={d.minutes} onChange={(minutes) => set({ minutes })} />
+              <p className="text-muted-foreground text-xs">{t("La vérification ne sollicite pas l’IA : le compagnon n’est réveillé que si la condition est remplie.")}</p>
             </div>
           )}
 
           {d.kind === "mail" && (
             <div className="space-y-3 rounded-xl border p-3">
-              {accounts.length === 0 && <p className="text-foreground font-medium text-xs">Aucun compte mail connecté pour l’instant.</p>}
-              <Field label="Compte">
+              {accounts.length === 0 && <p className="text-foreground font-medium text-xs">{t("Aucun compte mail connecté pour l’instant.")}</p>}
+              <Field label={t("Compte")}>
                 <Select value={d.account} onValueChange={(v) => set({ account: v })}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les comptes</SelectItem>
+                    <SelectItem value="all">{t("Tous les comptes")}</SelectItem>
                     {accounts.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {(a.config as MailConfig).email}
@@ -312,10 +313,10 @@ export function ActivityDialog({
                 </Select>
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Expéditeur contient">
-                  <Input value={d.from} onChange={(e) => set({ from: e.target.value })} placeholder="venthone.lu" />
+                <Field label={t("Expéditeur contient")}>
+                  <Input value={d.from} onChange={(e) => set({ from: e.target.value })} placeholder="example.com" />
                 </Field>
-                <Field label="Objet contient">
+                <Field label={t("Objet contient")}>
                   <Input value={d.subject} onChange={(e) => set({ subject: e.target.value })} />
                 </Field>
               </div>
@@ -323,16 +324,16 @@ export function ActivityDialog({
           )}
 
           {d.kind === "webhook" && !activity && (
-            <p className="rounded-xl border p-3 text-muted-foreground text-xs">Une adresse de webhook sera générée après la création.</p>
+            <p className="rounded-xl border p-3 text-muted-foreground text-xs">{t("Une adresse de webhook sera générée après la création.")}</p>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Annuler
+            {t("Annuler")}
           </Button>
           <Button onClick={save} disabled={!valid || busy}>
-            {activity ? "Enregistrer" : "Créer"}
+            {activity ? t("Enregistrer") : t("Créer")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -340,10 +341,10 @@ export function ActivityDialog({
   );
 }
 
-function MinutesField({ value, onChange, label = "Toutes les" }: { value: number; onChange: (v: number) => void; label?: string }) {
+function MinutesField({ value, onChange, label }: { value: number; onChange: (v: number) => void; label?: string }) {
   const unit = value % 60 === 0 && value >= 60 ? "h" : "min";
   return (
-    <Field label={label}>
+    <Field label={label ?? t("Toutes les")}>
       <div className="flex gap-2">
         <Input
           type="number"
@@ -357,8 +358,8 @@ function MinutesField({ value, onChange, label = "Toutes les" }: { value: number
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="min">minutes</SelectItem>
-            <SelectItem value="h">heures</SelectItem>
+            <SelectItem value="min">{t("minutes")}</SelectItem>
+            <SelectItem value="h">{t("heures")}</SelectItem>
           </SelectContent>
         </Select>
       </div>

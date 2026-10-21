@@ -117,3 +117,20 @@ describe('prompt système', () => {
     expect(p).not.toContain('First meeting');
   });
 });
+
+describe('nettoyage du texte des modèles', () => {
+  it('retire les appels d’outils qui fuitent dans le texte', async () => {
+    const { cleanModelText } = await import('@opendots/shared');
+    const raw =
+      'Quel rôle veux-tu ? {"content":"Venty gère les e-mails","kind":"fact"} to=functions.memory_remember {"id":"mem_abc","ok":true}✅ Le compagnon Dev a bien été créé.';
+    expect(cleanModelText(raw)).toBe('Quel rôle veux-tu ? ✅ Le compagnon Dev a bien été créé.');
+    expect(cleanModelText('Texte normal avec {accolades} et to= rien.')).toBe('Texte normal avec {accolades} et to= rien.');
+  });
+});
+
+describe('description des horaires', () => {
+  it('traduit les cron simples', () => {
+    expect(describeSchedule({ type: 'cron', expr: '0 17 * * 5', tz: 'Europe/Paris' })).toBe('le vendredi à 17:00');
+    expect(describeSchedule({ type: 'cron', expr: '30 8 * * 1-5' })).toBe('en semaine à 08:30');
+  });
+});

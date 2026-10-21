@@ -23,38 +23,44 @@ import { toast } from "sonner";
 import { DotAvatar } from "../dot-avatar";
 import { PageShell } from "./page-shell";
 
+import { locale, t } from "@/lib/i18n";
 const DAY_NAMES = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 
 /** Description lisible d'un horaire, à la manière « Tous les jours à 8:00 ». */
 export function describeActivity(a: ActivityDTO): string {
-  if (a.kind === "webhook") return "À chaque appel du webhook";
+  if (a.kind === "webhook") return t("À chaque appel du webhook");
   if (a.kind === "mail") {
-    const parts = [a.filter?.from && `de ${a.filter.from}`, a.filter?.subject && `objet « ${a.filter.subject} »`].filter(Boolean);
-    return `À chaque e-mail reçu${parts.length ? ` (${parts.join(", ")})` : ""}`;
+    const parts = [a.filter?.from && t("de {from}", { from: a.filter.from }), a.filter?.subject && t("objet « {subject} »", { subject: a.filter.subject })].filter(Boolean);
+    return t("À chaque e-mail reçu") + (parts.length ? ` (${parts.join(", ")})` : "");
   }
   const s = a.schedule;
-  const prefix = a.kind === "watch" ? "Vérifie " : "";
   if (!s) return "";
-  if (s.type === "once") return `Le ${formatDateTime(s.at)}`;
+  if (s.type === "once") return t("Le {date}", { date: formatDateTime(s.at) });
   if (s.type === "interval") {
-    const every = s.minutes % 60 === 0 ? (s.minutes === 60 ? "toutes les heures" : `toutes les ${s.minutes / 60} h`) : `toutes les ${s.minutes} min`;
-    return `${prefix}${every}`.replace(/^./, (c) => c.toUpperCase());
+    const every =
+      s.minutes % 60 === 0
+        ? s.minutes === 60
+          ? t("toutes les heures")
+          : t("toutes les {n} h", { n: s.minutes / 60 })
+        : t("toutes les {n} min", { n: s.minutes });
+    const text = a.kind === "watch" ? t("Vérifie {every}", { every }) : every;
+    return text.replace(/^./, (c) => c.toUpperCase());
   }
   const m = /^(\d{1,2}) (\d{1,2}) \* \* (\*|1-5|[0-6](?:,[0-6])*)$/.exec(s.expr.trim());
-  if (!m) return `Cron ${s.expr}`;
+  if (!m) return t("Cron {expr}", { expr: s.expr });
   const time = `${m[2].padStart(2, "0")}:${m[1].padStart(2, "0")}`;
-  if (m[3] === "*") return `Tous les jours à ${time}`;
-  if (m[3] === "1-5") return `En semaine à ${time}`;
-  return `Le ${m[3].split(",").map((d) => DAY_NAMES[Number(d)]).join(", ")} à ${time}`;
+  if (m[3] === "*") return t("Tous les jours à {v0}", { v0: time });
+  if (m[3] === "1-5") return t("En semaine à {v0}", { v0: time });
+  return t("Le {days} à {time}", { days: m[3].split(",").map((d) => t(DAY_NAMES[Number(d)])).join(", "), time });
 }
 
 export const ACTIVITY_ICONS = { schedule: CalendarClockIcon, watch: EyeIcon, webhook: WebhookIcon, mail: MailIcon };
 
 export const STATUS_LABELS: Record<string, string> = {
-  reported: "message envoyé",
-  silent: "rien à signaler",
-  checked: "vérifié",
-  error: "erreur",
+  reported: t("message envoyé"),
+  silent: t("rien à signaler"),
+  checked: t("vérifié"),
+  error: t("erreur"),
 };
 
 export function TasksPage() {
@@ -77,11 +83,11 @@ export function TasksPage() {
 
   return (
     <PageShell
-      title="Tâches planifiées"
-      description="Les responsabilités permanentes de tes compagnons : routines, surveillances et déclencheurs. Elles se créent en leur parlant ; ici tu peux les suspendre ou les ajuster."
+      title={t("Tâches planifiées")}
+      description={t("Les responsabilités permanentes de tes compagnons : routines, surveillances et déclencheurs. Elles se créent en leur parlant ; ici tu peux les suspendre ou les ajuster.")}
       action={
         <Button size="sm" onClick={() => openDialog({ kind: "activity" })}>
-          <PlusIcon /> Nouvelle tâche
+          <PlusIcon /> {t("Nouvelle tâche")}
         </Button>
       }
     >
@@ -92,7 +98,7 @@ export function TasksPage() {
             onClick={() => setFilter(f)}
             className={cn("rounded-full px-3 py-1 text-xs transition-colors", filter === f ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}
           >
-            {f === "all" ? "Toutes" : f === "active" ? "Actives" : "En pause"} · {counts[f]}
+            {f === "all" ? t("Toutes") : f === "active" ? t("Actives") : t("En pause")} · {counts[f]}
           </button>
         ))}
       </div>
@@ -100,9 +106,9 @@ export function TasksPage() {
       {items && groups.length === 0 && (
         <div className="rounded-2xl border border-dashed p-8 text-center">
           <CalendarClockIcon className="mx-auto mb-2 size-6 text-muted-foreground" />
-          <p className="font-medium text-sm">Aucune tâche {filter === "paused" ? "en pause" : filter === "active" ? "active" : "pour l’instant"}</p>
+          <p className="font-medium text-sm">{filter === "paused" ? t("Aucune tâche en pause") : filter === "active" ? t("Aucune tâche active") : t("Aucune tâche pour l’instant")}</p>
           <p className="mx-auto mt-1 max-w-sm text-muted-foreground text-xs">
-            Dis par exemple à un compagnon : « Tous les matins à 8 h, fais-moi un point sur mes e-mails importants ».
+            {t("Dis par exemple à un compagnon : « Tous les matins à 8 h, fais-moi un point sur mes e-mails importants ».")}
           </p>
         </div>
       )}
@@ -139,51 +145,51 @@ function TaskRow({ activity: a }: { activity: ActivityDTO }) {
         <p className="truncate font-medium text-sm">{a.title}</p>
         <p className="truncate text-muted-foreground text-xs">
           {describeActivity(a)}
-          {a.enabled && a.nextRunAt && ` · prochaine ${relativeTimeFuture(a.nextRunAt)}`}
-          {finished && " · terminée"}
-          {!a.enabled && !finished && " · en pause"}
+          {a.enabled && a.nextRunAt && t(" · prochaine {v0}", { v0: relativeTimeFuture(a.nextRunAt) })}
+          {finished && t(" · terminée")}
+          {!a.enabled && !finished && t(" · en pause")}
         </p>
         {a.lastRunAt && (
           <p className={cn("truncate text-[11px]", a.lastStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
-            Dernière exécution {relativeTime(a.lastRunAt)} — {STATUS_LABELS[a.lastStatus ?? ""] ?? a.lastStatus}
+            {t("Dernière exécution")} {relativeTime(a.lastRunAt)} — {STATUS_LABELS[a.lastStatus ?? ""] ?? a.lastStatus}
             {a.lastStatus === "error" && a.lastResult ? ` : ${a.lastResult.slice(0, 80)}` : ""}
           </p>
         )}
       </button>
       <Switch
         checked={a.enabled}
-        aria-label={a.enabled ? "Mettre en pause" : "Reprendre"}
+        aria-label={a.enabled ? t("Mettre en pause") : t("Reprendre")}
         onCheckedChange={(enabled) => api.updateActivity(a.id, { enabled }).catch((e) => toast.error(e.message))}
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon" variant="ghost" className="size-8" aria-label="Actions">
+          <Button size="icon" variant="ghost" className="size-8" aria-label={t("Actions")}>
             <MoreHorizontalIcon />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => openDialog({ kind: "activity", activity: a })}>
-            <PencilIcon /> Modifier
+            <PencilIcon /> {t("Modifier")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => api.runActivity(a.id).then(() => toast.success("Exécution lancée")).catch((e) => toast.error(e.message))}>
-            <PlayIcon /> Exécuter maintenant
+          <DropdownMenuItem onClick={() => api.runActivity(a.id).then(() => toast.success(t("Exécution lancée"))).catch((e) => toast.error(e.message))}>
+            <PlayIcon /> {t("Exécuter maintenant")}
           </DropdownMenuItem>
           {a.webhookUrl && (
             <DropdownMenuItem
               onClick={() => {
                 void navigator.clipboard?.writeText(a.webhookUrl!);
-                toast.success("URL du webhook copiée");
+                toast.success(t("URL du webhook copiée"));
               }}
             >
-              <CopyIcon /> Copier l’URL du webhook
+              <CopyIcon /> {t("Copier l’URL du webhook")}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => confirm(`Supprimer « ${a.title} » ?`) && api.deleteActivity(a.id).catch((e) => toast.error(e.message))}
+            onClick={() => confirm(t("Supprimer « {v0} » ?", { v0: a.title })) && api.deleteActivity(a.id).catch((e) => toast.error(e.message))}
           >
-            <Trash2Icon /> Supprimer
+            <Trash2Icon /> {t("Supprimer")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -193,8 +199,8 @@ function TaskRow({ activity: a }: { activity: ActivityDTO }) {
 
 function relativeTimeFuture(iso: string) {
   const diff = (new Date(iso).getTime() - Date.now()) / 1000;
-  if (diff < 60) return "dans moins d’une minute";
-  if (diff < 3600) return `dans ${Math.round(diff / 60)} min`;
-  if (diff < 86400) return `à ${new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
-  return `le ${formatDateTime(iso)}`;
+  if (diff < 60) return t("dans moins d’une minute");
+  if (diff < 3600) return t("dans {n} min", { n: Math.round(diff / 60) });
+  if (diff < 86400) return t("à {time}", { time: new Date(iso).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" }) });
+  return t("le {date}", { date: formatDateTime(iso) });
 }

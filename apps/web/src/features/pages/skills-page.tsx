@@ -10,6 +10,7 @@ import { cn, relativeTime } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageShell } from "./page-shell";
 
+import { t } from "@/lib/i18n";
 export function SkillsPage() {
   const [skills, setSkills] = useState<SkillDTO[] | null>(null);
   const agents = useStore((s) => s.agents);
@@ -21,20 +22,20 @@ export function SkillsPage() {
 
   return (
     <PageShell
-      title="Skills"
-      description="Des savoir-faire partagés par tous tes compagnons. Chacun charge un skill quand une demande correspond à sa description."
+      title={t("Skills")}
+      description={t("Des savoir-faire partagés par tous tes compagnons. Chacun charge un skill quand une demande correspond à sa description.")}
       action={
         <Button size="sm" onClick={() => openDialog({ kind: "skill" })}>
-          <PlusIcon /> Nouveau skill
+          <PlusIcon /> {t("Nouveau skill")}
         </Button>
       }
     >
       {skills?.length === 0 && (
         <div className="rounded-2xl border border-dashed p-8 text-center">
           <SparklesIcon className="mx-auto mb-2 size-6 text-muted-foreground" />
-          <p className="font-medium text-sm">Aucun skill</p>
+          <p className="font-medium text-sm">{t("Aucun skill")}</p>
           <p className="mx-auto mt-1 max-w-sm text-muted-foreground text-xs">
-            Après avoir expliqué une méthode à un compagnon, dis-lui simplement « enregistre ça comme skill ». Ou installe un plugin depuis Connecteurs.
+            {t("Après avoir expliqué une méthode à un compagnon, dis-lui simplement « enregistre ça comme skill ». Ou installe un plugin depuis Connecteurs.")}
           </p>
         </div>
       )}
@@ -48,18 +49,18 @@ export function SkillsPage() {
                 <p className="min-w-0 flex-1 font-medium text-sm">{s.name}</p>
                 <Switch checked={s.enabled} onCheckedChange={(enabled) => api.updateSkill(s.id, { enabled }).catch((e) => toast.error(e.message))} />
               </div>
-              <p className="line-clamp-2 flex-1 text-muted-foreground text-xs">{s.description || "Sans description"}</p>
+              <p className="line-clamp-2 flex-1 text-muted-foreground text-xs">{s.description || t("Sans description")}</p>
               <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                 {s.pluginId ? (
                   <span className="flex items-center gap-1">
                     <PackageIcon className="size-3" /> plugin
                   </span>
                 ) : (
-                  <span>{author ? `par ${author.name}` : "manuel"}</span>
+                  <span>{author ? t("par {name}", { name: author.name }) : t("manuel")}</span>
                 )}
                 <span>· {relativeTime(s.updatedAt)}</span>
                 <span className="flex-1" />
-                <Button size="icon" variant="ghost" className="size-7" onClick={() => openDialog({ kind: "skill", skill: s })} aria-label="Modifier">
+                <Button size="icon" variant="ghost" className="size-7" onClick={() => openDialog({ kind: "skill", skill: s })} aria-label={t("Modifier")}>
                   <PencilIcon className="size-3.5" />
                 </Button>
                 {!s.pluginId && (
@@ -67,8 +68,8 @@ export function SkillsPage() {
                     size="icon"
                     variant="ghost"
                     className="size-7"
-                    aria-label="Supprimer"
-                    onClick={() => confirm(`Supprimer le skill « ${s.name} » ?`) && api.deleteSkill(s.id).catch((e) => toast.error(e.message))}
+                    aria-label={t("Supprimer")}
+                    onClick={() => confirm(t("Supprimer le skill « {v0} » ?", { v0: s.name })) && api.deleteSkill(s.id).catch((e) => toast.error(e.message))}
                   >
                     <Trash2Icon className="size-3.5" />
                   </Button>

@@ -43,6 +43,14 @@ export function describeSchedule(s: ActivitySchedule | null, kind?: ActivityKind
   if (!s) return 'sur événement';
   if (s.type === 'once') return `le ${new Date(s.at).toLocaleString('fr-FR')}`;
   if (s.type === 'interval') return s.minutes % 60 === 0 ? `toutes les ${s.minutes / 60} h` : `toutes les ${s.minutes} min`;
+  const m = /^(\d{1,2}) (\d{1,2}) \* \* (\*|1-5|[0-6](?:,[0-6])*)$/.exec(s.expr.trim());
+  if (m) {
+    const time = `${m[2].padStart(2, '0')}:${m[1].padStart(2, '0')}`;
+    if (m[3] === '*') return `tous les jours à ${time}`;
+    if (m[3] === '1-5') return `en semaine à ${time}`;
+    const days = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+    return `le ${m[3].split(',').map((d) => days[Number(d)]).join(', ')} à ${time}`;
+  }
   return `cron « ${s.expr} »${s.tz ? ` (${s.tz})` : ''}`;
 }
 

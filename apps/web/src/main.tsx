@@ -9,6 +9,7 @@ import { Onboarding } from "@/features/onboarding";
 import { Shell } from "@/features/shell";
 import "./index.css";
 
+import { t } from "@/lib/i18n";
 function App() {
   const [boot, setBoot] = useState<BootstrapDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +33,10 @@ function App() {
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-        <p className="font-medium">Le moteur OpenDots ne répond pas.</p>
+        <p className="font-medium">{t("Le moteur OpenDots ne répond pas.")}</p>
         <p className="text-muted-foreground text-sm">{error}</p>
         <button className="text-sm underline" onClick={() => location.reload()}>
-          Réessayer
+          {t("Réessayer")}
         </button>
       </div>
     );

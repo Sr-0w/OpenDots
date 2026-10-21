@@ -4,6 +4,7 @@ import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { CheckIcon, ChevronDownIcon, CircleDashedIcon, LoaderIcon, XIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 
+import { t } from "@/lib/i18n";
 // Adapté d'AI Elements (vercel/ai-elements) : libellés en français, rendu compact.
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
@@ -66,7 +67,7 @@ const Json = ({ value }: { value: unknown }) => (
 
 export const ToolInput = ({ input }: { input: ToolPart["input"] }) => (
   <div className="space-y-1.5">
-    <h4 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">Paramètres</h4>
+    <h4 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">{t("Paramètres")}</h4>
     <Json value={input ?? {}} />
   </div>
 );
@@ -76,7 +77,7 @@ export const ToolOutput = ({ output, errorText }: { output: ToolPart["output"]; 
   return (
     <div className="space-y-1.5">
       <h4 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-        {errorText ? "Erreur" : "Résultat"}
+        {errorText ? t("Erreur") : t("Résultat")}
       </h4>
       {errorText ? <div className="rounded-lg bg-destructive/10 p-2.5 text-destructive text-xs">{errorText}</div> : <Json value={output} />}
     </div>

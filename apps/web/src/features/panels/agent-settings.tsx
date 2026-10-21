@@ -13,16 +13,17 @@ import { removeAgentLocally } from "@/lib/store";
 import { toast } from "sonner";
 import { ModelPicker } from "../model-picker";
 
+import { t } from "@/lib/i18n";
 const COLORS = ["#2563eb", "#e11d48", "#16a34a", "#ea580c", "#7c3aed", "#0891b2", "#ca8a04", "#db2777"];
 
 const PERMS: { key: Exclude<keyof AgentPermissions, "createAgents">; label: string }[] = [
-  { key: "web", label: "Lire des pages web" },
-  { key: "manageActivities", label: "Créer des planifications et surveillances" },
-  { key: "messageAgents", label: "Échanger avec les autres compagnons" },
-  { key: "manageMemory", label: "Gérer sa mémoire" },
-  { key: "mail", label: "Lire les e-mails (l’envoi demande ton accord)" },
-  { key: "connectors", label: "Utiliser les connecteurs MCP" },
-  { key: "shell", label: "Utiliser l’ordinateur (shell)" },
+  { key: "web", label: t("Lire des pages web") },
+  { key: "manageActivities", label: t("Créer des planifications et surveillances") },
+  { key: "messageAgents", label: t("Échanger avec les autres compagnons") },
+  { key: "manageMemory", label: t("Gérer sa mémoire") },
+  { key: "mail", label: t("Lire les e-mails (l’envoi demande ton accord)") },
+  { key: "connectors", label: t("Utiliser les connecteurs MCP") },
+  { key: "shell", label: t("Utiliser l’ordinateur (shell)") },
 ];
 
 /**
@@ -51,7 +52,7 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
   async function save(patch: Parameters<typeof api.updateAgent>[1]) {
     try {
       await api.updateAgent(agent.id, patch);
-      toast.success("Enregistré");
+      toast.success(t("Enregistré"));
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -60,11 +61,11 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
   return (
     <div className="space-y-5 pb-6">
       <p className="rounded-lg bg-muted/60 p-2.5 text-muted-foreground text-xs">
-        Astuce : tu peux aussi simplement dire à {agent.name} « sois plus direct » ou « utilise tel modèle ».
+        {t("Astuce : tu peux aussi simplement dire à {name} « sois plus direct » ou « utilise tel modèle ».", { name: agent.name })}
       </p>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Couleur</Label>
+        <Label className="text-xs">{t("Couleur")}</Label>
         <div className="flex gap-1.5">
           {COLORS.map((c) => (
             <button
@@ -80,44 +81,44 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
         </div>
       </div>
 
-      <Field label="Nom">
+      <Field label={t("Nom")}>
         <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
       </Field>
-      <Field label="Responsabilités">
+      <Field label={t("Responsabilités")}>
         <Textarea rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
       </Field>
-      <Field label="Personnalité">
+      <Field label={t("Personnalité")}>
         <Textarea rows={2} value={draft.personality} onChange={(e) => setDraft({ ...draft, personality: e.target.value })} />
       </Field>
-      <Field label="Consignes">
+      <Field label={t("Consignes")}>
         <Textarea rows={4} value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} />
       </Field>
       {dirty && (
         <Button size="sm" className="w-full" onClick={() => save(draft)}>
-          Enregistrer
+          {t("Enregistrer")}
         </Button>
       )}
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Modèle</Label>
+        <Label className="text-xs">{t("Modèle")}</Label>
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1 truncate rounded-md border px-2.5 py-1.5 font-mono text-xs">
             {agent.effectiveModel.model}
-            {!agent.model && <span className="ml-1 font-sans text-muted-foreground">(par défaut)</span>}
+            {!agent.model && <span className="ml-1 font-sans text-muted-foreground">{t("(par défaut)")}</span>}
           </div>
           <Button size="sm" variant="outline" onClick={() => setPicking(true)}>
-            Changer
+            {t("Changer")}
           </Button>
         </div>
         {agent.model && (
           <button className="text-muted-foreground text-xs underline-offset-2 hover:underline" onClick={() => save({ model: null })}>
-            Revenir au modèle par défaut
+            {t("Revenir au modèle par défaut")}
           </button>
         )}
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">Permissions</Label>
+        <Label className="text-xs">{t("Permissions")}</Label>
         {PERMS.map((p) => (
           <label key={p.key} className="flex items-center justify-between gap-3 text-sm">
             <span>{p.label}</span>
@@ -125,7 +126,7 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
           </label>
         ))}
         <div className="flex items-center justify-between gap-3 text-sm">
-          <span>Créer des compagnons</span>
+          <span>{t("Créer des compagnons")}</span>
           <Select
             value={agent.permissions.createAgents}
             onValueChange={(v) => save({ permissions: { ...agent.permissions, createAgents: v as AgentPermissions["createAgents"] } })}
@@ -134,9 +135,9 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ask">Sur demande</SelectItem>
-              <SelectItem value="allow">Toujours</SelectItem>
-              <SelectItem value="deny">Jamais</SelectItem>
+              <SelectItem value="ask">{t("Sur demande")}</SelectItem>
+              <SelectItem value="allow">{t("Toujours")}</SelectItem>
+              <SelectItem value="deny">{t("Jamais")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -147,7 +148,7 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
         size="sm"
         className="w-full text-destructive hover:text-destructive"
         onClick={async () => {
-          if (!confirm(`Retirer ${agent.name} ? Ses activités seront suspendues.`)) return;
+          if (!confirm(t("Retirer {v0} ? Ses activités seront suspendues.", { v0: agent.name }))) return;
           try {
             await api.archiveAgent(agent.id);
             removeAgentLocally(agent.id);
@@ -156,13 +157,13 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
           }
         }}
       >
-        <ArchiveIcon /> Retirer ce compagnon
+        <ArchiveIcon /> {t("Retirer ce compagnon")}
       </Button>
 
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent className="flex h-[70vh] max-w-lg flex-col">
           <DialogHeader>
-            <DialogTitle>Modèle de {agent.name}</DialogTitle>
+            <DialogTitle>{t("Modèle de {name}", { name: agent.name })}</DialogTitle>
           </DialogHeader>
           <ModelPicker
             className="min-h-0 flex-1"

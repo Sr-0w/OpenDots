@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { ActivityDialog, Field } from "./activity-dialog";
 import { McpDialog, MailDialog, PluginDialog } from "./connector-dialogs";
 
+import { t } from "@/lib/i18n";
 /** Point de montage unique des modales globales. */
 export function DialogHost() {
   const d = useDialog();
@@ -42,7 +43,7 @@ function SkillDialog({ skill, onClose }: { skill?: SkillDTO; onClose: () => void
     try {
       if (skill) await api.updateSkill(skill.id, { name, description, instructions });
       else await api.createSkill({ name, description, instructions });
-      toast.success("Skill enregistré");
+      toast.success(t("Skill enregistré"));
       onClose();
     } catch (e) {
       toast.error((e as Error).message);
@@ -55,28 +56,28 @@ function SkillDialog({ skill, onClose }: { skill?: SkillDTO; onClose: () => void
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{skill ? "Modifier le skill" : "Nouveau skill"}</DialogTitle>
+          <DialogTitle>{skill ? t("Modifier le skill") : t("Nouveau skill")}</DialogTitle>
           <DialogDescription>
-            Un savoir-faire réutilisable par tous les compagnons. Tu peux aussi dire « enregistre ça comme skill » dans une conversation.
+            {t("Un savoir-faire réutilisable par tous les compagnons. Tu peux aussi dire « enregistre ça comme skill » dans une conversation.")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <Field label="Nom">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Compte rendu de réunion" autoFocus />
+          <Field label={t("Nom")}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Compte rendu de réunion")} autoFocus />
           </Field>
-          <Field label="Quand l’utiliser" hint="C’est ce que les compagnons voient pour décider de charger le skill.">
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Quand on me demande de résumer une réunion" />
+          <Field label={t("Quand l’utiliser")} hint={t("C’est ce que les compagnons voient pour décider de charger le skill.")}>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("Quand on me demande de résumer une réunion")} />
           </Field>
-          <Field label="Instructions">
+          <Field label={t("Instructions")}>
             <Textarea rows={12} value={instructions} onChange={(e) => setInstructions(e.target.value)} className="font-mono text-xs" />
           </Field>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Annuler
+            {t("Annuler")}
           </Button>
           <Button onClick={save} disabled={busy || !name.trim() || !instructions.trim()}>
-            Enregistrer
+            {t("Enregistrer")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -112,7 +113,7 @@ function DraftDialog({ draftId, onClose }: { draftId: string; onClose: () => voi
     setBusy(true);
     try {
       await api.updateDraft(draftId, { to: split(to), cc: split(cc), subject, body });
-      toast.success("Brouillon modifié — il reste à l’envoyer");
+      toast.success(t("Brouillon modifié — il reste à l’envoyer"));
       onClose();
     } catch (e) {
       toast.error((e as Error).message);
@@ -125,33 +126,33 @@ function DraftDialog({ draftId, onClose }: { draftId: string; onClose: () => voi
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Modifier l’e-mail</DialogTitle>
+          <DialogTitle>{t("Modifier l’e-mail")}</DialogTitle>
           <DialogDescription>{draft ? `De ${draft.from}` : " "}</DialogDescription>
         </DialogHeader>
         {!draft ? (
           <LoaderIcon className="mx-auto animate-spin" />
         ) : (
           <div className="space-y-3">
-            <Field label="À">
+            <Field label={t("À")}>
               <Input value={to} onChange={(e) => setTo(e.target.value)} />
             </Field>
-            <Field label="Cc">
+            <Field label={t("Cc")}>
               <Input value={cc} onChange={(e) => setCc(e.target.value)} />
             </Field>
-            <Field label="Objet">
+            <Field label={t("Objet")}>
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
             </Field>
-            <Field label="Message">
+            <Field label={t("Message")}>
               <Textarea rows={12} value={body} onChange={(e) => setBody(e.target.value)} />
             </Field>
           </div>
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Annuler
+            {t("Annuler")}
           </Button>
           <Button onClick={save} disabled={busy || !draft || draft.status !== "pending"}>
-            Enregistrer
+            {t("Enregistrer")}
           </Button>
         </DialogFooter>
       </DialogContent>

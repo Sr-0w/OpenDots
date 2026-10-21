@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageShell } from "./page-shell";
 
+import { t } from "@/lib/i18n";
 export function ConnectorsPage() {
   const [connectors, setConnectors] = useState<ConnectorDTO[] | null>(null);
   const [plugins, setPlugins] = useState<PluginDTO[]>([]);
@@ -26,20 +27,20 @@ export function ConnectorsPage() {
 
   return (
     <PageShell
-      title="Connecteurs"
-      description="Les services que tes compagnons peuvent utiliser. Partagés par toute l’équipe ; les actions sensibles demandent toujours ta validation."
+      title={t("Connecteurs")}
+      description={t("Les services que tes compagnons peuvent utiliser. Partagés par toute l’équipe ; les actions sensibles demandent toujours ta validation.")}
     >
       <Section
         icon={<MailIcon className="size-4" />}
-        title="Comptes mail"
-        hint="Lecture, relève automatique et réponses préparées — l’envoi attend ton accord."
+        title={t("Comptes mail")}
+        hint={t("Lecture, relève automatique et réponses préparées — l’envoi attend ton accord.")}
         action={
           <Button size="sm" variant="outline" onClick={() => openDialog({ kind: "mail" })}>
-            <PlusIcon /> Ajouter
+            <PlusIcon /> {t("Ajouter")}
           </Button>
         }
       >
-        {connectors && !mail.length && <Empty text="Aucune boîte mail connectée." />}
+        {connectors && !mail.length && <Empty text={t("Aucune boîte mail connectée.")} />}
         {mail.map((c) => (
           <ConnectorRow key={c.id} connector={c} subtitle={(c.config as MailConfig).email} />
         ))}
@@ -47,15 +48,15 @@ export function ConnectorsPage() {
 
       <Section
         icon={<PlugIcon className="size-4" />}
-        title="Serveurs MCP"
-        hint="Des outils supplémentaires (GitHub, Notion, Home Assistant, fichiers…) via le Model Context Protocol."
+        title={t("Serveurs MCP")}
+        hint={t("Des outils supplémentaires (GitHub, Notion, Home Assistant, fichiers…) via le Model Context Protocol.")}
         action={
           <Button size="sm" variant="outline" onClick={() => openDialog({ kind: "mcp" })}>
-            <PlusIcon /> Ajouter
+            <PlusIcon /> {t("Ajouter")}
           </Button>
         }
       >
-        {connectors && !mcp.length && <Empty text="Aucun serveur MCP." />}
+        {connectors && !mcp.length && <Empty text={t("Aucun serveur MCP.")} />}
         {mcp.map((c) => {
           const cfg = c.config as McpConfig;
           return <ConnectorRow key={c.id} connector={c} subtitle={cfg.transport === "stdio" ? `${cfg.command} ${(cfg.args ?? []).join(" ")}` : (cfg.url ?? "")} />;
@@ -64,15 +65,15 @@ export function ConnectorsPage() {
 
       <Section
         icon={<PackageIcon className="size-4" />}
-        title="Plugins"
-        hint="Paquets de skills et de connecteurs installés ensemble."
+        title={t("Plugins")}
+        hint={t("Paquets de skills et de connecteurs installés ensemble.")}
         action={
           <Button size="sm" variant="outline" onClick={() => openDialog({ kind: "plugin" })}>
-            <PlusIcon /> Installer
+            <PlusIcon /> {t("Installer")}
           </Button>
         }
       >
-        {!plugins.length && <Empty text="Aucun plugin installé." />}
+        {!plugins.length && <Empty text={t("Aucun plugin installé.")} />}
         {plugins.map((p) => (
           <div key={p.id} className="flex items-center gap-3 px-4 py-3">
             <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -81,16 +82,16 @@ export function ConnectorsPage() {
                 {p.name} <span className="text-muted-foreground text-xs">{p.version}</span>
               </p>
               <p className="truncate text-muted-foreground text-xs">
-                {p.description || `${p.skills} skill(s) · ${p.connectors} connecteur(s)`}
+                {p.description || t("{v0} skill(s) · {v1} connecteur(s)", { v0: p.skills, v1: p.connectors })}
               </p>
             </div>
             <Button
               size="sm"
               variant="ghost"
               className="text-destructive hover:text-destructive"
-              onClick={() => confirm(`Désinstaller « ${p.name} » et ses skills/connecteurs ?`) && api.uninstallPlugin(p.id).catch((e) => toast.error(e.message))}
+              onClick={() => confirm(t("Désinstaller « {v0} » et ses skills/connecteurs ?", { v0: p.name })) && api.uninstallPlugin(p.id).catch((e) => toast.error(e.message))}
             >
-              Désinstaller
+              {t("Désinstaller")}
             </Button>
           </div>
         ))}
@@ -126,8 +127,8 @@ function ConnectorRow({ connector: c, subtitle }: { connector: ConnectorDTO; sub
     setBusy(true);
     try {
       const res = await api.refreshConnector(c.id);
-      if (res.status === "error") toast.error(res.lastError ?? "Erreur");
-      else toast.success(c.kind === "mail" ? `Relève effectuée${res.newMessages ? ` · ${res.newMessages} nouveau(x)` : ""}` : `${res.tools.length} outil(s) disponibles`);
+      if (res.status === "error") toast.error(res.lastError ?? t("Erreur"));
+      else toast.success(c.kind === "mail" ? t(res.newMessages ? "Relève effectuée · {n} nouveau(x)" : "Relève effectuée", { n: res.newMessages }) : t("{n} outil(s) disponibles", { n: res.tools.length }));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -149,31 +150,31 @@ function ConnectorRow({ connector: c, subtitle }: { connector: ConnectorDTO; sub
         {c.status === "error" && c.lastError && <p className="truncate text-[11px] text-destructive">{c.lastError}</p>}
         {c.kind === "mcp" && c.status === "ok" && (
           <p className="truncate text-[11px] text-muted-foreground">
-            {c.tools.length} outil(s) : {c.tools.map((t) => t.name).join(", ")} · {c.approval === "ask" ? "validation à chaque appel" : "sans validation"}
+            {t("{n} outil(s) :", { n: c.tools.length })} {c.tools.map((tool) => tool.name).join(", ")} · {c.approval === "ask" ? t("validation à chaque appel") : t("sans validation")}
           </p>
         )}
       </div>
       <Switch
         checked={c.enabled}
         onCheckedChange={(enabled) => api.updateConnector(c.id, { enabled }).catch((e) => toast.error(e.message))}
-        aria-label="Activer"
+        aria-label={t("Activer")}
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon" variant="ghost" className="size-8" aria-label="Actions" disabled={busy}>
+          <Button size="icon" variant="ghost" className="size-8" aria-label={t("Actions")} disabled={busy}>
             {busy ? <RefreshCwIcon className="animate-spin" /> : <MoreHorizontalIcon />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={refresh}>
-            <RefreshCwIcon /> {c.kind === "mail" ? "Relever maintenant" : "Reconnecter"}
+            <RefreshCwIcon /> {c.kind === "mail" ? t("Relever maintenant") : t("Reconnecter")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => openDialog({ kind: c.kind, connector: c })}>
-            <PencilIcon /> Modifier
+            <PencilIcon /> {t("Modifier")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => confirm(`Supprimer « ${c.name} » ?`) && api.deleteConnector(c.id).catch((e) => toast.error(e.message))}>
-            <Trash2Icon /> Supprimer
+          <DropdownMenuItem variant="destructive" onClick={() => confirm(t("Supprimer « {v0} » ?", { v0: c.name })) && api.deleteConnector(c.id).catch((e) => toast.error(e.message))}>
+            <Trash2Icon /> {t("Supprimer")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

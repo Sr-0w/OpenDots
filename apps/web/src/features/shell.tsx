@@ -28,6 +28,7 @@ import { DotAvatar } from "./dot-avatar";
 import { SettingsDialog } from "./settings-dialog";
 import { lazy, Suspense } from "react";
 
+import { t } from "@/lib/i18n";
 // Pages et modales secondaires chargées à la demande.
 const TeamView = lazy(() => import("./team-view").then((m) => ({ default: m.TeamView })));
 const TasksPage = lazy(() => import("./pages/tasks-page").then((m) => ({ default: m.TasksPage })));
@@ -38,7 +39,7 @@ const DialogHost = lazy(() => import("./dialogs/dialog-host").then((m) => ({ def
 type PageView = "team" | "tasks" | "skills" | "connectors";
 type Route = { view: "agent"; id: string | null } | { view: PageView };
 const PAGES: PageView[] = ["team", "tasks", "skills", "connectors"];
-const PAGE_TITLES: Record<PageView, string> = { team: "Équipe", tasks: "Tâches planifiées", skills: "Skills", connectors: "Connecteurs" };
+const PAGE_TITLES: Record<PageView, string> = { team: t("Équipe"), tasks: t("Tâches planifiées"), skills: t("Skills"), connectors: t("Connecteurs") };
 
 function parseHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
@@ -72,12 +73,12 @@ function AgentRow({ agent, active, onClick }: { agent: AgentDTO; active: boolean
       <DotAvatar color={agent.color} state={agent.state} size={34} named={agent.named} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate font-medium text-sm">{agent.named ? agent.name : "Nouveau compagnon"}</span>
+          <span className="truncate font-medium text-sm">{agent.named ? agent.name : t("Nouveau compagnon")}</span>
           <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{relativeTime(agent.lastMessageAt)}</span>
         </div>
         <div className="flex items-center gap-2">
           <p className={cn("truncate text-xs", busy ? "text-foreground/80" : "text-muted-foreground")}>
-            {busy ? agent.stateDetail || AGENT_STATE_LABELS[agent.state] : agent.state === "error" ? "Erreur — voir le journal" : plainPreview(agent.lastMessagePreview) || agent.description || "Dis bonjour !"}
+            {busy ? agent.stateDetail || t(AGENT_STATE_LABELS[agent.state]) : agent.state === "error" ? t("Erreur — voir le journal") : plainPreview(agent.lastMessagePreview) || agent.description || t("Dis bonjour !")}
           </p>
           {agent.unread > 0 && !active && (
             <span className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-foreground px-1 font-semibold text-[10px] text-background">
@@ -105,25 +106,25 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
             <span key={c} className={`size-2.5 rounded-full ${c}`} />
           ))}
         </div>
-        <span className="font-semibold tracking-tight">OpenDots</span>
+        <span className="font-semibold tracking-tight">{t("OpenDots")}</span>
         {!connected && (
           <Tooltip>
             <TooltipTrigger asChild>
               <WifiOffIcon className="ml-auto size-4 text-destructive" />
             </TooltipTrigger>
-            <TooltipContent>Connexion au moteur perdue — reconnexion…</TooltipContent>
+            <TooltipContent>{t("Connexion au moteur perdue — reconnexion…")}</TooltipContent>
           </Tooltip>
         )}
       </div>
 
-      <div className="px-4 pb-1.5 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">Compagnons</div>
+      <div className="px-4 pb-1.5 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">{t("Compagnons")}</div>
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2">
         {agents.map((a) => (
           <AgentRow key={a.id} agent={a} active={route.view === "agent" && route.id === a.id} onClick={() => go({ view: "agent", id: a.id })} />
         ))}
         {agents.length > 0 && agents.length < 3 && (
           <p className="px-3 pt-3 text-[11px] text-muted-foreground leading-relaxed">
-            Pour créer un compagnon, demande-le simplement : « crée un compagnon qui s’occupera de… »
+            {t("Pour créer un compagnon, demande-le simplement : « crée un compagnon qui s’occupera de… »")}
           </p>
         )}
       </nav>
@@ -131,29 +132,29 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
       <div className="space-y-0.5 border-t p-2">
         {paused && (
           <div className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-foreground text-xs">
-            <PauseCircleIcon className="size-3.5" /> Activités autonomes suspendues
+            <PauseCircleIcon className="size-3.5" /> {t("Activités autonomes suspendues")}
           </div>
         )}
         <SideButton active={route.view === "tasks"} onClick={() => go({ view: "tasks" })} icon={<CalendarClockIcon />}>
-          Tâches planifiées
+          {t("Tâches planifiées")}
         </SideButton>
         <SideButton active={route.view === "skills"} onClick={() => go({ view: "skills" })} icon={<SparklesIcon />}>
-          Skills
+          {t("Skills")}
         </SideButton>
         <SideButton active={route.view === "connectors"} onClick={() => go({ view: "connectors" })} icon={<PlugIcon />}>
-          Connecteurs
+          {t("Connecteurs")}
         </SideButton>
         <SideButton active={route.view === "team"} onClick={() => go({ view: "team" })} icon={<MessagesSquareIcon />}>
-          Échanges de l’équipe
+          {t("Échanges de l’équipe")}
         </SideButton>
         <SideButton onClick={onApprovals} icon={<ShieldQuestionIcon />} badge={pending}>
-          Validations
+          {t("Validations")}
         </SideButton>
         <div className="flex items-center gap-1">
           <SideButton onClick={onSettings} icon={<SettingsIcon />} className="flex-1">
-            Paramètres
+            {t("Paramètres")}
           </SideButton>
-          <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={toggle} aria-label="Changer de thème">
+          <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={toggle} aria-label={t("Changer de thème")}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </Button>
         </div>
@@ -202,9 +203,9 @@ function ApprovalsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Validations</DialogTitle>
+          <DialogTitle>{t("Validations")}</DialogTitle>
         </DialogHeader>
-        {pending.length === 0 && <p className="text-muted-foreground text-sm">Rien n’attend ta validation.</p>}
+        {pending.length === 0 && <p className="text-muted-foreground text-sm">{t("Rien n’attend ta validation.")}</p>}
         <div className="space-y-3">
           {pending.map((a) => (
             <div key={a.id} className="space-y-1.5">
@@ -215,7 +216,7 @@ function ApprovalsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
         </div>
         {recent.length > 0 && (
           <div className="space-y-2 border-t pt-3">
-            <p className="font-medium text-muted-foreground text-xs">Récemment</p>
+            <p className="font-medium text-muted-foreground text-xs">{t("Récemment")}</p>
             {recent.map((a) => (
               <ApprovalCard key={a.id} approvalId={a.id} />
             ))}
@@ -257,14 +258,14 @@ export function Shell() {
       <aside className="hidden w-72 shrink-0 border-r md:block">{sidebar}</aside>
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <SheetContent side="left" className="w-80 p-0">
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SheetTitle className="sr-only">{t("Navigation")}</SheetTitle>
           {sidebar}
         </SheetContent>
       </Sheet>
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setNavOpen(true)} aria-label="Menu">
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setNavOpen(true)} aria-label={t("Menu")}>
             <MenuIcon />
           </Button>
           {route.view !== "agent" ? (
@@ -273,16 +274,16 @@ export function Shell() {
             <>
               <DotAvatar color={current.color} state={current.state} size={28} named={current.named} />
               <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate font-medium text-sm">{current.named ? current.name : "Nouveau compagnon"}</p>
+                <p className="truncate font-medium text-sm">{current.named ? current.name : t("Nouveau compagnon")}</p>
                 <p className="truncate text-muted-foreground text-xs">
-                  {current.stateDetail && BUSY.includes(current.state) ? current.stateDetail : AGENT_STATE_LABELS[current.state]}
+                  {current.stateDetail && BUSY.includes(current.state) ? current.stateDetail : t(AGENT_STATE_LABELS[current.state])}
                   <span className="hidden sm:inline"> · {current.effectiveModel.model}</span>
                 </p>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Panneau du compagnon"
+                aria-label={t("Panneau du compagnon")}
                 onClick={() => (window.matchMedia("(min-width: 1024px)").matches ? setPanelOpen((v) => !v) : setMobilePanel(true))}
               >
                 <PanelRightIcon />

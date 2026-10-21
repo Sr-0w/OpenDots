@@ -330,3 +330,17 @@ export interface MailDraftDTO {
   error: string | null;
   sentAt: string | null;
 }
+
+/**
+ * Certains modèles (gpt-oss) laissent parfois fuiter des appels d'outils au
+ * format brut dans leur texte (« to=functions.x {…} », jetons <|…|>). On les
+ * retire avant affichage et persistance.
+ */
+export function cleanModelText(text: string): string {
+  return text
+    .replace(/(?:\{[^{}]*\}\s*)?(?:<\|[a-z_]+\|>\s*)*to=functions\.[\w.-]+(?:\s*<\|[a-z_]+\|>[\w ]*)*\s*(?:\{[^{}]*\})?/gi, ' ')
+    .replace(/<\|(?:start|end|message|channel|constrain|call|return)\|>/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +([.,])/g, '$1')
+    .trim();
+}

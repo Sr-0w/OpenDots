@@ -3,6 +3,7 @@ import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { t } from "@/lib/i18n";
 /** Champ de saisie inspiré du PromptInput d'AI Elements, réduit à l'essentiel. */
 export function Composer({
   onSubmit,
@@ -64,11 +65,11 @@ export function Composer({
         className="max-h-[220px] min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
       />
       {busy ? (
-        <Button type="button" size="icon" variant="secondary" className="size-9 rounded-full" onClick={onStop} aria-label="Arrêter">
+        <Button type="button" size="icon" variant="secondary" className="size-9 rounded-full" onClick={onStop} aria-label={t("Arrêter")}>
           <SquareIcon className="size-3.5 fill-current" />
         </Button>
       ) : (
-        <Button type="submit" size="icon" className="size-9 rounded-full" disabled={!value.trim()} aria-label="Envoyer">
+        <Button type="submit" size="icon" className="size-9 rounded-full" disabled={!value.trim()} aria-label={t("Envoyer")}>
           <ArrowUpIcon />
         </Button>
       )}

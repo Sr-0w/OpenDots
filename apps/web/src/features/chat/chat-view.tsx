@@ -17,11 +17,12 @@ import { Composer } from "./composer";
 import { MessageView } from "./message-parts";
 import { ChatActionsContext } from "./cards";
 
-const FIRST_SUGGESTIONS = ["Salut !", "Comment devrais-je t’appeler ?", "Qu’est-ce que tu sais faire ?"];
+import { t } from "@/lib/i18n";
+const FIRST_SUGGESTIONS = [t("Salut !"), t("Comment devrais-je t’appeler ?"), t("Qu’est-ce que tu sais faire ?")];
 const SUGGESTIONS = [
-  "Tous les matins à 8 h, fais-moi un point sur ma journée",
-  "Souviens-toi que je préfère des réponses courtes",
-  "Crée un compagnon pour m’aider avec mes projets",
+  t("Tous les matins à 8 h, fais-moi un point sur ma journée"),
+  t("Souviens-toi que je préfère des réponses courtes"),
+  t("Crée un compagnon pour m’aider avec mes projets"),
 ];
 
 export function ChatView({ agent }: { agent: AgentDTO }) {
@@ -109,18 +110,18 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
           {waiting && (
             <div className="flex items-center gap-2.5 text-sm">
               <DotAvatar color={agent.color} state="thinking" size={18} />
-              <Shimmer>{agent.stateDetail ?? (agent.state === "available" ? "En réflexion…" : `${AGENT_STATE_LABELS[agent.state]}…`)}</Shimmer>
+              <Shimmer>{agent.stateDetail ?? (agent.state === "available" ? t("En réflexion…") : `${t(AGENT_STATE_LABELS[agent.state])}…`)}</Shimmer>
             </div>
           )}
           {error && (
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm">
               <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
               <div className="flex-1">
-                <p className="font-medium">{agent.name} n’a pas pu répondre.</p>
+                <p className="font-medium">{t("{name} n’a pas pu répondre.", { name: agent.name })}</p>
                 <p className="text-muted-foreground text-xs">{error.message}</p>
               </div>
               <button className="text-muted-foreground text-xs hover:text-foreground" onClick={() => clearError()}>
-                Fermer
+                {t("Fermer")}
               </button>
             </div>
           )}
@@ -138,7 +139,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
         <Composer
           busy={busy}
           autoFocus
-          placeholder={agent.named ? `Écrire à ${agent.name}…` : "Dis bonjour à ton compagnon…"}
+          placeholder={agent.named ? t("Écrire à {v0}…", { v0: agent.name }) : t("Dis bonjour à ton compagnon…")}
           onSubmit={(text) => sendMessage({ text })}
           onStop={() => {
             void api.stop(agent.id);
@@ -157,12 +158,12 @@ function EmptyState({ agent, onPick }: { agent: AgentDTO; onPick: (text: string)
       <DotAvatar color={agent.color} size={72} state={agent.state} named={agent.named} />
       <div className="space-y-1.5">
         <h2 className="font-semibold text-xl tracking-tight">
-          {agent.named ? `${agent.name} est là` : "Ton premier compagnon est prêt"}
+          {agent.named ? t("{v0} est là", { v0: agent.name }) : t("Ton premier compagnon est prêt")}
         </h2>
         <p className="mx-auto max-w-sm text-balance text-muted-foreground text-sm">
           {agent.named
-            ? agent.description || "Parle-lui naturellement : il retient, s’organise et agit pour toi."
-            : "Il n’a pas encore de nom ni de personnalité. Fais connaissance avec lui : tout se configure en discutant."}
+            ? agent.description || t("Parle-lui naturellement : il retient, s’organise et agit pour toi.")
+            : t("Il n’a pas encore de nom ni de personnalité. Fais connaissance avec lui : tout se configure en discutant.")}
         </p>
       </div>
       <Suggestions className="justify-center">

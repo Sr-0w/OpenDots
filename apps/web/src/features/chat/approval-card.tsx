@@ -7,13 +7,14 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+import { t } from "@/lib/i18n";
 const STATUS: Record<ApprovalDTO["status"], { label: string; className: string }> = {
-  pending: { label: "En attente de ta validation", className: "text-foreground" },
-  approved: { label: "Approuvé — exécution…", className: "text-muted-foreground" },
-  executed: { label: "Approuvé et exécuté", className: "text-foreground" },
-  failed: { label: "Approuvé, mais l’exécution a échoué", className: "text-destructive" },
-  rejected: { label: "Refusé", className: "text-muted-foreground" },
-  expired: { label: "Expiré", className: "text-muted-foreground" },
+  pending: { label: t("En attente de ta validation"), className: "text-foreground" },
+  approved: { label: t("Approuvé — exécution…"), className: "text-muted-foreground" },
+  executed: { label: t("Approuvé et exécuté"), className: "text-foreground" },
+  failed: { label: t("Approuvé, mais l’exécution a échoué"), className: "text-destructive" },
+  rejected: { label: t("Refusé"), className: "text-muted-foreground" },
+  expired: { label: t("Expiré"), className: "text-muted-foreground" },
 };
 
 /** Carte de validation liée à une opération précise du backend (8.2). */
@@ -27,7 +28,7 @@ export function ApprovalCard({ approvalId, fallbackSummary }: { approvalId: stri
     setBusy(decision);
     try {
       const res = await api.decide(approvalId, decision);
-      if (res.status === "failed") toast.error(res.error ?? "L’exécution a échoué");
+      if (res.status === "failed") toast.error(res.error ?? t("L’exécution a échoué"));
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -45,7 +46,7 @@ export function ApprovalCard({ approvalId, fallbackSummary }: { approvalId: stri
       <div className="flex items-start gap-3">
         <ShieldQuestionIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="font-medium text-sm leading-snug">{approval?.summary ?? fallbackSummary ?? "Action à valider"}</p>
+          <p className="font-medium text-sm leading-snug">{approval?.summary ?? fallbackSummary ?? t("Action à valider")}</p>
           <p className={cn("text-xs", meta.className)}>{meta.label}</p>
           {approval?.error && <p className="text-destructive text-xs">{approval.error}</p>}
         </div>
@@ -53,10 +54,10 @@ export function ApprovalCard({ approvalId, fallbackSummary }: { approvalId: stri
       {status === "pending" && (
         <div className="mt-3 flex justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={() => decide("reject")} disabled={!!busy}>
-            <XIcon /> Refuser
+            <XIcon /> {t("Refuser")}
           </Button>
           <Button size="sm" onClick={() => decide("approve")} disabled={!!busy}>
-            <CheckIcon /> Approuver
+            <CheckIcon /> {t("Approuver")}
           </Button>
         </div>
       )}

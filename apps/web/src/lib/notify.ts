@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { ServerEvent } from "@opendots/shared";
 import { getState } from "./store";
 
@@ -41,13 +42,13 @@ function show(title: string, body: string, agentId?: string) {
 
 export function notifyFromEvent(e: ServerEvent) {
   if (!notificationsEnabled() || document.visibilityState === "visible") return;
-  const agentName = (id?: string | null) => getState().agents.find((a) => a.id === id)?.name ?? "Un compagnon";
+  const agentName = (id?: string | null) => getState().agents.find((a) => a.id === id)?.name ?? t("Un compagnon");
   if (e.type === "message.created" && e.author === "agent" && !e.hidden && e.agentId) {
     const agent = getState().agents.find((a) => a.mainConversationId === e.conversationId);
     if (agent) show(agent.name, e.preview.replace(/[*_`#]/g, "").slice(0, 140), agent.id);
   } else if (e.type === "approval.changed" && e.approval.status === "pending") {
-    show(`${agentName(e.approval.agentId)} attend ta validation`, e.approval.summary, e.approval.agentId);
+    show(t("{name} attend ta validation", { name: agentName(e.approval.agentId) }), e.approval.summary, e.approval.agentId);
   } else if (e.type === "request.changed" && e.request.status === "pending") {
-    show(`${agentName(e.request.agentId)} a une question`, e.request.title, e.request.agentId);
+    show(t("{name} a une question", { name: agentName(e.request.agentId) }), e.request.title, e.request.agentId);
   }
 }

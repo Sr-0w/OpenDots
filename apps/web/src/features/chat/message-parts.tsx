@@ -29,13 +29,14 @@ import { ApprovalCard } from "./approval-card";
 import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard, SearchResultsCard, TerminalCard } from "./cards";
 import { DotAvatar } from "../dot-avatar";
 
+import { t } from "@/lib/i18n";
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
 
 function host(url: unknown) {
   try {
     return new URL(String(url)).hostname.replace(/^www\./, "");
   } catch {
-    return "une page";
+    return t("une page");
   }
 }
 
@@ -44,66 +45,66 @@ function describeTool(name: string, input: any, output: any): { title: string; i
   const i = input ?? {};
   switch (name) {
     case "agent_get_profile":
-      return { title: "Consulte son profil", icon: <UserCogIcon className="size-3.5" /> };
+      return { title: t("Consulte son profil"), icon: <UserCogIcon className="size-3.5" /> };
     case "agent_update_profile":
-      return { title: i.name ? `Prend le nom « ${i.name} »` : "Met à jour son identité", icon: <SparklesIcon className="size-3.5" /> };
+      return { title: i.name ? t("Prend le nom « {v0} »", { v0: i.name }) : t("Met à jour son identité"), icon: <SparklesIcon className="size-3.5" /> };
     case "agent_update_instructions":
-      return { title: "Enregistre tes consignes", icon: <UserCogIcon className="size-3.5" /> };
+      return { title: t("Enregistre tes consignes"), icon: <UserCogIcon className="size-3.5" /> };
     case "agent_configure_model":
-      return { title: i.model ? `Modèle : ${i.model}` : "Change de modèle", icon: <BrainIcon className="size-3.5" /> };
+      return { title: i.model ? t("Modèle : {v0}", { v0: i.model }) : t("Change de modèle"), icon: <BrainIcon className="size-3.5" /> };
     case "agent_update_permissions":
-      return { title: "Modifie des permissions", icon: <KeyRoundIcon className="size-3.5" /> };
+      return { title: t("Modifie des permissions"), icon: <KeyRoundIcon className="size-3.5" /> };
     case "agent_list":
-      return { title: "Consulte l’équipe", icon: <BotIcon className="size-3.5" /> };
+      return { title: t("Consulte l’équipe"), icon: <BotIcon className="size-3.5" /> };
     case "agent_create":
-      return { title: i.name ? `Crée ${i.name}` : "Crée un compagnon", icon: <BotIcon className="size-3.5" /> };
+      return { title: i.name ? t("Crée {v0}", { v0: i.name }) : t("Crée un compagnon"), icon: <BotIcon className="size-3.5" /> };
     case "team_send_message":
-      return { title: i.to ? `Écrit à ${i.to}` : "Contacte un compagnon", icon: <MessagesSquareIcon className="size-3.5" /> };
+      return { title: i.to ? t("Écrit à {v0}", { v0: i.to }) : t("Contacte un compagnon"), icon: <MessagesSquareIcon className="size-3.5" /> };
     case "memory_remember":
-      return { title: "Mémorise", icon: <BrainIcon className="size-3.5" /> };
+      return { title: t("Mémorise"), icon: <BrainIcon className="size-3.5" /> };
     case "memory_update":
-      return { title: "Corrige un souvenir", icon: <BrainIcon className="size-3.5" /> };
+      return { title: t("Corrige un souvenir"), icon: <BrainIcon className="size-3.5" /> };
     case "memory_forget":
-      return { title: "Oublie un souvenir", icon: <BrainIcon className="size-3.5" /> };
+      return { title: t("Oublie un souvenir"), icon: <BrainIcon className="size-3.5" /> };
     case "memory_search":
-      return { title: "Cherche dans sa mémoire", icon: <BrainIcon className="size-3.5" /> };
+      return { title: t("Cherche dans sa mémoire"), icon: <BrainIcon className="size-3.5" /> };
     case "activity_create":
       return {
-        title: i.title ? `${i.kind === "watch" ? "Surveillance" : i.kind === "webhook" ? "Webhook" : "Planification"} : ${i.title}` : "Crée une activité",
+        title: i.title ? t(i.kind === "watch" ? "Surveillance : {title}" : i.kind === "webhook" ? "Webhook : {title}" : "Planification : {title}", { title: i.title }) : t("Crée une activité"),
         icon: i.kind === "watch" ? <EyeIcon className="size-3.5" /> : i.kind === "webhook" ? <WebhookIcon className="size-3.5" /> : <CalendarClockIcon className="size-3.5" />,
       };
     case "activity_list":
-      return { title: "Consulte ses activités", icon: <CalendarClockIcon className="size-3.5" /> };
+      return { title: t("Consulte ses activités"), icon: <CalendarClockIcon className="size-3.5" /> };
     case "activity_update":
-      return { title: "Modifie une activité", icon: <CalendarClockIcon className="size-3.5" /> };
+      return { title: t("Modifie une activité"), icon: <CalendarClockIcon className="size-3.5" /> };
     case "activity_delete":
-      return { title: "Supprime une activité", icon: <CalendarClockIcon className="size-3.5" /> };
+      return { title: t("Supprime une activité"), icon: <CalendarClockIcon className="size-3.5" /> };
     case "web_search":
-      return { title: i.query ? `Cherche « ${String(i.query).slice(0, 50)} »` : "Cherche sur le web", icon: <SearchIcon className="size-3.5" /> };
+      return { title: i.query ? t("Cherche « {v0} »", { v0: String(i.query).slice(0, 50) }) : t("Cherche sur le web"), icon: <SearchIcon className="size-3.5" /> };
     case "datetime":
-      return { title: "Consulte la date et l’heure", icon: <ClockIcon className="size-3.5" /> };
+      return { title: t("Consulte la date et l’heure"), icon: <ClockIcon className="size-3.5" /> };
     case "shell_exec":
       return { title: `$ ${String(i.command ?? "").split("\n")[0].slice(0, 60)}`, icon: <TerminalIcon className="size-3.5" /> };
     case "web_fetch":
-      return { title: `Lit ${output?.title ? `« ${String(output.title).slice(0, 40)} »` : host(i.url)}`, icon: <GlobeIcon className="size-3.5" /> };
+      return { title: output?.title ? t("Lit « {title} »", { title: String(output.title).slice(0, 40) }) : t("Lit {host}", { host: host(i.url) }), icon: <GlobeIcon className="size-3.5" /> };
     case "ask_user":
-      return { title: "Te pose des questions", icon: <ClipboardListIcon className="size-3.5" /> };
+      return { title: t("Te pose des questions"), icon: <ClipboardListIcon className="size-3.5" /> };
     case "connection_request_setup":
-      return { title: i.kind === "mail" ? "Demande une connexion mail" : "Demande un connecteur", icon: <PlugIcon className="size-3.5" /> };
+      return { title: i.kind === "mail" ? t("Demande une connexion mail") : t("Demande un connecteur"), icon: <PlugIcon className="size-3.5" /> };
     case "skill_use":
-      return { title: `Applique le skill « ${i.name ?? ""} »`, icon: <SparklesIcon className="size-3.5" /> };
+      return { title: t("Applique le skill « {v0} »", { v0: i.name ?? "" }), icon: <SparklesIcon className="size-3.5" /> };
     case "skill_save":
-      return { title: `Enregistre le skill « ${i.name ?? ""} »`, icon: <SparklesIcon className="size-3.5" /> };
+      return { title: t("Enregistre le skill « {v0} »", { v0: i.name ?? "" }), icon: <SparklesIcon className="size-3.5" /> };
     case "mail_list_accounts":
-      return { title: "Consulte les comptes mail", icon: <MailIcon className="size-3.5" /> };
+      return { title: t("Consulte les comptes mail"), icon: <MailIcon className="size-3.5" /> };
     case "mail_search":
-      return { title: i.from ? `Cherche les e-mails de ${i.from}` : "Cherche dans les e-mails", icon: <MailIcon className="size-3.5" /> };
+      return { title: i.from ? t("Cherche les e-mails de {v0}", { v0: i.from }) : t("Cherche dans les e-mails"), icon: <MailIcon className="size-3.5" /> };
     case "mail_read":
-      return { title: output?.subject ? `Lit « ${String(output.subject).slice(0, 40)} »` : "Lit un e-mail", icon: <MailIcon className="size-3.5" /> };
+      return { title: output?.subject ? t("Lit « {v0} »", { v0: String(output.subject).slice(0, 40) }) : t("Lit un e-mail"), icon: <MailIcon className="size-3.5" /> };
     case "mail_prepare":
-      return { title: "Prépare un e-mail", icon: <MailIcon className="size-3.5" /> };
+      return { title: t("Prépare un e-mail"), icon: <MailIcon className="size-3.5" /> };
     case "approval_respond":
-      return { title: i.decision === "reject" ? "Transmet ton refus" : "Transmet ton accord", icon: <KeyRoundIcon className="size-3.5" /> };
+      return { title: i.decision === "reject" ? t("Transmet ton refus") : t("Transmet ton accord"), icon: <KeyRoundIcon className="size-3.5" /> };
     default:
       if (name.startsWith("mcp_")) return { title: name.replace(/^mcp_/, "").replace(/_/g, " "), icon: <PlugIcon className="size-3.5" /> };
       return { title: name, icon: null };
@@ -144,7 +145,7 @@ function EventChip({ message }: { message: ODMessage }) {
     <details className="group/event mx-auto w-full max-w-lg text-center">
       <summary className="mx-auto inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-dashed px-3 py-1 text-muted-foreground text-xs transition-colors hover:text-foreground">
         {from ? <DotAvatar color={from.color} size={14} /> : EVENT_ICONS[event?.type ?? "system"]}
-        <span>{event?.title ?? "Événement"}</span>
+        <span>{event?.title ?? t("Événement")}</span>
         <span className="opacity-60">· {formatDateTime(message.metadata?.createdAt)}</span>
       </summary>
       <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-card/60 p-3 text-left font-sans text-muted-foreground text-xs">
@@ -223,7 +224,7 @@ export function MessageView({ message, streaming }: { message: ODMessage; stream
             return g.part.mediaType?.startsWith("image/") ? (
               <img key={key} src={g.part.url} alt={g.part.filename ?? ""} className="max-h-64 rounded-xl border" />
             ) : (
-              <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? "Fichier"}</span>
+              <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? t("Fichier")}</span>
             );
           }
           const thinking = streaming && g === lastGroup && g.open;

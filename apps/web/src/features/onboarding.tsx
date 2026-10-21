@@ -6,6 +6,7 @@ import { api, type ModelInfo } from "@/lib/api";
 import { DotAvatar } from "./dot-avatar";
 import { ModelPicker } from "./model-picker";
 
+import { t } from "@/lib/i18n";
 /**
  * Onboarding volontairement minimal : une clé OpenRouter et un modèle.
  * Tout le reste se fait ensuite en parlant au premier compagnon.
@@ -53,19 +54,19 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
         <div className="flex flex-col items-center gap-4 text-center">
           <DotAvatar color="#27272a" size={64} named={false} />
           <div className="space-y-1.5">
-            <h1 className="font-semibold text-2xl tracking-tight">Bienvenue dans OpenDots</h1>
+            <h1 className="font-semibold text-2xl tracking-tight">{t("Bienvenue dans OpenDots")}</h1>
             <p className="text-balance text-muted-foreground text-sm">
               {step === "key"
-                ? "Deux réglages et ton premier compagnon est prêt. Le reste, tu le lui diras simplement."
-                : "Choisis le modèle qui fera réfléchir ton premier compagnon. Tu pourras en changer à tout moment."}
+                ? t("Deux réglages et ton premier compagnon est prêt. Le reste, tu le lui diras simplement.")
+                : t("Choisis le modèle qui fera réfléchir ton premier compagnon. Tu pourras en changer à tout moment.")}
             </p>
           </div>
         </div>
 
         <div className="flex w-full items-center gap-2 text-muted-foreground text-xs">
-          <span className={step === "key" ? "font-medium text-foreground" : ""}>1. Clé OpenRouter</span>
+          <span className={step === "key" ? "font-medium text-foreground" : ""}>{t("1. Clé OpenRouter")}</span>
           <span className="h-px flex-1 bg-border" />
-          <span className={step === "model" ? "font-medium text-foreground" : ""}>2. Modèle</span>
+          <span className={step === "model" ? "font-medium text-foreground" : ""}>{t("2. Modèle")}</span>
         </div>
 
         {step === "key" ? (
@@ -77,14 +78,14 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
                 type="password"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                placeholder="sk-or-v1-…"
+                placeholder={t("sk-or-v1-…")}
                 className="h-11 pl-9 font-mono"
                 autoComplete="off"
               />
             </div>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <Button type="submit" size="lg" disabled={busy || key.trim().length < 10}>
-              {busy ? <LoaderIcon className="animate-spin" /> : <>Continuer <ArrowRightIcon /></>}
+              {busy ? <LoaderIcon className="animate-spin" /> : <>{t("Continuer")} <ArrowRightIcon /></>}
             </Button>
             <a
               href="https://openrouter.ai/settings/keys"
@@ -92,19 +93,19 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
               rel="noreferrer"
               className="inline-flex items-center justify-center gap-1 text-muted-foreground text-xs hover:text-foreground"
             >
-              Obtenir une clé sur openrouter.ai <ExternalLinkIcon className="size-3" />
+              {t("Obtenir une clé sur openrouter.ai")} <ExternalLinkIcon className="size-3" />
             </a>
-            <p className="text-center text-[11px] text-muted-foreground">La clé est chiffrée et reste sur ta machine.</p>
+            <p className="text-center text-[11px] text-muted-foreground">{t("La clé est chiffrée et reste sur ta machine.")}</p>
           </form>
         ) : (
           <div className="flex w-full flex-col gap-3">
             <ModelPicker value={model?.id ?? null} onChange={setModel} className="h-80" />
             {model && !model.tools && (
-              <p className="text-foreground font-medium text-xs">Ce modèle ne sait pas utiliser d’outils : ton compagnon pourra parler, mais pas agir.</p>
+              <p className="text-foreground font-medium text-xs">{t("Ce modèle ne sait pas utiliser d’outils : ton compagnon pourra parler, mais pas agir.")}</p>
             )}
             {error && <p className="text-destructive text-sm">{error}</p>}
             <Button size="lg" onClick={finish} disabled={busy || !model}>
-              {busy ? <LoaderIcon className="animate-spin" /> : <>Rencontrer mon compagnon <ArrowRightIcon /></>}
+              {busy ? <LoaderIcon className="animate-spin" /> : <>{t("Rencontrer mon compagnon")} <ArrowRightIcon /></>}
             </Button>
           </div>
         )}

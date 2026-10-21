@@ -9,6 +9,7 @@ import { useServerEvent, useStore } from "@/lib/store";
 import { cn, plainPreview, relativeTime } from "@/lib/utils";
 import { DotAvatar } from "./dot-avatar";
 
+import { t } from "@/lib/i18n";
 /** Consultation des échanges entre compagnons (lecture seule, traçabilité). */
 export function TeamView() {
   const [threads, setThreads] = useState<TeamThreadDTO[] | null>(null);
@@ -30,13 +31,13 @@ export function TeamView() {
     <div className="flex min-h-0 flex-1">
       <div className={cn("flex w-full flex-col border-r md:w-72", selected && "hidden md:flex")}>
         <div className="px-4 pt-5 pb-3">
-          <h2 className="font-semibold">Échanges de l’équipe</h2>
-          <p className="text-muted-foreground text-xs">Ce que les compagnons se disent entre eux.</p>
+          <h2 className="font-semibold">{t("Échanges de l’équipe")}</h2>
+          <p className="text-muted-foreground text-xs">{t("Ce que les compagnons se disent entre eux.")}</p>
         </div>
         <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
           {threads?.length === 0 && (
             <p className="px-2 py-6 text-center text-muted-foreground text-sm">
-              Aucun échange pour l’instant. Demande par exemple à un compagnon de consulter un autre.
+              {t("Aucun échange pour l’instant. Demande par exemple à un compagnon de consulter un autre.")}
             </p>
           )}
           {threads?.map((t) => {
@@ -71,7 +72,7 @@ export function TeamView() {
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
             <MessagesSquareIcon className="size-6" />
-            <p className="text-sm">Sélectionne un échange</p>
+            <p className="text-sm">{t("Sélectionne un échange")}</p>
           </div>
         )}
       </div>
@@ -109,8 +110,8 @@ function Thread({ conversationId, onBack }: { conversationId: string; onBack: ()
                 <DotAvatar color={author?.color ?? "#999"} size={28} />
                 <div className={cn("min-w-0 max-w-[80%] space-y-1", right && "items-end text-right")}>
                   <p className="text-muted-foreground text-xs">
-                    {author?.name ?? "Compagnon"} · {relativeTime(m.metadata?.createdAt)}
-                    {tools > 0 && ` · ${tools} action${tools > 1 ? "s" : ""}`}
+                    {author?.name ?? t("Compagnon")} · {relativeTime(m.metadata?.createdAt)}
+                    {tools > 0 && ` · ${t(tools > 1 ? "{n} actions" : "{n} action", { n: tools })}`}
                   </p>
                   {text && (
                     <div className={cn("rounded-2xl border bg-card px-3.5 py-2.5 text-left text-sm", right ? "rounded-tr-md" : "rounded-tl-md")}>

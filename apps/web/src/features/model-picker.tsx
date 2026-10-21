@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { api, type ModelInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { t } from "@/lib/i18n";
 const RECOMMENDED = [
   "openai/gpt-oss-120b",
   "anthropic/claude-sonnet-4.5",
@@ -14,10 +15,10 @@ const RECOMMENDED = [
 ];
 
 function price(m: ModelInfo) {
-  if (m.provider === "ollama") return "local";
+  if (m.provider === "ollama") return t("local");
   if (m.promptPrice === null) return "";
-  if (m.promptPrice === 0 && m.completionPrice === 0) return "gratuit";
-  return `$${m.promptPrice?.toFixed(2)} / $${m.completionPrice?.toFixed(2)} par M`;
+  if (m.promptPrice === 0 && m.completionPrice === 0) return t("gratuit");
+  return `$${m.promptPrice?.toFixed(2)} / $${m.completionPrice?.toFixed(2)} ${t("par M")}`;
 }
 
 /** Sélecteur de modèle OpenRouter (ou Ollama) avec recherche. */
@@ -62,14 +63,14 @@ export function ModelPicker({
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={provider === "ollama" ? "Rechercher un modèle local…" : "Rechercher parmi les modèles OpenRouter…"}
+          placeholder={provider === "ollama" ? t("Rechercher un modèle local…") : t("Rechercher parmi les modèles OpenRouter…")}
           className="pl-9"
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border bg-card/50 p-1">
         {error && <p className="p-3 text-destructive text-sm">{error}</p>}
-        {!models && !error && <p className="p-3 text-muted-foreground text-sm">Chargement des modèles…</p>}
-        {models && list.length === 0 && <p className="p-3 text-muted-foreground text-sm">Aucun modèle trouvé.</p>}
+        {!models && !error && <p className="p-3 text-muted-foreground text-sm">{t("Chargement des modèles…")}</p>}
+        {models && list.length === 0 && <p className="p-3 text-muted-foreground text-sm">{t("Aucun modèle trouvé.")}</p>}
         {list.map((m) => (
           <button
             key={m.id}
@@ -84,7 +85,7 @@ export function ModelPicker({
               <div className="flex items-center gap-2">
                 <span className="truncate font-medium text-sm">{m.name}</span>
                 {RECOMMENDED[0] === m.id && (
-                  <span className="rounded-full border px-1.5 py-0.5 font-medium text-[10px] text-muted-foreground">recommandé</span>
+                  <span className="rounded-full border px-1.5 py-0.5 font-medium text-[10px] text-muted-foreground">{t("recommandé")}</span>
                 )}
               </div>
               <div className="flex items-center gap-2 text-muted-foreground text-xs">
@@ -94,11 +95,11 @@ export function ModelPicker({
             </div>
             <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
               {m.tools ? (
-                <WrenchIcon className="size-3.5" aria-label="Outils" />
+                <WrenchIcon className="size-3.5" aria-label={t("Outils")} />
               ) : (
-                <span className="text-[10px] text-foreground font-medium">sans outils</span>
+                <span className="text-[10px] text-foreground font-medium">{t("sans outils")}</span>
               )}
-              {m.reasoning && <BrainIcon className="size-3.5" aria-label="Raisonnement" />}
+              {m.reasoning && <BrainIcon className="size-3.5" aria-label={t("Raisonnement")} />}
               {value === m.id && <CheckIcon className="size-4 text-foreground" />}
             </div>
           </button>

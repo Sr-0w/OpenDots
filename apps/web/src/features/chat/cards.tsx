@@ -11,6 +11,7 @@ import { useServerEvent, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+import { t } from "@/lib/i18n";
 /** Actions de la conversation accessibles aux cartes (réponses aux formulaires). */
 export const ChatActionsContext = createContext<{
   sendAnswer: (requestId: string, answers: Record<string, unknown>, summary: string) => void;
@@ -26,8 +27,8 @@ function summarize(title: string, questions: AskQuestion[], answers: Record<stri
     title,
     ...questions.map((q) => {
       const v = answers[q.id];
-      const shown = Array.isArray(v) ? v.join(", ") : typeof v === "boolean" ? (v ? "oui" : "non") : String(v ?? "");
-      return `- ${q.label} : ${shown || "(sans réponse)"}`;
+      const shown = Array.isArray(v) ? v.join(", ") : typeof v === "boolean" ? (v ? t("oui") : t("non")) : String(v ?? "");
+      return `- ${q.label} : ${shown || t("(sans réponse)")}`;
     }),
   ].join("\n");
 }
@@ -77,7 +78,7 @@ export function AskUserCard({ requestId, title, questions }: { requestId: string
         <ClipboardListIcon className="mt-0.5 size-4 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm leading-snug">{title}</p>
-          <p className="text-muted-foreground text-xs">{answered ? "Réponses envoyées" : status === "cancelled" ? "Remplacé par une nouvelle demande" : "Ta réponse est attendue"}</p>
+          <p className="text-muted-foreground text-xs">{answered ? t("Réponses envoyées") : status === "cancelled" ? t("Remplacé par une nouvelle demande") : t("Ta réponse est attendue")}</p>
         </div>
       </div>
       <fieldset disabled={status !== "pending"} className="space-y-4">
@@ -91,7 +92,7 @@ export function AskUserCard({ requestId, title, questions }: { requestId: string
             {q.allowOther && (q.type === "single_choice" || q.type === "multi_choice") && !answered && (
               <Input
                 className="h-8 text-sm"
-                placeholder="Autre…"
+                placeholder={t("Autre…")}
                 value={other[q.id] ?? ""}
                 onChange={(e) => {
                   setOther({ ...other, [q.id]: e.target.value });
@@ -105,7 +106,7 @@ export function AskUserCard({ requestId, title, questions }: { requestId: string
       {status === "pending" && (
         <div className="mt-4 flex justify-end">
           <Button size="sm" onClick={submit} disabled={missing || !actions || actions.busy}>
-            <SendIcon /> Envoyer
+            <SendIcon /> {t("Envoyer")}
           </Button>
         </div>
       )}
@@ -150,8 +151,8 @@ function QuestionInput({ q, value, onChange }: { q: AskQuestion; value: unknown;
     return (
       <div className="flex gap-1.5">
         {[
-          { v: true, l: "Oui" },
-          { v: false, l: "Non" },
+          { v: true, l: t("Oui") },
+          { v: false, l: t("Non") },
         ].map((o) => (
           <button
             key={o.l}
@@ -217,18 +218,18 @@ export function ConnectionRequestCard({ kind, reason, agentId }: { kind: "mail" 
           <Icon className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm">{kind === "mail" ? "Connecter une boîte mail" : "Ajouter un connecteur"}</p>
+          <p className="font-medium text-sm">{kind === "mail" ? t("Connecter une boîte mail") : t("Ajouter un connecteur")}</p>
           <p className="text-muted-foreground text-xs">{reason}</p>
         </div>
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
         {connected.length > 0 && (
           <span className="mr-auto flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
-            <CheckIcon className="size-3.5 shrink-0" /> <span className="truncate">Connecté : {connected.join(", ")}</span>
+            <CheckIcon className="size-3.5 shrink-0" /> <span className="truncate">{t("Connecté :")} {connected.join(", ")}</span>
           </span>
         )}
         <Button size="sm" variant={connected.length ? "outline" : "default"} onClick={() => openDialog({ kind, requestedBy: agentId })}>
-          {connected.length ? "Ajouter un autre" : kind === "mail" ? "Connecter" : "Configurer"}
+          {connected.length ? t("Ajouter un autre") : kind === "mail" ? t("Connecter") : t("Configurer")}
         </Button>
       </div>
     </div>
@@ -250,21 +251,21 @@ export function MailDraftCard({ draftId, approvalId }: { draftId: string; approv
   const status = draft?.status ?? "pending";
   const label =
     status === "sent"
-      ? "Envoyé"
+      ? t("Envoyé")
       : status === "discarded"
-        ? "Abandonné"
+        ? t("Abandonné")
         : status === "failed"
-          ? "Échec de l’envoi"
+          ? t("Échec de l’envoi")
           : approval?.status === "approved"
-            ? "Envoi en cours…"
-            : "Prêt à envoyer";
+            ? t("Envoi en cours…")
+            : t("Prêt à envoyer");
 
   async function decide(decision: "approve" | "reject") {
     setBusy(decision);
     try {
       const res = await api.decide(approvalId, decision);
-      if (res.status === "failed") toast.error(res.error ?? "Échec de l’envoi");
-      else if (decision === "approve") toast.success("E-mail envoyé");
+      if (res.status === "failed") toast.error(res.error ?? t("Échec de l’envoi"));
+      else if (decision === "approve") toast.success(t("E-mail envoyé"));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -278,7 +279,7 @@ export function MailDraftCard({ draftId, approvalId }: { draftId: string; approv
     <div className={cn(cardClass, "p-0", status === "pending" && "border-foreground/30")}>
       <div className="flex items-center gap-2 border-b px-4 py-2.5">
         <MailIcon className="size-4 text-muted-foreground" />
-        <span className="font-medium text-sm">Nouvel e-mail</span>
+        <span className="font-medium text-sm">{t("Nouvel e-mail")}</span>
         <span
           className={cn(
             "ml-auto rounded-full px-2 py-0.5 text-[11px]",
@@ -291,17 +292,17 @@ export function MailDraftCard({ draftId, approvalId }: { draftId: string; approv
         </span>
       </div>
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 border-b px-4 py-2.5 text-sm">
-        <dt className="text-muted-foreground">De</dt>
+        <dt className="text-muted-foreground">{t("De")}</dt>
         <dd className="truncate">{draft.from}</dd>
-        <dt className="text-muted-foreground">À</dt>
+        <dt className="text-muted-foreground">{t("À")}</dt>
         <dd className="truncate">{draft.to.join(", ")}</dd>
         {draft.cc.length > 0 && (
           <>
-            <dt className="text-muted-foreground">Cc</dt>
+            <dt className="text-muted-foreground">{t("Cc")}</dt>
             <dd className="truncate">{draft.cc.join(", ")}</dd>
           </>
         )}
-        <dt className="text-muted-foreground">Objet</dt>
+        <dt className="text-muted-foreground">{t("Objet")}</dt>
         <dd className="font-medium">{draft.subject}</dd>
       </dl>
       <p className="max-h-72 overflow-y-auto whitespace-pre-wrap px-4 py-3 text-sm leading-relaxed">{draft.body}</p>
@@ -309,13 +310,13 @@ export function MailDraftCard({ draftId, approvalId }: { draftId: string; approv
       {status === "pending" && approval?.status === "pending" && (
         <div className="flex items-center gap-2 border-t px-4 py-2.5">
           <Button size="sm" onClick={() => decide("approve")} disabled={!!busy}>
-            {busy === "approve" ? <LoaderIcon className="animate-spin" /> : <SendIcon />} Envoyer
+            {busy === "approve" ? <LoaderIcon className="animate-spin" /> : <SendIcon />} {t("Envoyer")}
           </Button>
           <Button size="sm" variant="outline" onClick={() => openDialog({ kind: "draft", draftId })} disabled={!!busy}>
-            <PencilIcon /> Modifier
+            <PencilIcon /> {t("Modifier")}
           </Button>
           <Button size="sm" variant="ghost" className="ml-auto" onClick={() => decide("reject")} disabled={!!busy}>
-            <XIcon /> Abandonner
+            <XIcon /> {t("Abandonner")}
           </Button>
         </div>
       )}
@@ -336,7 +337,7 @@ export function ActivityCreatedCard({ title, when, kind }: { title: string; when
         <ClipboardListIcon className="size-4" />
       </div>
       <div className="min-w-0">
-        <p className="text-muted-foreground text-[11px]">{kind === "watch" ? "Surveillance créée" : kind === "mail" ? "Règle mail créée" : kind === "webhook" ? "Webhook créé" : "Tâche planifiée créée"}</p>
+        <p className="text-muted-foreground text-[11px]">{kind === "watch" ? t("Surveillance créée") : kind === "mail" ? t("Règle mail créée") : kind === "webhook" ? t("Webhook créé") : t("Tâche planifiée créée")}</p>
         <p className="truncate font-medium text-sm">{title}</p>
         <p className="truncate text-muted-foreground text-xs">{when}</p>
       </div>
@@ -362,7 +363,7 @@ export function TerminalCard({
       <div className="flex items-center gap-2 border-white/10 border-b px-3 py-1.5 font-mono text-[11px] opacity-70">
         <span className="truncate">$ {command.split("\n")[0]}</span>
         <span className="ml-auto shrink-0">
-          {output.timed_out ? "délai dépassé" : `code ${output.exit_code}`}
+          {output.timed_out ? t("délai dépassé") : t("code {n}", { n: output.exit_code })}
           {output.duration_ms !== undefined && ` · ${(output.duration_ms / 1000).toFixed(1)} s`}
         </span>
       </div>
@@ -373,7 +374,7 @@ export function TerminalCard({
       )}
       {long && (
         <button type="button" onClick={() => setOpen((v) => !v)} className="w-full border-white/10 border-t py-1 text-[11px] opacity-70 hover:opacity-100">
-          {open ? "Réduire" : `Afficher les ${lines.length} lignes`}
+          {open ? t("Réduire") : t("Afficher les {n} lignes", { n: lines.length })}
         </button>
       )}
     </div>

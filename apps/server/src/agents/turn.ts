@@ -1,6 +1,6 @@
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
-import type { MessageMetadata } from '@opendots/shared';
+import { cleanModelText, type MessageMetadata } from '@opendots/shared';
 import { config } from '../config.ts';
 import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
@@ -258,7 +258,9 @@ async function executeTurn(
   const acted = (response?.parts ?? []).some((p: any) => typeof p.type === 'string' && VISIBLE_EFFECT_TOOLS.test(p.type.slice(5)) && p.output?.ok !== false);
   const silent = autonomous && !pair && !acted && (SILENCE.test(text) || (!text && !turnError));
   if (response && response.parts.length) {
-    const parts = SILENCE.test(text) ? response.parts.filter((p) => p.type !== 'text') : response.parts;
+    const parts = (SILENCE.test(text) ? response.parts.filter((p) => p.type !== 'text') : response.parts).map((p) =>
+      p.type === 'text' ? { ...p, text: cleanModelText(p.text) } : p,
+    );
     await saveMessage(
       conversationId,
       { ...response, id: responseId, role: 'assistant', parts, metadata: { ...(response.metadata ?? {}), createdAt: new Date().toISOString() } },

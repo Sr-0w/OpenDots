@@ -13,38 +13,39 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Field } from "./activity-dialog";
 
+import { t } from "@/lib/i18n";
 // --- Compte mail -------------------------------------------------------------
 
 const PRESETS: Record<string, { label: string; imap: MailConfig["imap"]; smtp: MailConfig["smtp"]; hint?: string }> = {
   gmail: {
-    label: "Gmail",
+    label: t("Gmail"),
     imap: { host: "imap.gmail.com", port: 993, secure: true },
     smtp: { host: "smtp.gmail.com", port: 465, secure: true },
-    hint: "Utilise un mot de passe d’application (compte Google → Sécurité → Mots de passe des applications).",
+    hint: t("Utilise un mot de passe d’application (compte Google → Sécurité → Mots de passe des applications)."),
   },
   outlook: {
-    label: "Outlook / Microsoft 365",
+    label: t("Outlook / Microsoft 365"),
     imap: { host: "outlook.office365.com", port: 993, secure: true },
     smtp: { host: "smtp.office365.com", port: 587, secure: false },
-    hint: "IMAP doit être activé sur le compte ; un mot de passe d’application peut être nécessaire.",
+    hint: t("IMAP doit être activé sur le compte ; un mot de passe d’application peut être nécessaire."),
   },
   icloud: {
     label: "iCloud",
     imap: { host: "imap.mail.me.com", port: 993, secure: true },
     smtp: { host: "smtp.mail.me.com", port: 587, secure: false },
-    hint: "Crée un mot de passe d’application sur appleid.apple.com.",
+    hint: t("Crée un mot de passe d’application sur appleid.apple.com."),
   },
   yahoo: {
-    label: "Yahoo",
+    label: t("Yahoo"),
     imap: { host: "imap.mail.yahoo.com", port: 993, secure: true },
     smtp: { host: "smtp.mail.yahoo.com", port: 465, secure: true },
   },
   infomaniak: {
-    label: "Infomaniak",
+    label: t("Infomaniak"),
     imap: { host: "mail.infomaniak.com", port: 993, secure: true },
     smtp: { host: "mail.infomaniak.com", port: 465, secure: true },
   },
-  custom: { label: "Autre (IMAP / SMTP)", imap: { host: "", port: 993, secure: true }, smtp: { host: "", port: 465, secure: true } },
+  custom: { label: t("Autre (IMAP / SMTP)"), imap: { host: "", port: 993, secure: true }, smtp: { host: "", port: 465, secure: true } },
 };
 
 function guessPreset(email: string): string {
@@ -98,10 +99,10 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
     try {
       if (connector) {
         await api.updateConnector(connector.id, { config, secrets: password ? { password } : undefined, name: email });
-        toast.success("Compte mis à jour");
+        toast.success(t("Compte mis à jour"));
       } else {
         await api.createConnector({ name: email.trim(), kind: "mail", config, secrets: { password }, requestedBy });
-        toast.success(`${email} est connecté`);
+        toast.success(t("{v0} est connecté", { v0: email }));
       }
       onClose();
     } catch (e) {
@@ -118,14 +119,14 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
           <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-muted text-foreground">
             <MailIcon className="size-4" />
           </div>
-          <DialogTitle>{connector ? "Modifier le compte mail" : "Connecter une boîte mail"}</DialogTitle>
+          <DialogTitle>{connector ? t("Modifier le compte mail") : t("Connecter une boîte mail")}</DialogTitle>
           <DialogDescription>
-            Tes compagnons pourront lire et préparer des réponses. Aucun e-mail n’est envoyé sans ta validation.
+            {t("Tes compagnons pourront lire et préparer des réponses. Aucun e-mail n’est envoyé sans ta validation.")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <Field label="Adresse e-mail">
+          <Field label={t("Adresse e-mail")}>
             <Input
               type="email"
               value={email}
@@ -134,10 +135,10 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
                 setEmail(e.target.value);
                 if (!connector && !advanced) choosePreset(guessPreset(e.target.value));
               }}
-              placeholder="prenom@exemple.com"
+              placeholder={t("prenom@exemple.com")}
             />
           </Field>
-          <Field label="Fournisseur" hint={PRESETS[preset]?.hint}>
+          <Field label={t("Fournisseur")} hint={PRESETS[preset]?.hint}>
             <Select value={preset} onValueChange={choosePreset}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -151,46 +152,46 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
               </SelectContent>
             </Select>
           </Field>
-          <Field label={connector ? "Mot de passe (laisser vide pour conserver)" : "Mot de passe ou mot de passe d’application"}>
+          <Field label={connector ? t("Mot de passe (laisser vide pour conserver)") : t("Mot de passe ou mot de passe d’application")}>
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
           </Field>
           <button type="button" className="text-muted-foreground text-xs underline-offset-2 hover:underline" onClick={() => setAdvanced((v) => !v)}>
-            {advanced ? "Masquer les réglages avancés" : "Réglages avancés"}
+            {advanced ? t("Masquer les réglages avancés") : t("Réglages avancés")}
           </button>
           {advanced && (
             <div className="space-y-3 rounded-xl border p-3">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Nom affiché">
+                <Field label={t("Nom affiché")}>
                   <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
                 </Field>
-                <Field label="Identifiant">
+                <Field label={t("Identifiant")}>
                   <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={email} />
                 </Field>
               </div>
               <ServerRow label="IMAP" value={imap} onChange={setImap} />
               <ServerRow label="SMTP" value={smtp} onChange={setSmtp} />
-              <Field label="Relève toutes les (minutes)">
+              <Field label={t("Relève toutes les (minutes)")}>
                 <Input type="number" min={1} className="w-24" value={pollMinutes} onChange={(e) => setPollMinutes(Math.max(1, Number(e.target.value) || 1))} />
               </Field>
             </div>
           )}
           {test && (
             <div className={cn("space-y-1 rounded-xl border p-3 text-xs", test.ok ? "border-foreground/30" : "border-destructive/40")}>
-              <Status label="Réception (IMAP)" value={test.imap} />
-              <Status label="Envoi (SMTP)" value={test.smtp} />
+              <Status label={t("Réception (IMAP)")} value={test.imap} />
+              <Status label={t("Envoi (SMTP)")} value={test.smtp} />
             </div>
           )}
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <ShieldCheckIcon className="size-3.5" /> Le mot de passe est chiffré sur ta machine et n’est jamais montré aux modèles.
+            <ShieldCheckIcon className="size-3.5" /> {t("Le mot de passe est chiffré sur ta machine et n’est jamais montré aux modèles.")}
           </p>
         </div>
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={runTest} disabled={!ready || !!busy}>
-            {busy === "test" ? <LoaderIcon className="animate-spin" /> : "Tester"}
+            {busy === "test" ? <LoaderIcon className="animate-spin" /> : t("Tester")}
           </Button>
           <Button onClick={save} disabled={!ready || !!busy}>
-            {busy === "save" ? <LoaderIcon className="animate-spin" /> : connector ? "Enregistrer" : "Connecter"}
+            {busy === "save" ? <LoaderIcon className="animate-spin" /> : connector ? t("Enregistrer") : t("Connecter")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -201,14 +202,14 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
 function ServerRow({ label, value, onChange }: { label: string; value: MailConfig["imap"]; onChange: (v: MailConfig["imap"]) => void }) {
   return (
     <div className="grid grid-cols-[1fr_5rem_auto] items-end gap-2">
-      <Field label={`Serveur ${label}`}>
+      <Field label={t("Serveur {label}", { label })}>
         <Input value={value.host} onChange={(e) => onChange({ ...value, host: e.target.value })} />
       </Field>
-      <Field label="Port">
+      <Field label={t("Port")}>
         <Input type="number" value={value.port} onChange={(e) => onChange({ ...value, port: Number(e.target.value) })} />
       </Field>
       <label className="flex h-9 items-center gap-1.5 text-xs">
-        <Switch checked={value.secure} onCheckedChange={(secure) => onChange({ ...value, secure })} /> SSL
+        <Switch checked={value.secure} onCheckedChange={(secure) => onChange({ ...value, secure })} /> {t("SSL")}
       </label>
     </div>
   );
@@ -220,7 +221,7 @@ function Status({ label, value }: { label: string; value: string }) {
     <p className="flex items-start gap-1.5">
       {ok ? <CheckCircle2Icon className="size-3.5 shrink-0 text-foreground" /> : <XCircleIcon className="size-3.5 shrink-0 text-destructive" />}
       <span>
-        <span className="font-medium">{label}</span> {ok ? "— connexion réussie" : `— ${value}`}
+        <span className="font-medium">{label}</span> {ok ? t("— connexion réussie") : `— ${value}`}
       </span>
     </p>
   );
@@ -239,7 +240,7 @@ export function McpDialog({ connector, requestedBy, onClose }: { connector?: Con
   const [args, setArgs] = useState((cfg?.args ?? []).join(" "));
   const [approval, setApproval] = useState<"ask" | "auto">(connector?.approval ?? "ask");
   const [secrets, setSecrets] = useState<SecretRow[]>(
-    connector?.secretKeys.map((key) => ({ key, value: "" })) ?? [{ key: transport === "stdio" ? "" : "Authorization", value: "" }],
+    connector?.secretKeys.map((key) => ({ key, value: "" })) ?? [{ key: transport === "stdio" ? "" : t("Authorization"), value: "" }],
   );
   const [busy, setBusy] = useState(false);
 
@@ -254,8 +255,8 @@ export function McpDialog({ connector, requestedBy, onClose }: { connector?: Con
       const res = connector
         ? await api.updateConnector(connector.id, { name, config, approval, secrets: secretMap })
         : await api.createConnector({ name: name.trim(), kind: "mcp", config, approval, secrets: secretMap, requestedBy });
-      if (res.status === "error") toast.error(`Connexion impossible : ${res.lastError}`);
-      else toast.success(`${res.name} connecté · ${res.tools.length} outil(s)`);
+      if (res.status === "error") toast.error(t("Connexion impossible : {error}", { error: res.lastError }));
+      else toast.success(t("{v0} connecté · {v1} outil(s)", { v0: res.name, v1: res.tools.length }));
       onClose();
     } catch (e) {
       toast.error((e as Error).message);
@@ -271,72 +272,72 @@ export function McpDialog({ connector, requestedBy, onClose }: { connector?: Con
           <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-muted text-foreground">
             <PlugIcon className="size-4" />
           </div>
-          <DialogTitle>{connector ? "Modifier le connecteur" : "Ajouter un connecteur MCP"}</DialogTitle>
-          <DialogDescription>Donne à tous tes compagnons l’accès aux outils d’un serveur MCP.</DialogDescription>
+          <DialogTitle>{connector ? t("Modifier le connecteur") : t("Ajouter un connecteur MCP")}</DialogTitle>
+          <DialogDescription>{t("Donne à tous tes compagnons l’accès aux outils d’un serveur MCP.")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <Field label="Nom">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="GitHub, Notion, Home Assistant…" autoFocus />
+          <Field label={t("Nom")}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("GitHub, Notion, Home Assistant…")} autoFocus />
           </Field>
           <Tabs value={transport} onValueChange={(v) => setTransport(v as McpConfig["transport"])}>
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="http">HTTP</TabsTrigger>
-              <TabsTrigger value="sse">SSE</TabsTrigger>
+              <TabsTrigger value="http">{t("HTTP")}</TabsTrigger>
+              <TabsTrigger value="sse">{t("SSE")}</TabsTrigger>
               <TabsTrigger value="stdio">Local (stdio)</TabsTrigger>
             </TabsList>
           </Tabs>
           {transport === "stdio" ? (
             <>
-              <Field label="Commande">
+              <Field label={t("Commande")}>
                 <Input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="npx" className="font-mono" />
               </Field>
-              <Field label="Arguments">
-                <Input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y @modelcontextprotocol/server-filesystem /chemin" className="font-mono" />
+              <Field label={t("Arguments")}>
+                <Input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y @modelcontextprotocol/server-filesystem /path" className="font-mono" />
               </Field>
-              <p className="text-foreground font-medium text-[11px]">Cette commande s’exécutera sur ta machine : n’ajoute que des serveurs de confiance.</p>
+              <p className="text-foreground font-medium text-[11px]">{t("Cette commande s’exécutera sur ta machine : n’ajoute que des serveurs de confiance.")}</p>
             </>
           ) : (
-            <Field label="URL du serveur">
-              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://exemple.com/mcp" />
+            <Field label={t("URL du serveur")}>
+              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" />
             </Field>
           )}
-          <Field label={transport === "stdio" ? "Variables d’environnement secrètes" : "En-têtes secrets"} hint="Chiffrés localement, jamais montrés aux modèles. Vide = valeur conservée.">
+          <Field label={transport === "stdio" ? t("Variables d’environnement secrètes") : t("En-têtes secrets")} hint={t("Chiffrés localement, jamais montrés aux modèles. Vide = valeur conservée.")}>
             <div className="space-y-2">
               {secrets.map((s, i) => (
                 <div key={i} className="flex gap-2">
                   <Input
                     value={s.key}
-                    placeholder={transport === "stdio" ? "API_KEY" : "Authorization"}
+                    placeholder={transport === "stdio" ? "API_KEY" : t("Authorization")}
                     className="w-40 font-mono text-xs"
                     onChange={(e) => setSecrets(secrets.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))}
                   />
                   <Input
                     type="password"
                     value={s.value}
-                    placeholder={transport === "stdio" ? "valeur" : "Bearer …"}
+                    placeholder={transport === "stdio" ? "valeur" : t("Bearer …")}
                     onChange={(e) => setSecrets(secrets.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
                   />
                 </div>
               ))}
               <button type="button" className="text-muted-foreground text-xs hover:text-foreground" onClick={() => setSecrets([...secrets, { key: "", value: "" }])}>
-                + Ajouter
+                {t("+ Ajouter")}
               </button>
             </div>
           </Field>
           <label className="flex items-center justify-between gap-3 rounded-xl border p-3">
             <div>
-              <p className="font-medium text-sm">Demander ma validation à chaque appel</p>
-              <p className="text-muted-foreground text-xs">Recommandé pour les outils qui modifient des données.</p>
+              <p className="font-medium text-sm">{t("Demander ma validation à chaque appel")}</p>
+              <p className="text-muted-foreground text-xs">{t("Recommandé pour les outils qui modifient des données.")}</p>
             </div>
             <Switch checked={approval === "ask"} onCheckedChange={(v) => setApproval(v ? "ask" : "auto")} />
           </label>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Annuler
+            {t("Annuler")}
           </Button>
           <Button onClick={save} disabled={!ready || busy}>
-            {busy ? <LoaderIcon className="animate-spin" /> : connector ? "Enregistrer" : "Connecter"}
+            {busy ? <LoaderIcon className="animate-spin" /> : connector ? t("Enregistrer") : t("Connecter")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -370,7 +371,7 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       await api.installPlugin({ ...source(), secrets });
-      toast.success(`Plugin « ${manifest?.name} » installé`);
+      toast.success(t("Plugin « {v0} » installé", { v0: manifest?.name }));
       onClose();
     } catch (e) {
       toast.error((e as Error).message);
@@ -383,15 +384,15 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Installer un plugin</DialogTitle>
-          <DialogDescription>Un plugin regroupe des skills et des connecteurs MCP, décrits dans un manifeste JSON.</DialogDescription>
+          <DialogTitle>{t("Installer un plugin")}</DialogTitle>
+          <DialogDescription>{t("Un plugin regroupe des skills et des connecteurs MCP, décrits dans un manifeste JSON.")}</DialogDescription>
         </DialogHeader>
         {!manifest ? (
           <div className="space-y-3">
             <Tabs value={mode} onValueChange={(v) => setMode(v as "url" | "json")}>
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="url">Depuis une URL</TabsTrigger>
-                <TabsTrigger value="json">Coller le manifeste</TabsTrigger>
+                <TabsTrigger value="url">{t("Depuis une URL")}</TabsTrigger>
+                <TabsTrigger value="json">{t("Coller le manifeste")}</TabsTrigger>
               </TabsList>
             </Tabs>
             {mode === "url" ? (
@@ -402,7 +403,7 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
                 value={json}
                 onChange={(e) => setJson(e.target.value)}
                 className="font-mono text-xs"
-                placeholder={'{\n  "name": "Mon plugin",\n  "skills": [{ "name": "…", "description": "…", "instructions": "…" }],\n  "connectors": [{ "name": "…", "config": { "transport": "http", "url": "…" } }]\n}'}
+                placeholder={'{\n  "name": "My plugin",\n  "skills": [{ "name": "…", "description": "…", "instructions": "…" }],\n  "connectors": [{ "name": "…", "config": { "transport": "http", "url": "…" } }]\n}'}
               />
             )}
           </div>
@@ -416,7 +417,7 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
             </div>
             {!!manifest.skills?.length && (
               <div className="space-y-1">
-                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">Skills</p>
+                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">{t("Skills")}</p>
                 {manifest.skills.map((s) => (
                   <p key={s.name} className="text-sm">
                     • <span className="font-medium">{s.name}</span> — <span className="text-muted-foreground">{s.description}</span>
@@ -426,7 +427,7 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
             )}
             {!!manifest.connectors?.length && (
               <div className="space-y-2">
-                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">Connecteurs</p>
+                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">{t("Connecteurs")}</p>
                 {manifest.connectors.map((c) => (
                   <div key={c.name} className="space-y-2 rounded-xl border p-3 text-sm">
                     <p>
@@ -435,7 +436,7 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
                         {c.config.transport === "stdio" ? `${c.config.command} ${(c.config.args ?? []).join(" ")}` : c.config.url}
                       </span>
                     </p>
-                    {c.config.transport === "stdio" && <p className="text-foreground font-medium text-[11px]">Exécutera une commande sur ta machine.</p>}
+                    {c.config.transport === "stdio" && <p className="text-foreground font-medium text-[11px]">{t("Exécutera une commande sur ta machine.")}</p>}
                     {(c.secrets ?? []).map((key) => (
                       <Input
                         key={key}
@@ -455,15 +456,15 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
           {manifest ? (
             <>
               <Button variant="ghost" onClick={() => setManifest(null)}>
-                Retour
+                {t("Retour")}
               </Button>
               <Button onClick={install} disabled={busy}>
-                {busy ? <LoaderIcon className="animate-spin" /> : "Installer"}
+                {busy ? <LoaderIcon className="animate-spin" /> : t("Installer")}
               </Button>
             </>
           ) : (
             <Button onClick={preview} disabled={busy || (mode === "url" ? !url.trim() : !json.trim())}>
-              {busy ? <LoaderIcon className="animate-spin" /> : "Aperçu"}
+              {busy ? <LoaderIcon className="animate-spin" /> : t("Aperçu")}
             </Button>
           )}
         </DialogFooter>
