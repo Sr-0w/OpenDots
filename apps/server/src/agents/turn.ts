@@ -15,6 +15,7 @@ import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow }
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
 import { buildCapabilityTools } from './capability-tools.ts';
+import { activeToolNames } from './lazy-tools.ts';
 import { ActiveStream, beginStream, finishStream } from './streams.ts';
 import { errorMessage, KeyedMutex, newId } from '../util.ts';
 
@@ -71,24 +72,6 @@ function compactAssistantParts(parts: any[]): any[] {
 }
 
 /** Prépare l'historique pour le modèle : rôles, événements, sorties d'outils compactées. */
-const SERVICE_TOOL = /^(svc|mcp)_/;
-
-/**
- * Les modèles s'en tiennent volontiers à ce qu'ils ont affirmé plus tôt
- * (« je n'ai pas d'outil pour ça »). Quand des outils de services sont apparus
- * depuis la dernière réponse du compagnon, on le lui signale explicitement.
- */
-export function newServiceToolsNotice(messages: OpenDotsUIMessage[], selfId: string, toolNames: string[]): string | null {
-  const current = toolNames.filter((n) => SERVICE_TOOL.test(n));
-  if (!current.length) return null;
-  const last = [...messages].reverse().find((m) => m.role === 'assistant' && (m.metadata?.agentId ?? selfId) === selfId);
-  if (!last) return null;
-  const previous = last.metadata?.tools;
-  const added = previous ? current.filter((n) => !previous.includes(n)) : current;
-  if (!added.length) return null;
-  return `[Système] ${previous ? 'Nouveaux outils disponibles depuis ta dernière réponse' : 'Outils de services connectés disponibles à ce tour'} : ${added.join(', ')}. Ils remplacent tout ce que tu as pu dire avant sur des actions impossibles : utilise-les si la demande s'y prête.`;
-}
-
 export function historyForModel(
   messages: OpenDotsUIMessage[],
   self: AgentRow,
@@ -208,11 +191,6 @@ async function executeTurn(
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
   const history = historyForModel(stored, agent, names, pair);
-  const notice = newServiceToolsNotice(stored, agent.id, Object.keys(tools));
-  if (notice && history.length && history[history.length - 1].role === 'user') {
-    const lastMsg = history[history.length - 1];
-    history[history.length - 1] = { ...lastMsg, parts: [...lastMsg.parts, { type: 'text', text: notice }] } as OpenDotsUIMessage;
-  }
   if (trigger.kind === 'team' && trigger.nudge) {
     history.push({
       id: newId('msg'),
@@ -241,7 +219,7 @@ async function executeTurn(
     mode,
     tz,
     now: new Date(),
-    toolNames: Object.keys(tools),
+    toolNames: activeToolNames(tools, capabilities.lazy),
   });
 
   const modelCfg = await effectiveModel(agent);
@@ -260,6 +238,9 @@ async function executeTurn(
       instructions: system,
       messages: await convertToModelMessages(history, { ignoreIncompleteToolCalls: true }),
       tools,
+      // Outils de services chargés à la demande : load_tools les active dès l'étape suivante.
+      activeTools: activeToolNames(tools, capabilities.lazy) as any,
+      prepareStep: () => ({ activeTools: activeToolNames(tools, capabilities.lazy) as any }),
       stopWhen: [isStepCount(config.maxStepsPerTurn), formShown],
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
@@ -275,7 +256,6 @@ async function executeTurn(
       agentId,
       model: resolved.label,
       autonomous,
-      tools: Object.keys(tools).filter((n) => SERVICE_TOOL.test(n)),
     };
 
     const uiStream = toUIMessageStream<typeof tools, OpenDotsUIMessage>({

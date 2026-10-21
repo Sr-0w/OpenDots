@@ -12,6 +12,9 @@ import { IntegrationExecutor, OPERATIONS, availableOperations } from '../src/int
 import { gitPushArgs } from '../src/computer/shell.ts';
 import { createAgent, getAgent, mainConversationId, updateAgent } from '../src/agents/repo.ts';
 import { buildCapabilityTools } from '../src/agents/capability-tools.ts';
+import { activeToolNames, loadedToolsFor } from '../src/agents/lazy-tools.ts';
+import { generateText } from 'ai';
+import { MockLanguageModelV4 } from 'ai/test';
 import { getApproval, resolveApproval } from '../src/approvals/service.ts';
 import { createApi } from '../src/api/routes.ts';
 import { config } from '../src/config.ts';
@@ -321,5 +324,58 @@ describe('GitHub : dépôts, pull requests et git push', () => {
     for (const bad of [{ ...args, path: '../autre' }, { ...args, path: '/etc' }, { ...args, branch: '--force' }, { ...args, branch: 'a..b' }, { ...args, repo: 'owner/../x' }, { ...args, force: true }]) await expect(asA(() => executor.execute(id, 'github_push', bad, { agentId: 'ag_test' }))).rejects.toThrow();
     await expect(withAccount(b, () => executor.execute(id, 'github_push', args, { agentId: 'ag_test' }))).rejects.toThrow('introuvable');
     expect(pushes).toHaveLength(1);
+  });
+});
+
+describe('outils de services chargés à la demande', () => {
+  const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } };
+  const call = (toolName: string, input: unknown) => ({ content: [{ type: 'tool-call', toolCallId: `c_${toolName}`, toolName, input: JSON.stringify(input) }], finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage, warnings: [] });
+  const setup = async () => {
+    const row = (await getConnector(connectorIds.get('github')!))!;
+    await updateConnector(row.id, { approval: 'ask', enabled: true, status: 'ok' });
+    const created = await createAgent({ name: `Lazy${Math.random()}` }), agent = (await getAgent(created.id))!;
+    const conversationId = await mainConversationId(agent.id);
+    const build = async () => buildCapabilityTools({ agent: (await getAgent(agent.id))!, conversationId, isMain: true, userTurn: true, depth: 0, tz: 'UTC' });
+    return { row, agent, conversationId, build, name: `svc_${row.id.slice(-8)}_github_repo_create` };
+  };
+  it('catalogue compact : aucune action de service active ni listée avant chargement', async () => asA(async () => {
+    const { build, name } = await setup(), { tools, info, lazy } = await build();
+    expect(tools[name]).toBeDefined(); expect(tools.list_capabilities).toBeDefined(); expect(tools.load_tools).toBeDefined();
+    const active = activeToolNames(tools, lazy);
+    expect(active.some((n) => n.startsWith('svc_'))).toBe(false);
+    expect(info.connectors.join('\n')).not.toContain('github_repo_create');
+    expect(info.connectors.join('\n')).toMatch(/Service « GitHub.*action\(s\)/);
+  }));
+  it('list_capabilities reflète les permissions et load_tools refuse les noms inconnus', async () => asA(async () => {
+    const { row, build, name } = await setup();
+    const listed = await (await build()).tools.list_capabilities.execute!({ filter: 'github' } as never, { toolCallId: 'l', messages: [] } as any) as any;
+    expect(JSON.stringify(listed)).toContain(name);
+    await updateConnector(row.id, { config: { ...row.config, permissions: ['read'] } });
+    try {
+      const { tools } = await build();
+      const after = await tools.list_capabilities.execute!({} as never, { toolCallId: 'l', messages: [] } as any) as any;
+      expect(JSON.stringify(after)).not.toContain('github_repo_create');
+      const refused = await tools.load_tools.execute!({ names: [name, 'shell_exec'] } as never, { toolCallId: 'x', messages: [] } as any) as any;
+      expect(refused.ok).toBe(false); expect(refused.unknown).toEqual([name, 'shell_exec']);
+    } finally { await updateConnector(row.id, { config: row.config }); }
+  }));
+  it('charge puis appelle dans le même tour, avec validation humaine, et persiste pour la conversation', async () => asA(async () => {
+    const { build, name, conversationId } = await setup(), { tools, lazy } = await build();
+    const model = new MockLanguageModelV4({ doGenerate: [call('load_tools', { names: [name] }), call(name, { name: 'essai', private: true }), { content: [{ type: 'text', text: 'Prêt.' }], finishReason: { unified: 'stop', raw: 'stop' }, usage, warnings: [] }] as any });
+    const result = await generateText({ model, tools, activeTools: activeToolNames(tools, lazy) as any, prepareStep: () => ({ activeTools: activeToolNames(tools, lazy) as any }), stopWhen: () => false, messages: [{ role: 'user', content: 'Crée un dépôt' }] } as any);
+    const sent = model.doGenerateCalls.map((c: any) => (c.tools ?? []).map((t: any) => t.name));
+    expect(sent[0]).not.toContain(name); expect(sent[1]).toContain(name);
+    const output = result.steps[1].toolResults[0].output as any;
+    expect(output.status).toBe('pending_approval'); expect((await getApproval(output.approvalId))!.status).toBe('pending');
+    expect(calls.filter((c) => c.url.pathname === '/user/repos' && c.method === 'POST')).toHaveLength(0);
+    expect(await loadedToolsFor(conversationId)).toContain(name);
+    const next = await build(); expect(activeToolNames(next.tools, next.lazy)).toContain(name);
+  }));
+  it('un autre compte ne voit ni ne charge ces outils', async () => {
+    const { conversationId } = await asA(setup);
+    const other = await withAccount(b, async () => { await openDatabase({ memory: true }); const created = await createAgent({ name: 'Bob' }); const agent = (await getAgent(created.id))!; return buildCapabilityTools({ agent, conversationId: await mainConversationId(agent.id), isMain: true, userTurn: true, depth: 0, tz: 'UTC' }); });
+    expect(Object.keys(other.tools).some((n) => n.startsWith('svc_'))).toBe(false);
+    expect(other.tools.load_tools).toBeUndefined();
+    expect(await withAccount(b, () => loadedToolsFor(conversationId))).toEqual([]);
   });
 });

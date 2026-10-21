@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { historyForModel, newServiceToolsNotice } from '../src/agents/turn.ts';
+import { historyForModel } from '../src/agents/turn.ts';
 
 const agent = { id: 'ag_self', name: 'Ari' } as any;
 const user = (id: string, text: string) => ({ id, role: 'user', parts: [{ type: 'text', text }], metadata: { kind: 'chat' } }) as any;
@@ -21,16 +21,3 @@ describe('historique envoyé au modèle', () => {
   });
 });
 
-describe('signalement des nouveaux outils de services', () => {
-  const said = (tools?: string[]) => ({ id: 'a', role: 'assistant', parts: [{ type: 'text', text: 'Je ne peux pas créer de dépôt.' }], metadata: { agentId: 'ag_self', ...(tools ? { tools } : {}) } }) as any;
-  const names = ['shell_exec', 'svc_x_github_repos', 'svc_x_github_repo_create'];
-  it('annonce les outils apparus depuis la dernière réponse', () => {
-    const n = newServiceToolsNotice([user('u', 'a'), said(['svc_x_github_repos']), user('u2', 'Et mtn ?')], 'ag_self', names);
-    expect(n).toContain('svc_x_github_repo_create'); expect(n).not.toContain('svc_x_github_repos,');
-  });
-  it('annonce une fois pour les anciens messages sans liste, puis se tait', () => {
-    expect(newServiceToolsNotice([user('u', 'a'), said(), user('u2', 'b')], 'ag_self', names)).toContain('svc_x_github_repos');
-    expect(newServiceToolsNotice([user('u', 'a'), said(names.slice(1)), user('u2', 'b')], 'ag_self', names)).toBeNull();
-    expect(newServiceToolsNotice([user('u', 'a')], 'ag_self', names)).toBeNull();
-  });
-});

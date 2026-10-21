@@ -117,10 +117,10 @@ export async function callMcpTool(connectorId: string, toolName: string, args: u
  */
 export async function mcpToolsForTurn(
   requestApproval: (connector: ConnectorRow, toolName: string, args: unknown, toolCallId: string) => Promise<unknown>,
-): Promise<{ tools: ToolSet; connectors: { name: string; tools: number; status: string }[] }> {
+): Promise<{ tools: ToolSet; connectors: { id: string; name: string; tools: number; status: string; names: string[] }[] }> {
   const rows = (await listConnectors('mcp')).filter((c) => c.enabled);
   const out: ToolSet = {};
-  const summary: { name: string; tools: number; status: string }[] = [];
+  const summary: { id: string; name: string; tools: number; status: string; names: string[] }[] = [];
   await Promise.all(
     rows.map(async (row) => {
       try {
@@ -140,11 +140,11 @@ export async function mcpToolsForTurn(
             },
           });
         }
-        summary.push({ name: row.name, tools: Object.keys(tools).length, status: 'ok' });
+        summary.push({ id: row.id.slice(-8), name: row.name, tools: Object.keys(tools).length, status: 'ok', names: Object.keys(tools).map((n) => mcpToolName(row, n)) });
       } catch (err) {
         await closeMcpClient(row.id);
         if (row.status !== 'error') await updateConnector(row.id, { status: 'error', lastError: errorMessage(err) }).catch(() => {});
-        summary.push({ name: row.name, tools: 0, status: `indisponible (${errorMessage(err).slice(0, 80)})` });
+        summary.push({ id: row.id.slice(-8), name: row.name, tools: 0, names: [], status: `indisponible (${errorMessage(err).slice(0, 80)})` });
       }
     }),
   );
