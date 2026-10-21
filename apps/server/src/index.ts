@@ -12,9 +12,15 @@ import { db, schema } from './db/client.ts';
 import { ne } from 'drizzle-orm';
 import { startMailPoller, stopMailPoller } from './mail/service.ts';
 import { closeAllMcpClients } from './connectors/mcp.ts';
+import { ensureLocalSearch } from './tools/local-search.ts';
+import { getSearchSettings } from './settings.ts';
 
 setupNetwork();
 await openDatabase();
+if ((await getSearchSettings()).provider === 'auto') {
+  // Warm up without blocking the UI; the first search awaits the same startup.
+  void ensureLocalSearch().then(() => console.log('SearXNG local est prêt.')).catch((error: Error) => console.warn(error.message));
+}
 
 // Au démarrage, aucun tour n'est en cours : on remet les états à jour.
 await db().update(schema.agents).set({ state: 'available', stateDetail: null }).where(ne(schema.agents.state, 'available'));

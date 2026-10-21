@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
 import { getSearchSettings } from '../src/settings.ts';
 import { webSearch } from '../src/tools/search.ts';
+import { ensureLocalSearch } from '../src/tools/local-search.ts';
 
 vi.mock('../src/settings.ts', () => ({ getSearchSettings: vi.fn() }));
+vi.mock('../src/tools/local-search.ts', () => ({ ensureLocalSearch: vi.fn() }));
 const settings = vi.mocked(getSearchSettings);
 const query = 'Hognoul Awans coordinates';
 const personal = 'https://searx.example';
@@ -27,7 +29,7 @@ describe('recherche libre sans clé', () => {
       if (url.searchParams.get('format') === 'json') { res.writeHead(403); res.end(); }
       else { res.setHeader('content-type', 'text/html'); res.end(article()); }
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
     try {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Serveur non démarré');
@@ -43,39 +45,50 @@ describe('recherche libre sans clé', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
-  it('utilise la recherche anonyme Mwmbl et assemble ses segments sans balisage', async () => {
+  it('utilise uniquement SearXNG local par défaut, après sa disponibilité', async () => {
     settings.mockResolvedValue({ provider: 'auto', url: null });
-    const fetch = respond([{ url: 'https://example.com/hognoul', title: [{ value: 'Hognoul ', is_bold: true }, { value: 'Awans' }], extract: [{ value: 'Coordonnées' }] }]);
-    expect(await webSearch(query)).toEqual({ query, provider: 'mwmbl', results: [
-      { title: 'Hognoul Awans', url: 'https://example.com/hognoul', snippet: 'Coordonnées' },
-    ] });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const [url, init] = fetch.mock.calls[0];
-    expect(new URL(url).origin).toBe('https://mwmbl.org');
-    expect(new URL(url).pathname).toBe('/api/v1/search/');
-    expect(new URL(url).searchParams.get('s')).toBe(query);
-    expect(init.headers).toEqual({ Accept: 'application/json' });
-    expect(init.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it('passe à SearXNG public quand Mwmbl ne couvre pas le lieu', async () => {
-    settings.mockResolvedValue({ provider: 'auto', url: null });
-    const fetch = vi.fn().mockResolvedValueOnce(json([])).mockResolvedValueOnce(json({ query, results: [hit()] }));
-    vi.stubGlobal('fetch', fetch);
+    vi.mocked(ensureLocalSearch).mockResolvedValue('http://127.0.0.1:18888');
+    const fetch = respond({ query, results: [hit()] });
     const out = await webSearch(query);
     expect(out.provider).toBe('searxng');
-    expect(out.instance).toBe('https://searx.tiekoetter.com');
-    expect(new URL(fetch.mock.calls[1][0]).searchParams.get('q')).toBe(query);
+    expect(out.instance).toBe('http://127.0.0.1:18888');
+    expect(ensureLocalSearch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(new URL(fetch.mock.calls[0][0]).origin).toBe('http://127.0.0.1:18888');
   });
 
-  it('change d’instance publique après une limitation sans réessayer la même', async () => {
-    settings.mockResolvedValue({ provider: 'searxng', url: null });
-    const fetch = vi.fn().mockResolvedValueOnce(json({}, 429)).mockResolvedValueOnce(json({ results: [hit()] }));
-    vi.stubGlobal('fetch', fetch);
+  it('utilise l’API anonyme Mwmbl v2 uniquement quand elle est sélectionnée', async () => {
+    settings.mockResolvedValue({ provider: 'mwmbl', url: null });
+    const fetch = respond({ query, results: [hit()] });
     const out = await webSearch(query);
-    expect(out.instance).toBe('https://search.inetol.net');
+    expect(out.provider).toBe('mwmbl');
+    expect(out.status).toBe('results');
+    const [url, init] = fetch.mock.calls[0];
+    expect(new URL(url).pathname).toBe('/api/v2/search/');
+    expect(new URL(url).searchParams.get('q')).toBe(query);
+    expect(init.headers).toEqual({ Accept: 'application/json' });
+    expect(ensureLocalSearch).not.toHaveBeenCalled();
+  });
+
+  it('élargit explicitement une recherche Mwmbl vide sans prétendre filtrer les dates', async () => {
+    settings.mockResolvedValue({ provider: 'mwmbl', url: null });
+    const q = 'OpenRouter changelog';
+    const fetch = vi.fn().mockResolvedValueOnce(json({ query: q, results: [] }))
+      .mockResolvedValueOnce(json({ query: 'OpenRouter', results: [{ title: 'OpenRouter Blog', url: 'https://openrouter.ai/blog', content: 'Updates' }] }));
+    vi.stubGlobal('fetch', fetch);
+    const out = await webSearch(q);
+    expect(out.effectiveQuery).toBe('OpenRouter');
+    expect(out.notice).toContain('dates');
+    expect(out.results).toHaveLength(1);
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch.mock.calls.every(([url]) => !url.includes('mwmbl.org'))).toBe(true);
+  });
+
+  it('ne transmet aucune requête à un service public si Docker manque', async () => {
+    settings.mockResolvedValue({ provider: 'auto', url: null });
+    vi.mocked(ensureLocalSearch).mockRejectedValue(new Error('Docker indisponible'));
+    const fetch = respond({});
+    await expect(webSearch(query)).rejects.toThrow('Docker');
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('lit le HTML SearXNG quand le format JSON est désactivé', async () => {
@@ -101,7 +114,7 @@ describe('recherche libre sans clé', () => {
 
   it('refuse les résultats hors sujet de la conversation fournie', async () => {
     settings.mockResolvedValue({ provider: 'searxng', url: personal });
-    respond({ results: [hit('Hyundai Tucson - Fiabilité'), hit("L’Équipe - Actualité du sport"), hit('Histoires érotiques')] });
+    respond({ results: [hit('Hyundai Tucson - Fiabilité', 'https://example.com/car'), hit("L’Équipe - Actualité du sport", 'https://example.com/sport'), hit('Histoires érotiques', 'https://example.com/stories')] });
     await expect(webSearch(query)).rejects.toThrow('sans rapport');
   });
 
@@ -139,25 +152,24 @@ describe('recherche libre sans clé', () => {
     await expect(webSearch(query)).rejects.toThrow('non reconnue');
   });
 
+  it('ne rapporte pas un succès vide quand les moteurs amont ont échoué', async () => {
+    settings.mockResolvedValue({ provider: 'searxng', url: personal });
+    respond({ results: [], unresponsive_engines: [['duckduckgo', 'SSL error']] });
+    await expect(webSearch(query)).rejects.toThrow('moteurs en erreur');
+  });
+
   it('ne lit pas un captcha comme un résultat', async () => {
     settings.mockResolvedValue({ provider: 'searxng', url: personal });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<form id="challenge-form"></form>')));
     await expect(webSearch(query)).rejects.toThrow('anti-robot');
   });
 
-  it('signale l’indisponibilité après des tentatives bornées sans service payant', async () => {
-    settings.mockResolvedValue({ provider: 'auto', url: null });
-    const fetch = vi.fn().mockImplementation(() => Promise.resolve(json({}, 429)));
-    vi.stubGlobal('fetch', fetch);
-    await expect(webSearch(query)).rejects.toThrow('Recherche gratuite indisponible');
-    expect(fetch).toHaveBeenCalledTimes(4);
-    expect(fetch.mock.calls.every(([url]) => !/serper|exa\.ai|brave|tavily/.test(url))).toBe(true);
-  });
-
-  it('n’utilise pas les instances publiques si Mwmbl seul est sélectionné', async () => {
+  it('signale un vrai résultat vide sans le confondre avec une couverture complète du web', async () => {
     settings.mockResolvedValue({ provider: 'mwmbl', url: null });
-    const fetch = respond([]);
-    expect((await webSearch(query)).results).toEqual([]);
+    const fetch = respond({ query: 'OpenRouter', results: [] });
+    const out = await webSearch('OpenRouter');
+    expect(out.status).toBe('no_results');
+    expect(out.notice).toContain('couverture est limitée');
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

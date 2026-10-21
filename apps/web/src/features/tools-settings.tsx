@@ -38,18 +38,18 @@ export function ToolsSettings({ settings, update, busy }: { settings: SettingsDT
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">{t("Automatique (Mwmbl + SearXNG publics)")}</SelectItem>
+              <SelectItem value="auto">{t("SearXNG intégré (local, sans compte)")}</SelectItem>
               <SelectItem value="mwmbl">{t("Mwmbl (libre, sans compte)")}</SelectItem>
-              <SelectItem value="searxng">{t("SearXNG (public ou personnel)")}</SelectItem>
+              <SelectItem value="searxng">{t("SearXNG (instance personnelle)")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        <p className="text-muted-foreground text-xs">{t("La recherche automatique utilise des services libres et gratuits, sans clé ni compte. Les instances publiques peuvent limiter les requêtes.")}</p>
-        {provider === "searxng" && <Input placeholder={t("URL SearXNG personnelle (facultative)")} value={url} onChange={(e) => setUrl(e.target.value)} />}
+        <p className="text-muted-foreground text-xs">{t("SearXNG démarre automatiquement en local avec Docker et interroge des moteurs web externes. Sans Docker, choisis Mwmbl, dont l’index est plus limité. Aucun compte ni clé ne sont nécessaires.")}</p>
+        {provider === "searxng" && <Input placeholder="https://searx.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />}
         <Button
           size="sm"
           variant="outline"
-          disabled={busy}
+          disabled={busy || (provider === "searxng" && !url.trim())}
           onClick={() => update({ search: { provider, url: url.trim() || null } }, t("Recherche web mise à jour"))}
         >
           {t("Enregistrer")}

@@ -1,8 +1,9 @@
 import { getSearchSettings } from '../settings.ts';
 import { htmlToText } from './web.ts';
+import { ensureLocalSearch } from './local-search.ts';
 
 /**
- * Recherche sans compte ni clé : Mwmbl et SearXNG par défaut.
+ * Recherche sans compte ni clé : SearXNG local par défaut, Mwmbl en option.
  * Les anciennes intégrations propriétaires sont remplacées par ces moteurs libres.
  */
 export interface SearchResult {
@@ -31,18 +32,18 @@ function words(text: string): string[] {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
-const STOP_WORDS = new Set('a an and are as at avec ce ces comment coordinates coordonnees dans de des du en est et for from how in is la lat latitude le les long longitude of on or ou pour que quel quelle quels quelles the to un une what where weather meteo today aujourd hui maintenant current forecast previsions'.split(' '));
+const STOP_WORDS = new Set('a an and are as at avec ce ces comment coordinates coordonnees dans de des du en est et for from how in is la lat latitude le les long longitude of on or ou pour que quel quelle quels quelles the to un une what where weather meteo today aujourd hui maintenant current forecast previsions latest recent updates update changelog news dernier dernieres derniere derniers nouveautes actualites mises jour january february march april may june july august september october november december janvier fevrier mars avril mai juin juillet aout septembre octobre novembre decembre'.split(' '));
 
 /** A lexical sanity check, not a claim that a source answers the question. */
 function checkResults(query: string, results: SearchResult[]): SearchResult[] {
   const subject = query.replace(/\bsite:\S+|https?:\/\/\S+|\b(?:[\p{L}\p{N}-]+\.)+[a-z]{2,}\b/giu, '');
-  const terms = words(subject).filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
+  const terms = words(subject).filter((w) => w.length >= 2 && !STOP_WORDS.has(w) && !/^20\d{2}$/.test(w));
   const seen = new Set<string>();
   const usable = results.filter((r) => {
     let url: URL;
     try { url = new URL(r.url); } catch { return false; }
     if (!/^https?:$/.test(url.protocol) || url.username || url.password || !r.title || seen.has(url.href)) return false;
-    const text = words(`${r.title} ${r.snippet}`);
+    const text = words(`${r.title} ${r.snippet} ${url.hostname} ${url.pathname}`);
     if (terms.length && !terms.some((term) => text.some((w) => w === term || (term.length >= 5 && (w.startsWith(term) || term.startsWith(w) && w.length >= 5))))) return false;
     seen.add(url.href);
     return true;
@@ -66,34 +67,44 @@ function checkSearchPage(html: string, query: string) {
   }
 }
 
-// Public endpoints require neither an account nor a local service. Keep the
-// list small: at most one request per instance/format and a shared time budget.
-const PUBLIC_SEARXNG = ['https://searx.tiekoetter.com', 'https://search.inetol.net', 'https://searx.be'];
 const SEARCH_TIMEOUT_MS = 20_000;
 
 type SearchResponse = {
   query: string;
+  effectiveQuery?: string;
   provider: string;
   instance?: string;
+  status: 'results' | 'no_results';
+  notice?: string;
   results: SearchResult[];
 };
 
 async function mwmbl(query: string, limit: number, signal: AbortSignal): Promise<SearchResult[]> {
-  // The anonymous v1 endpoint returns highlighted text segments, not HTML.
-  // Contract: mwmbl/tinysearchengine/search.py, _register_search_v1.
-  const res = await fetch(`https://mwmbl.org/api/v1/search/?s=${encodeURIComponent(query)}`, {
+  // Anonymous v2 returns plain text and an echoed query, unlike the legacy v1
+  // formatter. No API key or account is sent, and no paid/super-search is used.
+  const res = await fetch(`https://mwmbl.org/api/v2/search/?q=${encodeURIComponent(query)}`, {
     headers: { Accept: 'application/json' },
-    signal: AbortSignal.any([signal, AbortSignal.timeout(6000)]),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
   });
   if (!res.ok) throw new Error(`Mwmbl a répondu ${res.status}`);
-  const body: unknown = await res.json();
-  if (!Array.isArray(body)) throw new Error('Réponse Mwmbl invalide.');
-  const text = (segments: unknown) => Array.isArray(segments)
-    ? segments.map((s) => s && typeof s.value === 'string' ? s.value : '').join('') : '';
-  const results = body.filter((r) => r && typeof r.url === 'string').map((r) => ({
-    title: text(r.title), url: r.url as string, snippet: text(r.extract).slice(0, 500),
-  }));
+  const body = await res.json() as { query?: unknown; results?: unknown };
+  if (body.query !== query || !Array.isArray(body.results)) throw new Error('Réponse Mwmbl invalide ou pour une autre requête.');
+  const results = body.results.flatMap((r) => {
+    if (!r || typeof r.url !== 'string' || typeof r.title !== 'string' || typeof r.content !== 'string') return [];
+    return [{ title: r.title, url: r.url, snippet: r.content.slice(0, 500) }];
+  });
   return checkResults(query, results).slice(0, limit);
+}
+
+// A sparse index may miss a long query. Widen it once, explicitly, rather than
+// pretending that a date filter was applied or sending it to blocked instances.
+function broaderQuery(query: string): string | null {
+  if (/site:|["]/.test(query)) return null;
+  const broader = query.split(/\s+/).filter((word) => {
+    const key = words(word).join('');
+    return key.length >= 2 && !STOP_WORDS.has(key) && !/^20\d{2}$/.test(key);
+  }).join(' ');
+  return broader && broader !== query ? broader : null;
 }
 
 function searxngHtml(html: string, query: string): SearchResult[] {
@@ -123,7 +134,7 @@ async function searxng(query: string, limit: number, base: string, signal: Abort
   url.searchParams.set('format', 'json');
   let res = await fetch(url.href, {
     headers: { Accept: 'application/json' },
-    signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
   });
   // Many public instances deliberately disable JSON, while their standard HTML
   // search remains available. Do not retry throttling (429) or CAPTCHA pages.
@@ -132,18 +143,21 @@ async function searxng(query: string, limit: number, base: string, signal: Abort
     url.searchParams.delete('format');
     res = await fetch(url.href, {
       headers: { Accept: 'text/html' },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
     });
   }
   if (!res.ok) throw new Error(`SearXNG a répondu ${res.status}`);
   const raw = await res.text();
   let results: SearchResult[];
   if (/^\s*\{/.test(raw)) {
-    const body = JSON.parse(raw) as { query?: string; results?: unknown[] };
+    const body = JSON.parse(raw) as { query?: string; results?: unknown[]; unresponsive_engines?: unknown[] };
     if (body.query !== undefined && words(body.query).join(' ') !== words(query).join(' ')) {
       throw new Error('SearXNG a répondu pour une autre requête.');
     }
     if (!Array.isArray(body.results)) throw new Error('Réponse SearXNG invalide.');
+    if (!body.results.length && body.unresponsive_engines?.length) {
+      throw new Error('SearXNG n’a obtenu aucun résultat et signale des moteurs en erreur. Vérifie la connexion et les logs du moteur local ; ne traite pas cet échec comme une absence d’information.');
+    }
     results = body.results.flatMap((r) => {
       if (!r || typeof r !== 'object' || !('title' in r) || !('url' in r)) return [];
       if (typeof r.title !== 'string' || typeof r.url !== 'string') return [];
@@ -160,33 +174,31 @@ export async function webSearch(query: string, opts: { limit?: number } = {}): P
   if (!query) throw new Error('La requête de recherche est vide.');
   const limit = Number.isFinite(opts.limit) ? Math.min(Math.max(Math.trunc(opts.limit!), 1), 15) : 8;
   const s = await getSearchSettings();
+  // First use can download the image. Start the query deadline after readiness.
+  const local = s.provider === 'auto' ? await ensureLocalSearch() : null;
   const signal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
-  if (s.provider === 'mwmbl') return { query, provider: 'mwmbl', results: await mwmbl(query, limit, signal) };
-  if (s.provider === 'searxng' && s.url) {
-    // A personal instance is explicit: never leak its query to public fallbacks.
-    return { query, provider: 'searxng', instance: s.url, results: await searxng(query, limit, s.url, signal) };
+  if (local) {
+    const results = await searxng(query, limit, local, signal);
+    return { query, provider: 'searxng', instance: local, status: results.length ? 'results' : 'no_results', results };
   }
-  const failures: string[] = [];
-  let empty: SearchResponse | undefined;
-  if (s.provider !== 'searxng') {
-    try {
-      const results = await mwmbl(query, limit, signal);
-      if (results.length) return { query, provider: 'mwmbl', results };
-      empty = { query, provider: 'mwmbl', results: [] };
-    } catch (error) {
-      failures.push(`Mwmbl : ${error instanceof Error ? error.message : 'échec'}`);
-    }
+  if (s.provider === 'searxng') {
+    if (!s.url) throw new Error('Configure l’URL de ton instance SearXNG ou utilise le mode automatique sans compte.');
+    const results = await searxng(query, limit, s.url, signal);
+    return { query, provider: 'searxng', instance: s.url, status: results.length ? 'results' : 'no_results', results };
   }
-  for (const instance of PUBLIC_SEARXNG) {
-    if (signal.aborted) break;
-    try {
-      const results = await searxng(query, limit, instance, signal);
-      if (results.length) return { query, provider: 'searxng', instance, results };
-      empty = { query, provider: 'searxng', instance, results: [] };
-    } catch (error) {
-      failures.push(`${new URL(instance).hostname} : ${error instanceof Error ? error.message : 'échec'}`);
-    }
-  }
-  if (empty) return empty;
-  throw new Error(`Recherche gratuite indisponible. ${failures.join(' ')} Réessaie plus tard ou utilise une instance SearXNG personnelle. Aucun compte ni clé API ne sont nécessaires.`);
+  let results = await mwmbl(query, limit, signal);
+  const broader = !results.length ? broaderQuery(query) : null;
+  if (broader) results = checkResults(query, await mwmbl(broader, limit, signal));
+  return {
+    query,
+    ...(broader ? { effectiveQuery: broader } : {}),
+    provider: 'mwmbl',
+    status: results.length ? 'results' : 'no_results',
+    ...(broader || !results.length ? {
+      notice: results.length
+        ? 'Recherche élargie : les critères de date ne sont pas garantis. Vérifie les dates et les faits dans les pages sources.'
+        : 'Aucun résultat exploitable dans l’index Mwmbl, dont la couverture est limitée. Ne déduis pas que l’information n’existe pas et n’invente pas d’URL.',
+    } : {}),
+    results,
+  };
 }

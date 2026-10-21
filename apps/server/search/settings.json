@@ -1,0 +1,6 @@
+{
+  "use_default_settings": { "engines": { "keep_only": ["duckduckgo", "brave", "wikipedia"] } },
+  "search": { "formats": ["json"], "autocomplete": "" },
+  "server": { "limiter": false, "image_proxy": false, "bind_address": "0.0.0.0", "port": 8080 },
+  "outgoing": { "request_timeout": 8.0, "max_request_timeout": 10.0 }
+}

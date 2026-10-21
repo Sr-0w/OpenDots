@@ -76,7 +76,7 @@ export async function isPaused(): Promise<boolean> {
 /** Recherche sans compte : les anciennes clés de moteurs payants ne sont plus lues. */
 export async function getSearchSettings(): Promise<{ provider: SearchProvider; url: string | null }> {
   const s = await getSetting('search.config');
-  const provider: SearchProvider = s?.provider === 'mwmbl' || s?.provider === 'searxng' ? s.provider : 'auto';
+  const provider: SearchProvider = s?.provider === 'searxng' && s.url ? 'searxng' : s?.provider === 'mwmbl' ? 'mwmbl' : 'auto';
   return {
     provider,
     url: provider === 'searxng' ? (s?.url ?? null) : null,

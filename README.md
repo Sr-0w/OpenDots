@@ -107,7 +107,9 @@ When a companion needs something only you can provide, it asks you through a sma
 
 ## Quick start
 
-Requirements: **Node.js 22+** and **pnpm**. Docker is optional and only needed for the companions' shared computer.
+Requirements: **Node.js 22+**, **pnpm**, and **Docker** for the built-in search engine
+and the companions' shared computer. Without Docker the app still starts; choose
+Mwmbl in search settings to use its smaller hosted index.
 
 ```bash
 git clone https://github.com/Sr-0w/OpenDots.git
@@ -116,7 +118,8 @@ pnpm install
 pnpm dev          # engine on :4317, UI on http://127.0.0.1:5173
 ```
 
-Production runs as a single process, with the engine serving the UI:
+Production runs the application as a single process, with the engine serving the
+UI, plus the automatically managed local SearXNG container:
 
 ```bash
 pnpm build
@@ -241,24 +244,40 @@ pnpm test                                     # engine tests (in-memory PGlite)
 pnpm --filter @opendots/server db:generate    # after editing src/db/schema.ts
 ```
 
-Web search defaults to **Automatic**, using the anonymous search endpoint of
-[Mwmbl](https://github.com/mwmbl/mwmbl) and then public
-[SearXNG](https://github.com/searxng/searxng) instances if necessary. Both projects
-are open source. No account, API key, extra installation or Docker is required.
-SearXNG aggregates third-party search engines; Mwmbl has its own community index.
+Web search defaults to a **local [SearXNG](https://github.com/searxng/searxng)**
+service. `pnpm dev` and `pnpm start` warm it up automatically; the first search
+waits until it is ready. Docker downloads a pinned official image on first use.
+No account, API key, manual SearXNG setup or public metasearch instance is used.
+The search service is bound only to a random `127.0.0.1` port. Configuration and
+a generated secret are retained under ignored `data/search`. Engine settings
+live in `apps/server/search/settings.json`. Updates to the configuration/image
+recreate only this checkout's managed container.
 
-Public requests go to `mwmbl.org`, `searx.tiekoetter.com`, `search.inetol.net` and
-`searx.be` as needed. Allow these HTTPS destinations in restricted environments.
-Searches are sent to these public services; availability and rate limits depend
-on their operators. Each search has a 20-second budget. JSON-disabled SearXNG
-instances are read through their normal HTML interface; CAPTCHA and throttling
-cause failure or failover, never a fabricated answer.
+SearXNG runs locally but still queries external engines (DuckDuckGo, Brave and
+Wikipedia); this is not offline search. HTTPS certificate validation stays on.
+Session proxy settings and custom CA certificates are passed to the container
+when present. The container remains available across application restarts:
 
-Under **Settings → Tools → Web search**, choose **Mwmbl** alone or **SearXNG**.
-An empty SearXNG URL uses the public instances; supply your own instance URL for
-self-hosting. Queries to a personal instance never fall back to public services.
-Legacy search-provider settings automatically use the free default, and old
-provider keys are ignored and removed on the next search-settings save.
+```bash
+pnpm search:up           # prepare/check the local service
+pnpm search:logs         # inspect service diagnostics
+pnpm search:down         # stop the managed service
+pnpm test:search:live    # real searches + official source reads, without mocks
+```
+
+The live check uses an in-memory application database, starts/reuses the same
+local engine, and exercises the OpenRouter and Hognoul queries reported in the
+bug. It checks real nonempty results, an official OpenRouter source with HTTP
+200, and rejects the nonexistent `/changelog` page with HTTP 404. Standard
+`pnpm test` remains deterministic and does not call public search services.
+
+Under **Settings → Tools → Web search**, an explicit SearXNG URL can point to a
+separately managed instance. **Mwmbl** is an optional no-Docker, no-account
+alternative using its anonymous v2 endpoint. Its index is smaller; a broadened
+query is reported explicitly and does not guarantee a date filter. There is no
+automatic fallback that sends local queries to public metasearch instances.
+Legacy provider settings use the local default; old provider keys are ignored
+and removed on the next search-settings save.
 
 The search adapter rejects mismatched queries and results with no identifiable
 query terms. This sanity check does not establish factual relevance: companions

@@ -7,6 +7,10 @@
     "start": "NODE_ENV=production tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:search:live": "tsx scripts/search-smoke.ts",
+    "search:up": "tsx scripts/search-service.ts up",
+    "search:down": "tsx scripts/search-service.ts down",
+    "search:logs": "tsx scripts/search-service.ts logs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

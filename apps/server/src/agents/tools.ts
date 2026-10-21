@@ -627,6 +627,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
       execute: async ({ url, max_chars }) =>
         guard(async () => {
           const page = await fetchPage(url);
+          if (page.status >= 400) throw new Error(`Lecture impossible : HTTP ${page.status}. Cette page n’est pas une source exploitable.`);
           return ok({
             url: page.url,
             status: page.status,
