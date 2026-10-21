@@ -188,6 +188,8 @@ export interface MessageMetadata {
   model?: string;
   createdAt?: string;
   autonomous?: boolean;
+  /** Outils de services connectés (svc_, mcp_) exposés pendant ce tour. */
+  tools?: string[];
   hidden?: boolean;
   /** Réponse de l'utilisateur à une demande d'information (ask_user). */
   answer?: { requestId: string; answers: Record<string, unknown> };

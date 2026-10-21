@@ -71,6 +71,24 @@ function compactAssistantParts(parts: any[]): any[] {
 }
 
 /** Prépare l'historique pour le modèle : rôles, événements, sorties d'outils compactées. */
+const SERVICE_TOOL = /^(svc|mcp)_/;
+
+/**
+ * Les modèles s'en tiennent volontiers à ce qu'ils ont affirmé plus tôt
+ * (« je n'ai pas d'outil pour ça »). Quand des outils de services sont apparus
+ * depuis la dernière réponse du compagnon, on le lui signale explicitement.
+ */
+export function newServiceToolsNotice(messages: OpenDotsUIMessage[], selfId: string, toolNames: string[]): string | null {
+  const current = toolNames.filter((n) => SERVICE_TOOL.test(n));
+  if (!current.length) return null;
+  const last = [...messages].reverse().find((m) => m.role === 'assistant' && (m.metadata?.agentId ?? selfId) === selfId);
+  if (!last) return null;
+  const previous = last.metadata?.tools;
+  const added = previous ? current.filter((n) => !previous.includes(n)) : current;
+  if (!added.length) return null;
+  return `[Système] ${previous ? 'Nouveaux outils disponibles depuis ta dernière réponse' : 'Outils de services connectés disponibles à ce tour'} : ${added.join(', ')}. Ils remplacent tout ce que tu as pu dire avant sur des actions impossibles : utilise-les si la demande s'y prête.`;
+}
+
 export function historyForModel(
   messages: OpenDotsUIMessage[],
   self: AgentRow,
@@ -190,6 +208,11 @@ async function executeTurn(
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
   const history = historyForModel(stored, agent, names, pair);
+  const notice = newServiceToolsNotice(stored, agent.id, Object.keys(tools));
+  if (notice && history.length && history[history.length - 1].role === 'user') {
+    const lastMsg = history[history.length - 1];
+    history[history.length - 1] = { ...lastMsg, parts: [...lastMsg.parts, { type: 'text', text: notice }] } as OpenDotsUIMessage;
+  }
   if (trigger.kind === 'team' && trigger.nudge) {
     history.push({
       id: newId('msg'),
@@ -252,6 +275,7 @@ async function executeTurn(
       agentId,
       model: resolved.label,
       autonomous,
+      tools: Object.keys(tools).filter((n) => SERVICE_TOOL.test(n)),
     };
 
     const uiStream = toUIMessageStream<typeof tools, OpenDotsUIMessage>({
