@@ -1,109 +1,261 @@
 # OpenDots
 
-**Des compagnons IA autonomes, collaboratifs et proactifs — qui se configurent en leur parlant.**
+**Autonomous, collaborative AI companions that you set up just by talking to them.**
 
-OpenDots donne à chacun une petite équipe de compagnons numériques persistants. Chaque compagnon a une identité, une conversation principale permanente, une mémoire à long terme, des responsabilités, des outils et des activités autonomes (planifications, surveillances, webhooks) qui continuent de tourner quand l'interface est fermée.
+OpenDots gives you a small team of persistent digital companions. Each one has a name, a personality, one long-running conversation, a long-term memory, tools, and its own responsibilities. They keep working when the window is closed. They wake up on a schedule, watch pages, react to emails and webhooks, and talk to each other. They come back to you only when there's something worth saying or something that needs your approval.
 
-> Statut : fondations fonctionnelles (phases 1 à 4 de la feuille de route, partiellement 3). Voir [Feuille de route](#feuille-de-route).
+There are no forms to fill in and no workflow builder. You open the app, add an OpenRouter key, pick a model, and say hi.
 
-## Démarrage
+---
 
-Prérequis : Node.js ≥ 22 et pnpm.
+## What it feels like
 
-```bash
-pnpm install
-pnpm dev          # moteur sur :4317 + interface sur http://127.0.0.1:5173
+### Meet your first companion
+
+```text
+You   Hi!
+Dot   Hi! I'm brand new here and I don't have a name yet. What would you like to call me?
+You   Let's go with Ari. Be concise and a bit playful.
+Ari   ✓ Takes the name "Ari"   ✓ Updates its identity
+      Ari it is. Short answers, a little fun. What are we working on?
 ```
 
-En production (un seul processus, interface servie par le moteur) :
+The companion actually rewrites its own profile through structured tools. Name, personality, instructions, model and permissions all change because you asked in plain words.
+
+### Give it a routine
+
+```text
+You   Every Friday at 5pm, send me a recap of what we did this week.
+Ari   ✓ Creates an activity: "Weekly recap" · Friday at 17:00
+      Done. You'll get it every Friday at 5pm. You can pause or edit it under Scheduled tasks.
+```
+
+```text
+You   Let me know if the price on this page drops below €300: https://shop.example.com/monitor
+Ari   ✓ Creates an activity: "Watch: monitor price" · checks every 30 min
+      I'll check it every 30 minutes without using the AI. I only wake up if the condition is met.
+```
+
+### Build a team
+
+```text
+You   Create a companion called Venty to handle my job search emails.
+Ari   ✓ Creates Venty
+      Venty is here. I told them about your preferences. Say hi in their conversation.
+
+You   Ask Dev to check whether the repo builds.
+Ari   ✓ Writes to Dev
+      I've asked Dev. I'll get back to you when they reply.
+```
+
+Companions message each other asynchronously, delegate work, and wake up when an answer arrives. You can read every exchange in the **Team** view.
+
+### Let it act, with your approval
+
+```text
+You   Reply to Claire that Thursday works for me.
+Venty ✓ Searches emails from Claire   ✓ Reads an email   ✓ Drafts an email
+      ┌──────────────────────────────────────────────┐
+      │ Ready to send                                 │
+      │ To: claire@example.com                        │
+      │ Subject: Re: Interview slot                   │
+      │ Thursday works great for me, see you then! …  │
+      │            [Send]  [Edit]  [Discard]          │
+      └──────────────────────────────────────────────┘
+```
+
+Sensitive actions are prepared first. The backend only runs them after you approve, with a card in the conversation or by replying "yes, send it". Sending email, running shell commands on the host, calling MCP tools you marked as sensitive and widening permissions all go through this flow.
+
+### Ask, search, run
+
+```text
+You   What's new in Node 24? Keep it to 3 bullets.
+Ari   ✓ Searches "Node.js 24 release notes"   ✓ Reads nodejs.org
+      • …  • …  • …   (with sources)
+
+You   Dev, count the lines of TypeScript in /workspaces/shared/app.
+Dev   ✓ $ find . -name '*.ts' | xargs wc -l | tail -1
+      12,418 lines across 163 files.
+```
+
+When a companion needs something only you can provide, it asks you through a small inline form. That can be a choice, a date, a confirmation or a connection, such as "Connect a mailbox". Passwords and API keys always go into a secure modal, never into the chat.
+
+---
+
+## Features
+
+| Area | What you get |
+|---|---|
+| **Conversation-first setup** | Companions change their own name, personality, instructions, model and permissions through structured tools |
+| **One conversation per companion** | Streaming, Markdown, visible reasoning, readable tool calls, streams resume after a reload |
+| **Life engine** | One-off, interval and cron schedules (time-zone aware), page watches that run **without the LLM** (changes, text present/absent, regex), incoming webhooks, mail rules, proactive messages, or `<silence/>` when there's nothing to say |
+| **Durable execution** | PostgreSQL job queue with crash recovery, backoff retries, deduplication, one catch-up for missed runs, and a depth limit on collaboration chains |
+| **Approvals** | Prepared → approved → executed / failed, with clear states and a full operations log |
+| **Memory** | Private or shared memories, full-text search, contextual recall, "remember that…" / "forget that…" |
+| **Team** | Create companions in natural language, async internal messaging, delegation, browsable threads |
+| **Mail** | IMAP/SMTP (Gmail, Outlook, iCloud, Yahoo… presets), periodic checks, "on incoming email" rules, search and read, "Ready to send" drafts |
+| **Skills** | Shared know-how loaded on demand. Create one from the Skills page or say "save that as a skill" |
+| **MCP connectors** | HTTP, SSE or local stdio servers, encrypted secrets, per-connector approval, a failing server stays isolated |
+| **Plugins** | Bundles of skills and MCP connectors described in a JSON manifest, with a preview before install |
+| **Tools** | Web search (DuckDuckGo → Bing with no key, or Brave, Tavily, SearXNG), web page reading, date and time |
+| **Shared computer** | A Linux shell in a Docker container (Python, Node, git, curl, jq, sqlite…), one Linux user and private home per companion plus a shared folder. Network and sudo are configurable, with a host fallback that approves each command |
+| **Models** | Any OpenRouter model (reasoning effort, preferred provider) or local Ollama, set per companion or as the default |
+| **Security** | Secrets are encrypted at rest (AES-256-GCM) and never sent to the model or the browser. External content is marked untrusted, SSRF protection is built in, and config tools are disabled during autonomous wake-ups |
+| **Interface** | Black and white, with color reserved for companion avatars. Built with React, shadcn/ui, AI Elements and the Vercel AI SDK. Dark mode, mobile layout, browser notifications, English and French |
+
+---
+
+## Quick start
+
+Requirements: **Node.js 22+** and **pnpm**. Docker is optional and only needed for the companions' shared computer.
+
+```bash
+git clone https://github.com/Sr-0w/OpenDots.git
+cd OpenDots
+pnpm install
+pnpm dev          # engine on :4317, UI on http://127.0.0.1:5173
+```
+
+Production runs as a single process, with the engine serving the UI:
 
 ```bash
 pnpm build
 pnpm start        # http://127.0.0.1:4317
 ```
 
-Au premier lancement, OpenDots demande uniquement :
+On first launch OpenDots asks for two things only:
 
-1. une **clé OpenRouter** (chiffrée localement) ;
-2. un **modèle par défaut**.
+1. an **OpenRouter key** (encrypted locally),
+2. a **default model**.
 
-Ensuite, tout se fait en discutant : « Salut ! », « Appelle-toi Ari », « Crée Venty pour mes recherches d'emploi », « Tous les matins à 8 h, fais-moi un point », « Souviens-toi que je préfère des réponses courtes », « Préviens-moi si cette page change »…
+You don't need to install a database. OpenDots ships with embedded PostgreSQL (PGlite) in `./data`. To use your own server, set `DATABASE_URL`. Every other setting is optional and listed in [`.env.example`](.env.example).
 
-Aucune base de données à installer : OpenDots embarque PostgreSQL (PGlite) dans `./data`. Pour un PostgreSQL externe, définir `DATABASE_URL`. Les autres réglages facultatifs sont listés dans [`.env.example`](.env.example).
+---
 
-## Ce qui fonctionne
+## Examples
 
-| Domaine | Fonctionnalités |
+### Things to say
+
+| Say… | What happens |
 |---|---|
-| **Onboarding** | Clé OpenRouter validée et chiffrée (AES-256-GCM), choix du modèle, premier compagnon prêt immédiatement |
-| **Conversation-first** | Le compagnon modifie réellement sa configuration via des outils structurés : nom, personnalité, consignes, modèle, permissions |
-| **Conversations** | Une conversation permanente par compagnon, streaming, Markdown, raisonnement, appels d'outils lisibles, reprise du flux après rechargement |
-| **Équipe** | Création de compagnons en langage naturel, messagerie interne asynchrone, délégation avec réveil sur réponse, fils entre compagnons consultables |
-| **Moteur de vie** | Planifications (unique, intervalle, cron avec fuseau), surveillances de pages **sans LLM** (changement, présence/absence de texte, regex), webhooks entrants dédupliqués, réveils autonomes, messages proactifs ou `<silence/>` |
-| **Exécution durable** | File de tâches PostgreSQL : reprise après crash, relances avec délai croissant, déduplication, rattrapage unique des échéances manquées, limite de profondeur des chaînes de collaboration |
-| **Approbations** | Les actions sensibles sont *préparées*, puis exécutées par le backend après validation (carte ou réponse en conversation) ; états préparé / approuvé / exécuté / échoué distincts |
-| **Mémoire** | Souvenirs privés ou partagés, recherche plein texte, sélection contextuelle, correction et oubli par conversation |
-| **Modèles** | OpenRouter (raisonnement, fournisseur préféré), Ollama local ou réseau, modèle par compagnon ou par défaut |
-| **Sécurité** | Secrets hors base et jamais envoyés au modèle ; outils de configuration indisponibles lors des réveils autonomes ; contenus externes marqués non fiables ; protection SSRF ; extension de permissions soumise à validation ; journal des opérations |
-| **Mail** | Comptes IMAP/SMTP (préréglages Gmail, Outlook, iCloud…), relève périodique, règles « à la réception d'un e-mail » filtrées par expéditeur/objet, recherche et lecture, brouillons présentés dans une carte « Prêt à envoyer » (Envoyer / Modifier / Abandonner) |
-| **Skills** | Savoir-faire partagés par tous les compagnons, chargés à la demande ; créés depuis la page Skills ou en disant « enregistre ça comme skill » |
-| **Connecteurs MCP** | Serveurs HTTP, SSE ou locaux (stdio), secrets chiffrés, validation à chaque appel ou exécution directe, serveurs en panne isolés |
-| **Plugins** | Paquets de skills et de connecteurs décrits par un manifeste JSON (URL ou collé), aperçu avant installation — voir [`examples/plugin-redaction.json`](examples/plugin-redaction.json) |
-| **Interactions** | Formulaires dans la conversation (texte, choix unique, choix multiples, confirmation, nombre, date), demandes de connexion avec bouton vers une modale sécurisée, cartes « tâche créée » |
-| **Tâches planifiées** | Page dédiée : toutes les routines, surveillances, règles mail et webhooks, avec pause/reprise, édition manuelle (répétition, jours, heure, cron, conditions), exécution immédiate |
-| **Outils** | Recherche web (automatique DuckDuckGo → Bing sans clé, ou Brave, Tavily, SearXNG), lecture de pages, date et heure avec calculs relatifs |
-| **Ordinateur** | Shell Linux partagé : un conteneur Docker (image avec Python, Node, git, curl, jq, sqlite…), un utilisateur et un dossier privé par compagnon, un dossier commun ; repli sur la machine hôte avec validation de chaque commande ; réseau et sudo configurables |
-| **Interface** | Noir et blanc, couleurs réservées aux avatars ; React, shadcn/ui, AI Elements, AI SDK ; liste des compagnons, panneau Activités / Mémoire / Journal / Profil, validations, notifications du navigateur, paramètres minimaux, thème sombre, mobile |
+| "Call yourself Ari, and be more direct." | Profile updated |
+| "Every morning at 8, give me a rundown of my important emails." | Cron schedule plus mail search on each run |
+| "Tell me if 'Sold out' disappears from this page." | Page watch, no LLM until it triggers |
+| "Remember that I prefer short answers." | Saved to long-term memory |
+| "Create a companion that takes care of my side project." | New companion with its own conversation |
+| "Use the local model llama3.1." | Switches to Ollama for this companion |
+| "Save that as a skill." | Reusable skill for the whole team |
+| "Pause all your activities." | Autonomous activities suspended |
 
-## Architecture
+### A plugin manifest
+
+Install it from **Connectors → Plugins**, either from a URL or by pasting the JSON:
+
+```json
+{
+  "name": "Writing kit",
+  "version": "1.0.0",
+  "description": "Meeting notes and professional email skills",
+  "skills": [
+    {
+      "name": "Meeting notes",
+      "description": "When the user asks to summarize a meeting or raw notes",
+      "instructions": "Structure: 1. Context (one sentence) 2. Decisions 3. Action items: who, what, by when 4. Open questions. Stay factual, one page max."
+    }
+  ],
+  "connectors": [
+    {
+      "name": "Filesystem",
+      "config": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes"]
+      }
+    }
+  ]
+}
+```
+
+A French example lives in [`examples/plugin-redaction.json`](examples/plugin-redaction.json).
+
+### An MCP connector
+
+**Connectors → Add an MCP connector**, then pick HTTP, SSE or local (stdio):
+
+```text
+Name        GitHub
+Transport   HTTP
+URL         https://api.githubcopilot.com/mcp/
+Headers     Authorization: Bearer ghp_…      (encrypted, never shown to models)
+Approval    Ask for my approval on every call
+```
+
+All companions can then use its tools. Calls that need approval show up as cards.
+
+### A webhook trigger
+
+Ask a companion to "create a webhook that tells me when a deploy fails", then copy its URL from **Scheduled tasks**:
+
+```bash
+curl -X POST http://127.0.0.1:4317/api/hooks/<id> \
+  -H 'content-type: application/json' \
+  -d '{"service":"api","status":"failed","commit":"a1b2c3"}'
+```
+
+The companion wakes up, reads the payload as untrusted data, and decides whether it's worth bothering you.
+
+---
+
+## How it works
 
 ```
 apps/
-  server/   Moteur TypeScript (Hono, AI SDK, Drizzle, PGlite/PostgreSQL)
-    src/agents/       Agent Core : tours, prompt, outils, flux reprenables
-    src/life/         Event Engine + Scheduler (planifications, surveillances, webhooks)
-    src/jobs/         Workflow Engine : file de tâches durable
-    src/team/         Messaging Service entre compagnons
-    src/approvals/    Permission Engine : validations humaines
-    src/memory/       Memory Service
-    src/mail/         Mail Service (IMAP, SMTP, brouillons, relève)
-    src/connectors/   Connecteurs MCP et plugins
-    src/skills/       Skills partagés
-    src/requests/     Formulaires adressés à l'utilisateur
-    src/models/       Model Gateway (OpenRouter, Ollama)
-    src/api/          API REST + SSE temps réel + webhooks
-  web/      Interface React (Vite, Tailwind, shadcn/ui, AI Elements)
+  server/   TypeScript engine (Hono, AI SDK, Drizzle, PGlite/PostgreSQL)
+    src/agents/       Turns, system prompt, tools, resumable streams
+    src/life/         Event engine + scheduler (schedules, watches, webhooks)
+    src/jobs/         Durable job queue
+    src/team/         Messaging between companions
+    src/approvals/    Human approvals
+    src/memory/       Memory service
+    src/mail/         IMAP / SMTP, drafts, polling
+    src/connectors/   MCP connectors and plugins
+    src/skills/       Shared skills
+    src/computer/     Shared Linux shell (Docker or host)
+    src/api/          REST + real-time SSE + webhooks
+  web/      React UI (Vite, Tailwind, shadcn/ui, AI Elements)
 packages/
-  shared/   Contrats de données partagés
+  shared/   Shared data contracts
 ```
 
-Le frontend ne contient aucune logique d'exécution : il peut être fermé sans arrêter les compagnons. Chaque tour de compagnon s'exécute côté serveur, est diffusé dans un flux que n'importe quel client peut rejoindre, et est persisté à la fin.
+- **The UI holds no execution logic.** Every turn runs on the server and streams to any client that joins, then gets persisted. Closing the tab doesn't stop anyone.
+- **Companions don't think all the time.** A lightweight engine watches the clock and incoming events, and only calls the LLM when a companion actually has something to do.
+- **Actions run on the backend.** The model proposes and the engine executes, after your approval when the action needs it.
 
-Les compagnons ne « réfléchissent » pas en permanence : un service léger surveille le temps et les événements, et ne sollicite le LLM que lorsque c'est nécessaire.
+---
 
-## Développement
+## Development
 
 ```bash
 pnpm typecheck
-pnpm test                         # tests du moteur (PGlite en mémoire)
-pnpm --filter @opendots/server db:generate   # après modification de src/db/schema.ts
+pnpm test                                     # engine tests (in-memory PGlite)
+pnpm --filter @opendots/server db:generate    # after editing src/db/schema.ts
 ```
 
-Derrière un proxy HTTP(S), les variables `HTTPS_PROXY` / `NO_PROXY` sont respectées.
+`HTTPS_PROXY` / `NO_PROXY` are respected. To try connectors without external services:
 
-Pour essayer les connecteurs sans service externe :
+- **Demo MCP server**: command `node`, args `--import <repo>/apps/server/node_modules/tsx/dist/loader.mjs <repo>/apps/server/test/fixtures/mcp-server.ts`
+- **Local mailbox**: `node apps/server/node_modules/hoodiecrow-imap/bin/hoodiecrow.js --port=1143 --smtpPort=1025` (user `testuser`, password `testpass`, SSL off), with `OPENDOTS_MAIL_INSECURE_TLS=1`
 
-- un serveur MCP de démonstration : commande `node`, arguments `--import <chemin>/apps/server/node_modules/tsx/dist/loader.mjs <chemin>/apps/server/test/fixtures/mcp-server.ts` ;
-- une boîte mail locale : `node apps/server/node_modules/hoodiecrow-imap/bin/hoodiecrow.js --port=1143 --smtpPort=1025` (identifiant `testuser`, mot de passe `testpass`, SSL désactivé), avec `OPENDOTS_MAIL_INSECURE_TLS=1` pour accepter son certificat de test.
+---
 
-## Feuille de route
+## Roadmap
 
-- [x] **Phase 1** — Fondations conversationnelles
-- [x] **Phase 2** — Mémoire, outils, permissions, Ollama (recherche sémantique à venir)
-- [x] **Phase 3** — Autonomie : planifications, surveillances, webhooks, service mail IMAP/SMTP, approbations, reprise (Gmail API / Microsoft Graph natifs à venir)
-- [x] **Phase 4** — Collaboration multi-agents (partage de fichiers à venir)
-- [~] **Phase 5** — Ordinateur partagé : shell en conteneur avec utilisateurs séparés ✔ — navigateur, bureau graphique et computer use à venir
-- [ ] **Phase 6** — Distribution desktop Tauri, notifications natives, sauvegarde
-- [ ] **Phase 7** — Mascottes 3D (Three.js / React Three Fiber) synchronisées avec les états réels
+- [x] **Phase 1**: Conversational foundations
+- [x] **Phase 2**: Memory, tools, permissions, Ollama (semantic search next)
+- [x] **Phase 3**: Autonomy: schedules, watches, webhooks, IMAP/SMTP mail, approvals, recovery
+- [x] **Phase 4**: Multi-agent collaboration
+- [~] **Phase 5**: Shared computer. The container shell with per-companion users works; browser, desktop and computer use are next
+- [ ] **Phase 6**: Tauri desktop app, native notifications, backups
+- [ ] **Phase 7**: 3D mascots (Three.js / React Three Fiber) driven by each companion's real state
 
-Inspirations : Grok Bot, OpenAI Dots, Meta Muse.
+Inspired by Grok Bot, OpenAI Dots and Meta Muse.
