@@ -154,7 +154,7 @@ function TeamEventCard({ message, agentId }: { message: ODMessage; agentId: stri
   const name = peer?.name ?? t("un compagnon");
   return (
     <TeamCard
-      title={event.type === "agent_reply" ? t("Réponse de {v0}", { v0: name }) : t("Message reçu de {v0}", { v0: name })}
+      title={event.type === "agent_reply" ? (event.title?.startsWith("Échec") ? event.title : t("Réponse de {v0}", { v0: name })) : event.title?.match(/^(Message envoyé à|Réponse envoyée à|Message traité)/) ? event.title : t("Message reçu de {v0}", { v0: name })}
       color={peer?.color}
       date={message.metadata?.createdAt}
       preview={preview}
