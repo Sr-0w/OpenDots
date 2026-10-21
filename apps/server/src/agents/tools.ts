@@ -124,6 +124,24 @@ registerApprovalAction('agent.update_permissions', doUpdatePermissions);
 
 const CREATE_RANK = { deny: 0, ask: 1, allow: 2 } as const;
 
+const PERMISSION_LABELS: Record<string, string> = {
+  web: 'lire des pages web',
+  manageActivities: 'gérer ses activités',
+  messageAgents: 'échanger avec les compagnons',
+  manageMemory: 'gérer sa mémoire',
+};
+
+function describePermissions(p: Partial<AgentPermissions>): string {
+  return Object.entries(p)
+    .map(([k, v]) => {
+      if (k === 'createAgents') {
+        return v === 'allow' ? 'créer des compagnons sans validation' : v === 'ask' ? 'créer des compagnons avec validation' : 'ne plus créer de compagnons';
+      }
+      return `${v ? '' : 'ne plus '}${PERMISSION_LABELS[k] ?? k}`;
+    })
+    .join(', ');
+}
+
 function isEscalation(current: AgentPermissions, next: Partial<AgentPermissions>): boolean {
   return Object.entries(next).some(([k, v]) => {
     const cur = (current as any)[k];
@@ -308,7 +326,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
           const clean = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined)) as Partial<AgentPermissions>;
           if (!Object.keys(clean).length) return fail('Aucune modification indiquée.');
           if (isEscalation(target.permissions, clean)) {
-            return pendingApproval(ctx, toolCallId, 'agent.update_permissions', `Étendre les permissions de ${target.name} : ${JSON.stringify(clean)}`, {
+            return pendingApproval(ctx, toolCallId, 'agent.update_permissions', `Étendre les permissions de ${target.name} : ${describePermissions(clean)}`, {
               agentId: target.id,
               permissions: clean,
             });
