@@ -9,7 +9,7 @@ import { createConnector, getConnector, listConnectors, readSecrets, replaceConn
 import { OAuthManager, oauth, oauthApps, saveOAuthApp } from '../src/integrations/oauth.ts';
 import { CATALOG, hasGrantedScopes, integrationSpec, selectedScopes } from '../src/integrations/catalog.ts';
 import { IntegrationExecutor, OPERATIONS, availableOperations } from '../src/integrations/providers.ts';
-import { gitPushArgs } from '../src/computer/shell.ts';
+import { gitPushArgs } from '../src/computer/git-broker.ts';
 import { createAgent, getAgent, mainConversationId, updateAgent } from '../src/agents/repo.ts';
 import { buildCapabilityTools } from '../src/agents/capability-tools.ts';
 import { activeToolNames, loadedToolsFor } from '../src/agents/lazy-tools.ts';
@@ -26,6 +26,7 @@ const admin = { ...a, role: 'admin' as const };
 const nativeFetch = globalThis.fetch;
 const calls: { url: URL; method: string; body: string; authorization?: string }[] = [];
 let server: Server, origin: string, now = Date.now(), tokenStatus = 200, apiStatus = 200;
+let mergeHead = 'a'.repeat(40);
 let tokenValue: Record<string, unknown> = {}, userId = 'provider-user';
 const transport: typeof fetch = async (input, init) => {
   const url = new URL(String(input));
@@ -68,6 +69,8 @@ beforeAll(async () => {
       else if (url.pathname === '/gmail/v1/users/me/messages') res.end(JSON.stringify({ messages: [{ id: 'message' }] }));
       else if (url.pathname === '/gmail/v1/users/me/messages/message') res.end(JSON.stringify({ id: 'message', payload: { mimeType: 'text/plain', headers: [{ name: 'Subject', value: 'Bonjour' }], body: { data: Buffer.from('Message test').toString('base64url') } } }));
       else if (url.pathname === '/v1.0/me/messages/message') res.end(JSON.stringify({ id: 'message', body: { contentType: 'HTML', content: '<p>Message Outlook</p>' } }));
+      else if (/\/pulls\/2$/.test(url.pathname)) res.end(JSON.stringify({ state: 'open', head: { sha: mergeHead } }));
+      else if (/\/pulls\/2\/merge$/.test(url.pathname)) { res.statusCode = JSON.parse(body).sha === mergeHead ? 200 : 409; res.end(JSON.stringify({ merged: res.statusCode === 200 })); }
       else res.end(JSON.stringify({ id: 'created', value: [], items: [], files: [] }));
     }
   });
@@ -203,7 +206,7 @@ describe('opérations natives via HTTP réel sur serveur local', () => {
   it.each(OPERATIONS.filter((o) => o.id !== 'github_push').map((o) => [o.id, o] as const))('%s respecte méthode, destination, permissions et format', async (name, operation) => asA(async () => {
     const executor = new IntegrationExecutor(new OAuthManager(transport, () => now), transport);
     const example = cases[name]; expect(example).toBeDefined();
-    const result = await executor.execute(connectorIds.get(operation.provider)!, name, example.args);
+    const result = await executor.execute(connectorIds.get(operation.provider)!, name, example.args, { expectedSha: mergeHead });
     const request = calls.at(-1)!;
     expect(request.url.pathname).toBe(example.path); expect(request.method).toBe(example.method ?? 'GET');
     expect(request.authorization).toBe('Bearer access-private');
@@ -303,28 +306,64 @@ describe('GitHub : dépôts, pull requests et git push', () => {
     expect(ops).toEqual(expect.arrayContaining(['github_repos', 'github_repo_create', 'github_pr_create', 'github_branch_create', 'github_pr_merge', 'github_push']));
     expect(OPERATIONS.filter((o) => o.permission === 'code').every((o) => o.write)).toBe(true);
     expect(availableOperations({ provider: 'github', permissions: ['read', 'write'] } as never).some((o) => o.permission === 'code')).toBe(false);
-    // repo (dépôts privés) couvre déjà ces opérations : pas besoin de reconnecter.
-    expect(availableOperations({ provider: 'github', permissions: ['read', 'private'] } as never).map((o) => o.id)).toEqual(expect.arrayContaining(['github_repo_create', 'github_pr_create', 'github_push']));
+    expect(availableOperations({ provider: 'github', permissions: ['read', 'private'] } as never).some((o) => o.permission === 'code')).toBe(false);
   });
   it('neutralise hooks, assistants et proxy du dépôt sans jamais placer le jeton dans les arguments', () => {
-    const args = gitPushArgs({ path: '.', repo: 'owner/project', branch: 'main' });
+    const args = gitPushArgs({ repo: 'owner/project', branch: 'main', expectedSha: mergeHead });
     expect(args.join(' ')).not.toContain('access-private');
     expect(args).toEqual(expect.arrayContaining(['core.hooksPath=/dev/null', 'credential.helper=', 'http.sslVerify=true', 'protocol.allow=never', '--no-verify']));
     expect(args.indexOf('credential.helper=')).toBeLessThan(args.findIndex((v) => v.startsWith('credential.https://github.com.helper=')));
-    expect(args.slice(-2)).toEqual(['https://github.com/owner/project.git', 'refs/heads/main:refs/heads/main']);
+    expect(args.slice(-2)).toEqual(['https://github.com/owner/project.git', `${mergeHead}:refs/heads/main`]);
   });
   it('pousse avec le jeton du compte propriétaire, exige un compagnon et valide chemin et branche', async () => {
     const pushes: any[] = [];
     const executor = new IntegrationExecutor(new OAuthManager(transport, () => now), transport, async (r) => { pushes.push(r); return { ok: true, stdout: `pushed ${r.branch}` }; });
     const id = connectorIds.get('github')!, args = { repo: 'owner/project', path: 'projet', branch: 'feature/x' };
     await expect(asA(() => executor.execute(id, 'github_push', args))).rejects.toThrow('compagnon');
-    const result = await asA(() => executor.execute(id, 'github_push', args, { agentId: 'ag_test' }));
-    expect(pushes).toHaveLength(1); expect(pushes[0]).toMatchObject({ agentId: 'ag_test', repo: 'owner/project', path: 'projet', branch: 'feature/x', token: 'access-private' });
+    const result = await asA(() => executor.execute(id, 'github_push', args, { agentId: 'ag_test', expectedSha: mergeHead }));
+    expect(pushes).toHaveLength(1); expect(pushes[0]).toMatchObject({ agentId: 'ag_test', repo: 'owner/project', path: 'projet', branch: 'feature/x', expectedSha: mergeHead, token: 'access-private' });
     expect(JSON.stringify(result)).not.toContain('access-private');
-    for (const bad of [{ ...args, path: '../autre' }, { ...args, path: '/etc' }, { ...args, branch: '--force' }, { ...args, branch: 'a..b' }, { ...args, repo: 'owner/../x' }, { ...args, force: true }]) await expect(asA(() => executor.execute(id, 'github_push', bad, { agentId: 'ag_test' }))).rejects.toThrow();
-    await expect(withAccount(b, () => executor.execute(id, 'github_push', args, { agentId: 'ag_test' }))).rejects.toThrow('introuvable');
+    for (const bad of [{ ...args, path: '../autre' }, { ...args, path: '/etc' }, { ...args, branch: '--force' }, { ...args, branch: 'a..b' }, { ...args, repo: 'owner/../x' }, { ...args, force: true }]) await expect(asA(() => executor.execute(id, 'github_push', bad, { agentId: 'ag_test', expectedSha: mergeHead }))).rejects.toThrow();
+    await expect(withAccount(b, () => executor.execute(id, 'github_push', args, { agentId: 'ag_test', expectedSha: mergeHead }))).rejects.toThrow('introuvable');
     expect(pushes).toHaveLength(1);
   });
+});
+
+describe('approbations GitHub liées au commit et aux droits courants', () => {
+  it('capture le SHA côté serveur, refuse une tête modifiée et exige une nouvelle approbation', async () => asA(async () => {
+    vi.stubGlobal('fetch', transport);
+    const id = connectorIds.get('github')!, created = await createAgent({ name: 'Merge' });
+    const agent = (await getAgent(created.id))!, conversationId = await mainConversationId(agent.id);
+    const { tools } = await buildCapabilityTools({ agent, conversationId, isMain: true, userTurn: true, depth: 0, tz: 'UTC' });
+    const merge = tools[`svc_${id.slice(-8)}_github_pr_merge`];
+    const pending = await merge.execute!(cases.github_pr_merge.args as never, { toolCallId: 'merge', messages: [] } as any) as any;
+    const approval = (await getApproval(pending.approvalId))!;
+    expect(approval.input).toMatchObject({ expectedSha: mergeHead });
+    expect(approval.summary).toContain(mergeHead);
+    mergeHead = 'b'.repeat(40);
+    try {
+      const resolved = await resolveApproval(approval.id, 'approve', { by: 'ui', notifyAgent: false });
+      expect(resolved.status).toBe('failed');
+      const put = calls.find((c) => c.method === 'PUT')!;
+      expect(JSON.parse(put.body).sha).toBe('a'.repeat(40));
+    } finally { mergeHead = 'a'.repeat(40); }
+    const obsolete = new IntegrationExecutor(new OAuthManager(transport, () => now), transport);
+    await expect(obsolete.execute(id, 'github_pr_merge', cases.github_pr_merge.args)).rejects.toThrow('obsolète');
+    const next = await merge.execute!(cases.github_pr_merge.args as never, { toolCallId: 'merge-next', messages: [] } as any) as any;
+    expect((await resolveApproval(next.approvalId, 'approve', { by: 'ui', notifyAgent: false })).status).toBe('executed');
+  }));
+  it('retirer code tout en conservant private invalide aussi une approbation en attente', async () => asA(async () => {
+    vi.stubGlobal('fetch', transport);
+    const id = connectorIds.get('github')!, row = (await getConnector(id))!, created = await createAgent({ name: 'Rights' });
+    const agent = (await getAgent(created.id))!, conversationId = await mainConversationId(agent.id);
+    const { tools } = await buildCapabilityTools({ agent, conversationId, isMain: true, userTurn: true, depth: 0, tz: 'UTC' });
+    const pending = await tools[`svc_${id.slice(-8)}_github_repo_create`].execute!({ name: 'permission-test' } as never, { toolCallId: 'rights', messages: [] } as any) as any;
+    await updateConnector(id, { config: { ...row.config, permissions: ['read', 'private'] } });
+    try {
+      expect((await resolveApproval(pending.approvalId, 'approve', { by: 'ui', notifyAgent: false })).status).toBe('failed');
+      expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    } finally { await updateConnector(id, { config: row.config }); }
+  }));
 });
 
 describe('outils de services chargés à la demande', () => {

@@ -133,6 +133,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   manageActivities: 'gérer ses activités',
   messageAgents: 'échanger avec les compagnons',
   manageMemory: 'gérer sa mémoire',
+  computer: 'voir et piloter le bureau graphique',
 };
 
 function describePermissions(p: Partial<AgentPermissions>): string {
@@ -321,6 +322,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
         manageActivities: z.boolean().optional(),
         messageAgents: z.boolean().optional(),
         manageMemory: z.boolean().optional(),
+        computer: z.boolean().optional(),
         createAgents: z.enum(['allow', 'ask', 'deny']).optional(),
       }),
       execute: async ({ agent, ...changes }, { toolCallId }) =>
@@ -659,6 +661,7 @@ export function toolActivityLabel(name: string): string {
   if (name.startsWith('activity_')) return 'Organise ses activités';
   if (name === 'web_fetch') return 'Lit une page web';
   if (name === 'web_search') return 'Cherche sur le web';
+  if (name.startsWith('computer_')) return 'Utilise le bureau graphique';
   if (name === 'shell_exec') return 'Travaille sur son ordinateur';
   if (name.startsWith('mail_')) return 'Consulte les e-mails';
   if (name === 'team_send_message') return 'Contacte un compagnon';

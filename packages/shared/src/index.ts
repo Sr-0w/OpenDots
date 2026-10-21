@@ -53,6 +53,8 @@ export interface AgentPermissions {
   connectors: boolean;
   /** Exécuter des commandes sur l'ordinateur des compagnons. */
   shell: boolean;
+  /** Voir le bureau et préparer des actions graphiques avec validation. */
+  computer: boolean;
 }
 
 export const DEFAULT_PERMISSIONS: AgentPermissions = {
@@ -64,6 +66,7 @@ export const DEFAULT_PERMISSIONS: AgentPermissions = {
   mail: true,
   connectors: true,
   shell: true,
+  computer: false,
 };
 
 export interface AgentDTO {
@@ -371,3 +374,7 @@ export function cleanModelText(text: string): string {
     .replace(/ +([.,])/g, '$1')
     .trim();
 }
+
+/** Limites communes aux images jointes au chat. */
+export const IMAGE_MAX_COUNT = 6;
+export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;

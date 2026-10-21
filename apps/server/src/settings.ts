@@ -14,6 +14,7 @@ interface SettingsShape {
   'user.timezone': string;
   'search.config': { provider: string; apiKey?: string | null; url?: string | null }; // clés historiques ignorées
   'shell.config': ShellSettings;
+  'desktop.config': { enabled: boolean; manualControl?: boolean };
 }
 
 export type SearchProvider = 'auto' | 'mwmbl' | 'searxng';

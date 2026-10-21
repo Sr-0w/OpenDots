@@ -17,6 +17,7 @@ import { accountKey, currentAccount } from '../auth/context.ts';
 const run = promisify(execFile);
 const container = () => (process.env.OPENDOTS_CONTAINER ?? 'opendots-computer') + (currentAccount() ? `-${createHash('sha256').update(accountKey()).digest('hex').slice(0, 12)}` : '');
 const MAX_OUTPUT = 200_000;
+const CONTAINER_REVISION = '2-selinux';
 
 export const workspacesDir = () => join(config.dataDir, 'workspaces');
 
@@ -85,15 +86,15 @@ function ensureHostDirs(agentId: string) {
 
 // --- Conteneur ----------------------------------------------------------------
 
-async function inspect(): Promise<{ running: boolean; image: string; network: string; workspaces: string } | null> {
+async function inspect(): Promise<{ running: boolean; image: string; network: string; workspaces: string; revision: string } | null> {
   try {
     const { stdout } = await run(
       'docker',
-      ['inspect', '-f', '{{.State.Running}}|{{index .Config.Labels "opendots.image"}}|{{index .Config.Labels "opendots.network"}}|{{index .Config.Labels "opendots.workspaces"}}', container()],
+      ['inspect', '-f', '{{.State.Running}}|{{index .Config.Labels "opendots.image"}}|{{index .Config.Labels "opendots.network"}}|{{index .Config.Labels "opendots.workspaces"}}|{{index .Config.Labels "opendots.revision"}}', container()],
       { timeout: 10_000 },
     );
-    const [running, image, network, workspaces] = stdout.trim().split('|');
-    return { running: running === 'true', image, network, workspaces };
+    const [running, image, network, workspaces, revision] = stdout.trim().split('|');
+    return { running: running === 'true', image, network, workspaces, revision };
   } catch {
     return null;
   }
@@ -145,7 +146,7 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
     chmodSync(workspacesDir(), 0o755);
     const state = await inspect();
     const network = s.network ? 'on' : 'off';
-    if (state && (state.image !== s.image || state.network !== network || state.workspaces !== workspacesDir())) {
+    if (state && (state.image !== s.image || state.network !== network || state.workspaces !== workspacesDir() || state.revision !== CONTAINER_REVISION)) {
       await run('docker', ['rm', '-f', container()], { timeout: 30_000 }).catch(() => {});
     } else if (state?.running) {
       return;
@@ -171,6 +172,7 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
         `opendots.network=${network}`,
         '--label',
         `opendots.workspaces=${workspacesDir()}`,
+        '--label', `opendots.revision=${CONTAINER_REVISION}`,
         ...(s.network ? [] : ['--network', 'none']),
         '--memory',
         process.env.OPENDOTS_COMPUTER_MEMORY ?? '2g',
@@ -316,55 +318,36 @@ export function shellForModel(r: ShellResult) {
   };
 }
 
-// --- git push authentifié ----------------------------------------------------
+// Credential-free snapshot export; authenticated Git runs only in git-broker.ts.
+export interface GitSnapshotRequest { agentId: string; path: string; branch: string }
 
-export interface GitPushRequest { agentId: string; path: string; repo: string; branch: string; setUpstream?: boolean; token: string }
-
-/**
- * Arguments `git` pour un push vers GitHub. Le jeton n'apparaît jamais ici : il
- * est lu par l'assistant d'identification depuis une variable d'environnement
- * transmise à cette seule commande. La configuration du dépôt (hooks,
- * assistants d'identification, proxy, TLS) est neutralisée.
- */
-export function gitPushArgs(r: Omit<GitPushRequest, 'token' | 'agentId'>) {
-  const helper = '!f() { test "$1" = get || exit 0; printf "username=x-access-token\\npassword=%s\\n" "$OPENDOTS_GIT_TOKEN"; }; f';
-  return [
-    '-c', 'core.hooksPath=/dev/null',
-    '-c', 'credential.helper=',
-    '-c', `credential.https://github.com.helper=${helper}`,
-    '-c', 'credential.useHttpPath=false',
-    '-c', 'credential.interactive=never',
-    '-c', 'core.askPass=',
-    '-c', 'http.sslVerify=true',
-    '-c', 'http.proxy=',
-    '-c', 'http.extraHeader=',
-    '-c', 'protocol.allow=never',
-    '-c', 'protocol.https.allow=always',
-    'push', '--porcelain', '--no-verify',
-    ...(r.setUpstream === false ? [] : ['--set-upstream']),
-    `https://github.com/${r.repo}.git`,
-    `refs/heads/${r.branch}:refs/heads/${r.branch}`,
-  ];
-}
-
-export async function gitPushInContainer(r: GitPushRequest) {
+async function companionGit(r: GitSnapshotRequest, args: string[], maxBuffer = 1024 * 1024) {
+  if (!/^ag_[a-zA-Z0-9_]+$/.test(r.agentId) || !/^[a-zA-Z0-9._/-]*$/.test(r.path) || r.path.startsWith('/') || r.path.split('/').includes('..')) throw new Error('Dossier de compagnon invalide.');
+  if (!/^[a-zA-Z0-9._/-]+$/.test(r.branch) || r.branch.startsWith('-') || r.branch.includes('..')) throw new Error('Branche invalide.');
   const settings = await getShellSettings();
-  if ((await resolveBackend(settings)) !== 'docker' || !(await dockerAvailable())) throw new Error('Le push n’est possible que depuis l’ordinateur Docker isolé du compagnon.');
-  if (settings.sudo) throw new Error('Push refusé : le compagnon est administrateur (sudo) de son ordinateur et pourrait intercepter le jeton GitHub. Désactive sudo dans les paramètres.');
+  if ((await resolveBackend(settings)) !== 'docker' || !(await dockerAvailable())) throw new Error('Le push nécessite l’ordinateur Docker isolé du compagnon.');
+  if (settings.sudo) throw new Error('Désactive sudo avant de préparer un push.');
   if (!settings.network) throw new Error('L’ordinateur du compagnon n’a pas accès au réseau.');
   await ensureContainer(settings);
   const { user, home } = await ensureUser(r.agentId, false);
-  const cwd = r.path && r.path !== '.' ? `${home}/${r.path}` : home;
-  const child = spawn(
-    'docker',
-    ['exec', '-u', user, '-w', cwd, '-e', `HOME=${home}`, '-e', 'TERM=dumb', '-e', 'GIT_TERMINAL_PROMPT=0', '-e', 'GIT_CONFIG_NOSYSTEM=1', '-e', 'GIT_ASKPASS=', '-e', 'SSH_ASKPASS=', '-e', 'OPENDOTS_GIT_TOKEN', container(), '/usr/bin/git', ...gitPushArgs(r)],
-    // Seule cette commande reçoit le jeton ; il n'est ni écrit sur disque ni journalisé.
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? '/tmp', OPENDOTS_GIT_TOKEN: r.token } },
-  );
-  const started = Date.now();
-  const out = await collect(child, 180_000, () => child.kill('SIGKILL'));
-  const scrub = (v: string) => truncate(v.split(r.token).join('***'), 6_000);
-  const result = { ok: out.code === 0 && !out.timedOut, exit_code: out.code, timed_out: out.timedOut, duration_ms: Date.now() - started, repo: r.repo, branch: r.branch, stdout: scrub(out.stdout), stderr: scrub(out.stderr) };
-  if (!result.ok) throw new Error(`git push a échoué (${out.timedOut ? 'délai dépassé' : `code ${out.code}`}). ${result.stderr}`);
-  return result;
+  const cwd = !r.path || r.path === '.' ? home : `${home}/${r.path}`;
+  return run('docker', ['exec', '-u', user, '-w', cwd, '-e', `HOME=${home}`, '-e', 'GIT_TERMINAL_PROMPT=0', container(), '/usr/bin/git', ...args], { encoding: 'buffer', timeout: 60_000, maxBuffer });
+}
+
+export async function companionGitHead(r: GitSnapshotRequest): Promise<string> {
+  const { stdout } = await companionGit(r, ['rev-parse', '--verify', `refs/heads/${r.branch}^{commit}`]);
+  const sha = stdout.toString('utf8').trim();
+  if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Commit Git introuvable ou format non pris en charge.');
+  return sha;
+}
+
+export async function companionGitBundle(r: GitSnapshotRequest): Promise<Buffer> {
+  // Bundle contains objects and refs only, never source config/hooks/alternates.
+  const { stdout } = await companionGit(r, ['bundle', 'create', '-', `refs/heads/${r.branch}`], 128 * 1024 * 1024);
+  return stdout;
+}
+
+export async function setCompanionUpstream(r: GitSnapshotRequest, repo: string) {
+  await companionGit(r, ['config', `branch.${r.branch}.remote`, `https://github.com/${repo}.git`]);
+  await companionGit(r, ['config', `branch.${r.branch}.merge`, `refs/heads/${r.branch}`]);
 }

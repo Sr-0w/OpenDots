@@ -1,3 +1,4 @@
+import { hydrateMessageImages } from '../attachments/service.ts';
 import { accountKey } from '../auth/context.ts';
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
@@ -37,7 +38,7 @@ const agentLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const SILENCE = /^\s*<(silence|no[_-]?reply)\s*\/?>\s*$/i;
-const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+)$/;
+const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+|computer_action)$/;
 
 /** Le tour s'arrête dès qu'un formulaire a été présenté à l'utilisateur. */
 const formShown: StopCondition<any> = ({ steps }) =>
@@ -236,7 +237,7 @@ async function executeTurn(
     const result = streamText({
       model: resolved.model,
       instructions: system,
-      messages: await convertToModelMessages(history, { ignoreIncompleteToolCalls: true }),
+      messages: await convertToModelMessages(await hydrateMessageImages(history), { ignoreIncompleteToolCalls: true, tools }),
       tools,
       // Outils de services chargés à la demande : load_tools les active dès l'étape suivante.
       activeTools: activeToolNames(tools, capabilities.lazy) as any,

@@ -52,6 +52,7 @@ export interface ModelInfo {
   contextLength: number | null;
   tools: boolean;
   reasoning: boolean;
+  vision?: boolean;
   promptPrice: number | null; // $ / M tokens
   completionPrice: number | null;
 }
@@ -71,6 +72,7 @@ export async function listOpenRouterModels(): Promise<ModelInfo[]> {
       provider: 'openrouter' as const,
       contextLength: m.context_length ?? null,
       tools: (m.supported_parameters ?? []).includes('tools'),
+      vision: (m.architecture?.input_modalities ?? []).includes('image'),
       reasoning: (m.supported_parameters ?? []).includes('reasoning'),
       promptPrice: m.pricing?.prompt ? Number(m.pricing.prompt) * 1e6 : null,
       completionPrice: m.pricing?.completion ? Number(m.pricing.completion) * 1e6 : null,

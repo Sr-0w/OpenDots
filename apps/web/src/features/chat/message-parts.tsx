@@ -84,6 +84,8 @@ function describeTool(name: string, input: any, output: any): { title: string; i
       return { title: i.query ? t("Cherche « {v0} »", { v0: String(i.query).slice(0, 50) }) : t("Cherche sur le web"), icon: <SearchIcon className="size-3.5" /> };
     case "datetime":
       return { title: t("Consulte la date et l’heure"), icon: <ClockIcon className="size-3.5" /> };
+    case "computer_screenshot": return { title: t("Observe le bureau graphique"), icon: <EyeIcon className="size-3.5" /> };
+    case "computer_action": return { title: t("Prépare une action sur le bureau"), icon: <TerminalIcon className="size-3.5" /> };
     case "shell_exec":
       return { title: `$ ${String(i.command ?? "").split("\n")[0].slice(0, 60)}`, icon: <TerminalIcon className="size-3.5" /> };
     case "web_fetch":
@@ -231,6 +233,7 @@ function ToolCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string;
   if (name === "ask_user" && out.requestId) return <AskUserCard requestId={out.requestId} title={input.title} questions={input.questions ?? []} />;
   if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} provider={input.provider} reason={input.reason} agentId={agentId} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
+  if (name === "computer_screenshot" && out.screenshotId) return <a href={out.url} target="_blank" rel="noreferrer" className="block max-w-xl"><img src={out.url} alt={t("Capture du bureau privé")} className="rounded-xl border" loading="lazy" /></a>;
   if (name === "shell_exec" && "exit_code" in out) return <TerminalCard command={input.command} output={out} />;
   if (name === "web_search" && Array.isArray(out.results)) return <SearchResultsCard results={out.results} />;
   if (name === "activity_create" && out.activity) return <ActivityCreatedCard title={out.activity.title} when={out.activity.when} kind={out.activity.kind} />;
@@ -288,7 +291,7 @@ export function MessageView({ message, streaming, agentId }: { message: ODMessag
           }
           if (g.kind === "file") {
             return g.part.mediaType?.startsWith("image/") ? (
-              <img key={key} src={g.part.url} alt={g.part.filename ?? ""} className="max-h-64 rounded-xl border" />
+              <a key={key} href={g.part.url} target="_blank" rel="noreferrer"><img src={g.part.url} alt={g.part.filename ?? t("Image jointe")} className="max-h-64 max-w-full rounded-xl border" loading="lazy" /></a>
             ) : (
               <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? t("Fichier")}</span>
             );

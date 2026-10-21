@@ -30,7 +30,9 @@
     "mailparser": "^3.10.0",
     "nodemailer": "^10.1.7",
     "pg": "^8.23.1",
+    "sharp": "^0.35.5",
     "undici": "^8.12.3",
+    "ws": "^8.22.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -39,6 +41,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/smtp-server": "^3.5.13",
+    "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
     "hoodiecrow-imap": "^3.3.1",
     "smtp-server": "^3.20.2",

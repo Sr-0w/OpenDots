@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClockIcon,
   MenuIcon,
+  MonitorIcon,
   MessagesSquareIcon,
   PlugIcon,
   SparklesIcon,
@@ -35,13 +36,14 @@ import { useAccount } from '@/lib/account';
 const TeamView = lazy(() => import("./team-view").then((m) => ({ default: m.TeamView })));
 const TasksPage = lazy(() => import("./pages/tasks-page").then((m) => ({ default: m.TasksPage })));
 const SkillsPage = lazy(() => import("./pages/skills-page").then((m) => ({ default: m.SkillsPage })));
+const ComputerPage = lazy(() => import("./pages/computer-page").then((m) => ({ default: m.ComputerPage })));
 const ConnectorsPage = lazy(() => import("./pages/connectors-page").then((m) => ({ default: m.ConnectorsPage })));
 const DialogHost = lazy(() => import("./dialogs/dialog-host").then((m) => ({ default: m.DialogHost })));
 
-type PageView = "team" | "tasks" | "skills" | "connectors";
+type PageView = "team" | "tasks" | "skills" | "connectors" | "computer";
 type Route = { view: "agent"; id: string | null } | { view: PageView };
-const PAGES: PageView[] = ["team", "tasks", "skills", "connectors"];
-const PAGE_TITLES: Record<PageView, string> = { team: t("Équipe"), tasks: t("Tâches planifiées"), skills: t("Skills"), connectors: t("Connecteurs") };
+const PAGES: PageView[] = ["team", "tasks", "skills", "connectors", "computer"];
+const PAGE_TITLES: Record<PageView, string> = { computer: t("Ordinateur"), team: t("Équipe"), tasks: t("Tâches planifiées"), skills: t("Skills"), connectors: t("Connecteurs") };
 
 function parseHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
@@ -144,6 +146,7 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
         <SideButton active={route.view === "skills"} onClick={() => go({ view: "skills" })} icon={<SparklesIcon />}>
           {t("Skills")}
         </SideButton>
+        <SideButton active={route.view === "computer"} onClick={() => go({ view: "computer" })} icon={<MonitorIcon />}>{t("Ordinateur")}</SideButton>
         <SideButton active={route.view === "connectors"} onClick={() => go({ view: "connectors" })} icon={<PlugIcon />}>
           {t("Connecteurs")}
         </SideButton>
@@ -308,6 +311,8 @@ export function Shell() {
             <TasksPage />
           ) : route.view === "skills" ? (
             <SkillsPage />
+          ) : route.view === "computer" ? (
+            <ComputerPage />
           ) : route.view === "connectors" ? (
             <ConnectorsPage />
           ) : current ? (

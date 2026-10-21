@@ -72,7 +72,7 @@ async function start(): Promise<string> {
     extraArgs.push('-v', `${caPath}:/run/opendots-ca.pem:ro,z`, '-e', 'SSL_CERT_FILE=/run/opendots-ca.pem');
   }
   const serialized = JSON.stringify(settings, null, 2);
-  const fingerprint = createHash('sha256').update(IMAGE + serialized + ca + proxyHost).digest('hex');
+  const fingerprint = createHash('sha256').update('2-selinux:' + IMAGE + serialized + ca + proxyHost).digest('hex');
   const settingsPath = join(dir, 'settings.yml'); // JSON is also valid YAML.
   let state = await inspect();
   if (state && state.fingerprint !== fingerprint) {
