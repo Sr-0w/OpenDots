@@ -8,7 +8,8 @@ import { closeAllDatabases, openDatabase } from '../src/db/client.ts';
 import { createConnector, getConnector, listConnectors, readSecrets, replaceConnectorSecrets, toConnectorDTO, updateConnector } from '../src/connectors/repo.ts';
 import { OAuthManager, oauth, oauthApps, saveOAuthApp } from '../src/integrations/oauth.ts';
 import { CATALOG, hasGrantedScopes, integrationSpec, selectedScopes } from '../src/integrations/catalog.ts';
-import { IntegrationExecutor, OPERATIONS } from '../src/integrations/providers.ts';
+import { IntegrationExecutor, OPERATIONS, availableOperations } from '../src/integrations/providers.ts';
+import { gitPushArgs } from '../src/computer/shell.ts';
 import { createAgent, getAgent, mainConversationId, updateAgent } from '../src/agents/repo.ts';
 import { buildCapabilityTools } from '../src/agents/capability-tools.ts';
 import { getApproval, resolveApproval } from '../src/approvals/service.ts';
@@ -187,6 +188,8 @@ const cases: Record<string, { args: unknown; path: string; method?: string }> = 
   gmail_search: { args: { query: 'is:unread' }, path: '/gmail/v1/users/me/messages/message' }, gmail_read: { args: { message_id: 'message' }, path: '/gmail/v1/users/me/messages/message' }, gmail_labels: { args: {}, path: '/gmail/v1/users/me/labels' }, gmail_draft: { args: message, path: '/gmail/v1/users/me/drafts', method: 'POST' }, gmail_send: { args: message, path: '/gmail/v1/users/me/messages/send', method: 'POST' }, gmail_label_create: { args: { name: 'Solaire' }, path: '/gmail/v1/users/me/labels', method: 'POST' },
   outlook_search: { args: { query: 'solaire' }, path: '/v1.0/me/messages' }, outlook_read: { args: { message_id: 'message' }, path: '/v1.0/me/messages/message' }, outlook_send: { args: message, path: '/v1.0/me/sendMail', method: 'POST' }, outlook_draft: { args: message, path: '/v1.0/me/messages', method: 'POST' }, outlook_calendars: { args: {}, path: '/v1.0/me/calendars' }, outlook_events: { args: { start: event.start, end: event.end }, path: '/v1.0/me/calendarView' }, outlook_event_create: { args: event, path: '/v1.0/me/events', method: 'POST' },
   github_repos: { args: {}, path: '/user/repos' }, github_search: { args: { query: 'repo:owner/project is:issue' }, path: '/search/issues' }, github_issue: { args: { repo: 'owner/project', number: 1 }, path: '/repos/owner/project/issues/1' }, github_pulls: { args: { repo: 'owner/project' }, path: '/repos/owner/project/pulls' }, github_issue_create: { args: { repo: 'owner/project', title: 'Test', body: 'Détail' }, path: '/repos/owner/project/issues', method: 'POST' }, github_comment: { args: { repo: 'owner/project', number: 1, body: 'Bonjour' }, path: '/repos/owner/project/issues/1/comments', method: 'POST' },
+  github_repo_create: { args: { name: 'nouveau', private: true }, path: '/user/repos', method: 'POST' }, github_branch_create: { args: { repo: 'owner/project', branch: 'feature/x', from: 'a'.repeat(40) }, path: '/repos/owner/project/git/refs', method: 'POST' },
+  github_pr_create: { args: { repo: 'owner/project', title: 'PR', head: 'feature/x', base: 'main' }, path: '/repos/owner/project/pulls', method: 'POST' }, github_pr_merge: { args: { repo: 'owner/project', number: 2, method: 'squash' }, path: '/repos/owner/project/pulls/2/merge', method: 'PUT' },
 };
 const connectorIds = new Map<string, string>();
 describe('opérations natives via HTTP réel sur serveur local', () => {
@@ -194,7 +197,7 @@ describe('opérations natives via HTTP réel sur serveur local', () => {
     const manager = new OAuthManager(transport, () => now);
     for (const provider of CATALOG.filter((p) => p.oauth)) connectorIds.set(provider.id, (await finish(manager, provider.id as IntegrationProvider, provider.permissions.map((p) => p.id))).connector.id);
   }));
-  it.each(OPERATIONS.map((o) => [o.id, o] as const))('%s respecte méthode, destination, permissions et format', async (name, operation) => asA(async () => {
+  it.each(OPERATIONS.filter((o) => o.id !== 'github_push').map((o) => [o.id, o] as const))('%s respecte méthode, destination, permissions et format', async (name, operation) => asA(async () => {
     const executor = new IntegrationExecutor(new OAuthManager(transport, () => now), transport);
     const example = cases[name]; expect(example).toBeDefined();
     const result = await executor.execute(connectorIds.get(operation.provider)!, name, example.args);
@@ -288,4 +291,33 @@ describe('validation humaine obligatoire et routes natives', () => {
     expect((await api.request(`/integrations/${id}/disconnect`, { method: 'POST', headers, body: '{}' })).status).toBe(200);
     expect(await getConnector(id)).toBeNull(); expect(calls).toHaveLength(0);
   }));
+});
+
+describe('GitHub : dépôts, pull requests et git push', () => {
+  it('demande repo et workflow pour la permission code et expose les opérations d’écriture', () => {
+    expect(selectedScopes('github', ['code'])).toEqual(expect.arrayContaining(['read:user', 'repo', 'workflow']));
+    const ops = availableOperations({ provider: 'github', account: {} as never, permissions: ['code'], grantedScopes: ['repo', 'workflow'] } as never).map((o) => o.id);
+    expect(ops).toEqual(expect.arrayContaining(['github_repos', 'github_repo_create', 'github_pr_create', 'github_branch_create', 'github_pr_merge', 'github_push']));
+    expect(OPERATIONS.filter((o) => o.permission === 'code').every((o) => o.write)).toBe(true);
+    expect(availableOperations({ provider: 'github', permissions: ['read', 'write'] } as never).some((o) => o.permission === 'code')).toBe(false);
+  });
+  it('neutralise hooks, assistants et proxy du dépôt sans jamais placer le jeton dans les arguments', () => {
+    const args = gitPushArgs({ path: '.', repo: 'owner/project', branch: 'main' });
+    expect(args.join(' ')).not.toContain('access-private');
+    expect(args).toEqual(expect.arrayContaining(['core.hooksPath=/dev/null', 'credential.helper=', 'http.sslVerify=true', 'protocol.allow=never', '--no-verify']));
+    expect(args.indexOf('credential.helper=')).toBeLessThan(args.findIndex((v) => v.startsWith('credential.https://github.com.helper=')));
+    expect(args.slice(-2)).toEqual(['https://github.com/owner/project.git', 'refs/heads/main:refs/heads/main']);
+  });
+  it('pousse avec le jeton du compte propriétaire, exige un compagnon et valide chemin et branche', async () => {
+    const pushes: any[] = [];
+    const executor = new IntegrationExecutor(new OAuthManager(transport, () => now), transport, async (r) => { pushes.push(r); return { ok: true, stdout: `pushed ${r.branch}` }; });
+    const id = connectorIds.get('github')!, args = { repo: 'owner/project', path: 'projet', branch: 'feature/x' };
+    await expect(asA(() => executor.execute(id, 'github_push', args))).rejects.toThrow('compagnon');
+    const result = await asA(() => executor.execute(id, 'github_push', args, { agentId: 'ag_test' }));
+    expect(pushes).toHaveLength(1); expect(pushes[0]).toMatchObject({ agentId: 'ag_test', repo: 'owner/project', path: 'projet', branch: 'feature/x', token: 'access-private' });
+    expect(JSON.stringify(result)).not.toContain('access-private');
+    for (const bad of [{ ...args, path: '../autre' }, { ...args, path: '/etc' }, { ...args, branch: '--force' }, { ...args, branch: 'a..b' }, { ...args, repo: 'owner/../x' }, { ...args, force: true }]) await expect(asA(() => executor.execute(id, 'github_push', bad, { agentId: 'ag_test' }))).rejects.toThrow();
+    await expect(withAccount(b, () => executor.execute(id, 'github_push', args, { agentId: 'ag_test' }))).rejects.toThrow('introuvable');
+    expect(pushes).toHaveLength(1);
+  });
 });

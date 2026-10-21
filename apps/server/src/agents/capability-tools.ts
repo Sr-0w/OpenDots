@@ -72,7 +72,7 @@ registerApprovalAction('integration.call', async (input: { connectorId: string; 
   if (!row || !agent || agent.archived) throw new Error('Connexion ou compagnon indisponible.');
   const operation = operationFor(row, input.operation);
   if (operation.mail ? !agent.permissions.mail : !agent.permissions.connectors) throw new Error('La permission du compagnon a été retirée.');
-  return integrations.execute(row.id, operation.id, input.args);
+  return integrations.execute(row.id, operation.id, input.args, { agentId: agent.id });
 });
 
 export interface CapabilityContext {

@@ -37,7 +37,7 @@ The built-in catalog works for ordinary users without MCP setup.
 | Google Calendar | List calendars, read events, create events/invitations |
 | Gmail | Search/read mail, list/create labels, create drafts, send mail |
 | Outlook / Microsoft 365 | Search/read mail, drafts, send mail, calendars/events |
-| GitHub | Repositories, issues, PRs, search, create issues/comments |
+| GitHub | Repositories, issues, PRs, search, create issues/comments; with **code** permission (`repo` + `workflow`): create private/public repositories, branches, pull requests, merge PRs and `git push` from the companion's Docker computer |
 | IMAP / SMTP | Standard mail reading/polling and approved sending |
 
 Users select permissions before connecting. Reading is selected by default;
@@ -99,6 +99,28 @@ localhost and 127.0.0.1 have different cookies.
   require administrator consent.
 - **GitHub:** register an OAuth App with the exact callback. Organization SSO and
   third-party application restrictions may require organization approval.
+  The permission **Créer des dépôts, pousser du code et ouvrir des PR** requests
+  `repo` and `workflow`; existing connections must be reconnected with it.
+
+### GitHub write operations and `git push`
+
+Every write operation (`github_repo_create`, `github_branch_create`,
+`github_pr_create`, `github_pr_merge`, `github_push`) is a prepared action that
+runs only after human approval. Companions make commits with their normal shell
+in their isolated computer; `github_push` then pushes
+`refs/heads/<branch>` from a path relative to the companion's home to
+`https://github.com/<owner>/<repo>.git`:
+
+- runs only with the Docker backend, network enabled and **sudo disabled** (a
+  root companion could intercept the token);
+- runs in the container of the account owning the connector, as the companion's
+  Linux user; the connector is resolved in that account only;
+- the OAuth token is passed only through the environment of that single
+  `docker exec` (never in arguments, on disk, in logs or in model output, which
+  is scrubbed) and read by a one-shot credential helper scoped to
+  `https://github.com`;
+- repository-local hooks, credential helpers, askpass, proxy, extra headers and
+  TLS overrides are neutralised and only the HTTPS protocol is allowed.
 
 Then ordinary users click **Connect**, select access, and sign in directly with
 the provider in a popup. Authorization uses one-time state, PKCE S256 and a
