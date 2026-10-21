@@ -1,4 +1,4 @@
-import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type UIMessageChunk } from 'ai';
+import { convertToModelMessages, hasToolCall, isStepCount, streamText, toUIMessageStream, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
 import type { MessageMetadata } from '@opendots/shared';
 import { config } from '../config.ts';
@@ -13,6 +13,7 @@ import { getConversation, loadMessages, messageText, saveMessage, type OpenDotsU
 import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow } from './repo.ts';
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
+import { buildCapabilityTools } from './capability-tools.ts';
 import { ActiveStream, beginStream, finishStream } from './streams.ts';
 import { errorMessage, KeyedMutex, newId } from '../util.ts';
 
@@ -150,14 +151,9 @@ async function executeTurn(
   }
 
   const depth = trigger.kind === 'user' ? 0 : trigger.depth;
-  const tools = buildTools({
-    agent,
-    conversationId,
-    isMain: !pair,
-    userTurn: trigger.kind === 'user',
-    depth,
-    tz,
-  });
+  const toolCtx = { agent, conversationId, isMain: !pair, userTurn: trigger.kind === 'user', depth, tz };
+  const capabilities = await buildCapabilityTools(toolCtx);
+  const tools = { ...capabilities.tools, ...buildTools(toolCtx) };
 
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
@@ -178,6 +174,8 @@ async function executeTurn(
     memories,
     activities,
     pendingApprovals: pending,
+    skills: capabilities.info.skills,
+    connectors: capabilities.info.connectors,
     mode,
     tz,
     now: new Date(),
@@ -200,7 +198,7 @@ async function executeTurn(
       instructions: system,
       messages: await convertToModelMessages(history, { ignoreIncompleteToolCalls: true }),
       tools,
-      stopWhen: isStepCount(config.maxStepsPerTurn),
+      stopWhen: [isStepCount(config.maxStepsPerTurn), hasToolCall('ask_user')],
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
       abortSignal: stream.abort.signal,

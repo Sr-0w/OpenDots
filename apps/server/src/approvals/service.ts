@@ -15,9 +15,11 @@ type Row = typeof schema.approvals.$inferSelect;
 type Executor = (input: any, approval: Row) => Promise<unknown>;
 
 const executors = new Map<string, Executor>();
+const rejectHooks = new Map<string, Executor>();
 
-export function registerApprovalAction(action: string, executor: Executor) {
+export function registerApprovalAction(action: string, executor: Executor, onReject?: Executor) {
   executors.set(action, executor);
+  if (onReject) rejectHooks.set(action, onReject);
 }
 
 export function toApprovalDTO(r: Row): ApprovalDTO {
@@ -111,6 +113,7 @@ export async function resolveApproval(
   publish({ type: 'approval.changed', approval: toApprovalDTO(row) });
 
   if (decision === 'reject') {
+    await rejectHooks.get(row.action)?.(row.input, row).catch(() => {});
     await log(row.agentId, 'approval.rejected', `Refusé : ${row.summary}`, { approvalId: id });
   } else {
     const executor = executors.get(row.action);

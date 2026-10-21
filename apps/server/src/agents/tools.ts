@@ -33,6 +33,7 @@ import {
 } from '../approvals/service.ts';
 import { sendTeamMessage, TeamError } from '../team/service.ts';
 import { log } from '../journal.ts';
+import { resolveAccount } from '../mail/service.ts';
 import { errorMessage, truncate } from '../util.ts';
 
 export interface ToolContext {
@@ -457,17 +458,21 @@ export function buildTools(ctx: ToolContext): ToolSet {
         'Crée une activité autonome persistante. Types :',
         '- schedule : tu seras réveillé à l’horaire indiqué (une fois, à intervalle ou cron) pour exécuter les instructions ;',
         '- watch : le système vérifie une page web à intervalle SANS te solliciter, et ne te réveille que si la condition est remplie (changed = la page a changé, contains / not_contains = présence d’un texte, regex) ;',
-        '- webhook : une URL est générée ; chaque appel externe te réveille.',
+        '- webhook : une URL est générée ; chaque appel externe te réveille ;',
+        '- mail : tu es réveillé à chaque nouvel e-mail reçu correspondant au filtre (compte, expéditeur, sujet).',
         'Les instructions doivent être autonomes : c’est ce que tu liras au réveil (ce qu’il faut faire, quand prévenir l’utilisateur, ce qui demande son accord).',
       ].join('\n'),
       inputSchema: z.object({
         title: z.string().min(1).max(120),
-        kind: z.enum(['schedule', 'watch', 'webhook']),
+        kind: z.enum(['schedule', 'watch', 'webhook', 'mail']),
         instructions: z.string().min(1),
         ...scheduleFields,
         watch_url: z.string().optional(),
         watch_mode: z.enum(['changed', 'contains', 'not_contains', 'regex']).optional(),
         watch_value: z.string().optional().describe('Texte ou regex pour contains / not_contains / regex'),
+        mail_account: z.string().optional().describe('Pour mail : compte concerné (adresse ou id), tous par défaut'),
+        mail_from: z.string().optional().describe('Pour mail : expéditeur ou domaine contenu, ex. "venthone.lu"'),
+        mail_subject: z.string().optional().describe('Pour mail : texte contenu dans l’objet'),
       }),
       execute: async (args) =>
         guard(async () => {
@@ -481,13 +486,17 @@ export function buildTools(ctx: ToolContext): ToolSet {
               instructions: args.instructions,
               schedule: buildSchedule(args, ctx.tz),
               watch: args.kind === 'watch' ? { url: args.watch_url ?? '', mode: args.watch_mode ?? 'changed', value: args.watch_value ?? null } : null,
+              filter:
+                args.kind === 'mail'
+                  ? { connectorId: args.mail_account ? (await resolveAccount(args.mail_account)).id : null, from: args.mail_from ?? null, subject: args.mail_subject ?? null }
+                  : null,
               createdBy: ctx.userTurn ? 'user_request' : 'agent',
               tz: ctx.tz,
             });
             await log(ctx.agent.id, 'activity.created', `Activité créée : ${row.title}`, { activityId: row.id });
             const dto = toActivityDTO(row);
             return ok({
-              activity: { id: dto.id, title: dto.title, kind: dto.kind, when: describeSchedule(dto.schedule), nextRunAt: dto.nextRunAt, webhookUrl: dto.webhookUrl },
+              activity: { id: dto.id, title: dto.title, kind: dto.kind, when: describeSchedule(dto.schedule, dto.kind), nextRunAt: dto.nextRunAt, webhookUrl: dto.webhookUrl },
             });
           } catch (err) {
             if (err instanceof ActivityError) return fail(err.message);
@@ -503,7 +512,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
         ok({
           activities: (await listActivities(ctx.agent.id)).map((a) => {
             const d = toActivityDTO(a);
-            return { id: d.id, title: d.title, kind: d.kind, enabled: d.enabled, when: describeSchedule(d.schedule), instructions: d.instructions, watch: d.watch, nextRunAt: d.nextRunAt, lastRunAt: d.lastRunAt, lastStatus: d.lastStatus };
+            return { id: d.id, title: d.title, kind: d.kind, enabled: d.enabled, when: describeSchedule(d.schedule, d.kind), instructions: d.instructions, watch: d.watch, nextRunAt: d.nextRunAt, lastRunAt: d.lastRunAt, lastStatus: d.lastStatus };
           }),
         }),
     });
@@ -540,7 +549,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
             }
             const row = await updateActivity(args.id, ctx.agent.id, patch, ctx.tz);
             await log(ctx.agent.id, 'activity.updated', `Activité modifiée : ${row.title}`, { activityId: row.id, patch });
-            return ok({ activity: { id: row.id, title: row.title, enabled: row.enabled, when: describeSchedule(row.schedule), nextRunAt: row.nextRunAt } });
+            return ok({ activity: { id: row.id, title: row.title, enabled: row.enabled, when: describeSchedule(row.schedule, row.kind), nextRunAt: row.nextRunAt } });
           } catch (err) {
             if (err instanceof ActivityError) return fail(err.message);
             throw err;

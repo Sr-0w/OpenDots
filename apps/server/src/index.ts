@@ -10,6 +10,8 @@ import { startQueue, stopQueue } from './jobs/queue.ts';
 import { registerLifeHandlers, startScheduler, stopScheduler } from './life/engine.ts';
 import { db, schema } from './db/client.ts';
 import { ne } from 'drizzle-orm';
+import { startMailPoller, stopMailPoller } from './mail/service.ts';
+import { closeAllMcpClients } from './connectors/mcp.ts';
 
 setupNetwork();
 await openDatabase();
@@ -20,6 +22,7 @@ await db().update(schema.agents).set({ state: 'available', stateDetail: null }).
 registerLifeHandlers();
 await startQueue();
 startScheduler();
+startMailPoller();
 
 const app = new Hono();
 app.route('/api', createApi());
@@ -37,6 +40,8 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.hos
 async function shutdown() {
   console.log('Arrêt d’OpenDots…');
   stopScheduler();
+  stopMailPoller();
+  await closeAllMcpClients();
   await stopQueue();
   server.close();
   await closeDatabase();

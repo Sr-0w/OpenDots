@@ -47,6 +47,10 @@ export interface AgentPermissions {
   createAgents: CreateAgentsPolicy;
   /** Gérer sa mémoire. */
   manageMemory: boolean;
+  /** Lire les e-mails des comptes connectés (l'envoi demande toujours une validation). */
+  mail: boolean;
+  /** Utiliser les connecteurs MCP. */
+  connectors: boolean;
 }
 
 export const DEFAULT_PERMISSIONS: AgentPermissions = {
@@ -55,6 +59,8 @@ export const DEFAULT_PERMISSIONS: AgentPermissions = {
   messageAgents: true,
   createAgents: 'ask',
   manageMemory: true,
+  mail: true,
+  connectors: true,
 };
 
 export interface AgentDTO {
@@ -80,7 +86,14 @@ export interface AgentDTO {
   archived: boolean;
 }
 
-export type ActivityKind = 'schedule' | 'watch' | 'webhook';
+export type ActivityKind = 'schedule' | 'watch' | 'webhook' | 'mail';
+
+/** Filtre d'une activité déclenchée par la réception d'un e-mail. */
+export interface ActivityMailFilter {
+  connectorId?: string | null;
+  from?: string | null;
+  subject?: string | null;
+}
 
 export type ActivitySchedule =
   | { type: 'once'; at: string }
@@ -103,6 +116,7 @@ export interface ActivityDTO {
   instructions: string;
   schedule: ActivitySchedule | null;
   watch: ActivityWatch | null;
+  filter: ActivityMailFilter | null;
   webhookUrl: string | null;
   enabled: boolean;
   nextRunAt: string | null;
@@ -162,7 +176,7 @@ export interface MessageMetadata {
   agentId?: string;
   /** Type d'événement pour les messages "event". */
   event?: {
-    type: 'schedule' | 'watch' | 'webhook' | 'agent_reply' | 'approval' | 'system';
+    type: 'schedule' | 'watch' | 'webhook' | 'mail' | 'agent_reply' | 'approval' | 'system';
     title: string;
     activityId?: string;
     approvalId?: string;
@@ -172,6 +186,8 @@ export interface MessageMetadata {
   createdAt?: string;
   autonomous?: boolean;
   hidden?: boolean;
+  /** Réponse de l'utilisateur à une demande d'information (ask_user). */
+  answer?: { requestId: string; answers: Record<string, unknown> };
 }
 
 export interface BootstrapDTO {
@@ -194,4 +210,112 @@ export type ServerEvent =
   | { type: 'memory.changed'; agentId: string | null }
   | { type: 'journal.created'; entry: JournalEntryDTO }
   | { type: 'team.changed'; conversationId: string }
-  | { type: 'settings.changed' };
+  | { type: 'settings.changed' }
+  | { type: 'skills.changed' }
+  | { type: 'connectors.changed' }
+  | { type: 'request.changed'; request: UserRequestDTO }
+  | { type: 'draft.changed'; draft: MailDraftDTO };
+
+// --- Skills, connecteurs, plugins -------------------------------------------
+
+export interface SkillDTO {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  enabled: boolean;
+  pluginId: string | null;
+  createdBy: string;
+  updatedAt: string;
+}
+
+export type ConnectorKind = 'mcp' | 'mail';
+
+export interface McpConfig {
+  transport: 'http' | 'sse' | 'stdio';
+  url?: string;
+  command?: string;
+  args?: string[];
+}
+
+export interface MailConfig {
+  email: string;
+  displayName?: string;
+  username: string;
+  imap: { host: string; port: number; secure: boolean };
+  smtp: { host: string; port: number; secure: boolean };
+  /** Fréquence de relève, en minutes. */
+  pollMinutes?: number;
+}
+
+export interface ConnectorDTO {
+  id: string;
+  name: string;
+  kind: ConnectorKind;
+  config: McpConfig | MailConfig;
+  /** Noms des secrets enregistrés (valeurs jamais renvoyées). */
+  secretKeys: string[];
+  enabled: boolean;
+  approval: 'ask' | 'auto';
+  status: 'unknown' | 'ok' | 'error';
+  lastError: string | null;
+  tools: { name: string; description: string }[];
+  pluginId: string | null;
+  createdAt: string;
+}
+
+export interface PluginManifest {
+  name: string;
+  description?: string;
+  version?: string;
+  skills?: { name: string; description: string; instructions: string }[];
+  connectors?: { name: string; config: McpConfig; approval?: 'ask' | 'auto'; secrets?: string[] }[];
+}
+
+export interface PluginDTO {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  skills: number;
+  connectors: number;
+  installedAt: string;
+}
+
+// --- Demandes à l'utilisateur ----------------------------------------------
+
+export interface AskQuestion {
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'single_choice' | 'multi_choice' | 'confirm' | 'number' | 'date';
+  options?: string[];
+  required?: boolean;
+  placeholder?: string;
+  allowOther?: boolean;
+}
+
+export interface UserRequestDTO {
+  id: string;
+  agentId: string;
+  conversationId: string;
+  title: string;
+  questions: AskQuestion[];
+  status: 'pending' | 'answered' | 'cancelled';
+  answers: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface MailDraftDTO {
+  id: string;
+  agentId: string;
+  connectorId: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  subject: string;
+  body: string;
+  status: 'pending' | 'sent' | 'discarded' | 'failed';
+  approvalId: string | null;
+  error: string | null;
+  sentAt: string | null;
+}

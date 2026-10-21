@@ -13,8 +13,11 @@ import {
 import type {
   ActivityKind,
   ActivitySchedule,
+  ActivityMailFilter,
   ActivityWatch,
   AgentPermissions,
+  AskQuestion,
+  ConnectorKind,
   AgentState,
   ApprovalStatus,
   ModelConfig,
@@ -111,6 +114,8 @@ export const activities = pgTable(
     instructions: text('instructions').notNull(),
     schedule: jsonb('schedule').$type<ActivitySchedule | null>(),
     watch: jsonb('watch').$type<ActivityWatch | null>(),
+    /** Filtre d'un déclencheur mail : compte, expéditeur, sujet. */
+    filter: jsonb('filter').$type<ActivityMailFilter | null>(),
     watchState: jsonb('watch_state').$type<{ hash?: string; excerpt?: string; matched?: boolean } | null>(),
     webhookToken: text('webhook_token'),
     enabled: boolean('enabled').notNull().default(true),
@@ -207,3 +212,76 @@ export const journal = pgTable(
   },
   (t) => [index('journal_agent_idx').on(t.agentId, t.createdAt)],
 );
+
+/** Skills : instructions réutilisables, au niveau du compte. */
+export const skills = pgTable('skills', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  description: text('description').notNull(),
+  instructions: text('instructions').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  pluginId: text('plugin_id'),
+  createdBy: text('created_by').notNull().default('user'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+});
+
+/** Connecteurs : serveurs MCP et comptes mail, au niveau du compte. */
+export const connectors = pgTable('connectors', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  kind: text('kind').$type<ConnectorKind>().notNull(),
+  config: jsonb('config').$type<Record<string, any>>().notNull(),
+  /** Secrets chiffrés (JSON), jamais exposés au frontend ni aux modèles. */
+  secret: text('secret'),
+  enabled: boolean('enabled').notNull().default(true),
+  approval: text('approval').$type<'ask' | 'auto'>().notNull().default('ask'),
+  status: text('status').$type<'unknown' | 'ok' | 'error'>().notNull().default('unknown'),
+  lastError: text('last_error'),
+  tools: jsonb('tools').$type<{ name: string; description: string }[]>(),
+  state: jsonb('state').$type<Record<string, any>>(),
+  pluginId: text('plugin_id'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+});
+
+export const plugins = pgTable('plugins', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  version: text('version').notNull().default('0.0.0'),
+  manifest: jsonb('manifest').notNull(),
+  source: text('source').notNull().default('manual'),
+  installedAt: ts('installed_at').notNull().defaultNow(),
+});
+
+export const mailDrafts = pgTable('mail_drafts', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  connectorId: text('connector_id').notNull(),
+  to: jsonb('to').$type<string[]>().notNull(),
+  cc: jsonb('cc').$type<string[]>().notNull().default([]),
+  subject: text('subject').notNull(),
+  body: text('body').notNull(),
+  inReplyTo: text('in_reply_to'),
+  references: text('references'),
+  status: text('status').$type<'pending' | 'sent' | 'discarded' | 'failed'>().notNull().default('pending'),
+  approvalId: text('approval_id'),
+  messageId: text('message_id'),
+  error: text('error'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  sentAt: ts('sent_at'),
+});
+
+/** Demandes d'information ou de choix adressées à l'utilisateur. */
+export const userRequests = pgTable('user_requests', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  conversationId: text('conversation_id').notNull(),
+  title: text('title').notNull(),
+  questions: jsonb('questions').$type<AskQuestion[]>().notNull(),
+  status: text('status').$type<'pending' | 'answered' | 'cancelled'>().notNull().default('pending'),
+  answers: jsonb('answers').$type<Record<string, unknown>>(),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  answeredAt: ts('answered_at'),
+});

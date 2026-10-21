@@ -32,6 +32,14 @@ import { ApprovalError, listApprovals, resolveApproval } from '../approvals/serv
 import { forget, listMemories, listSharedMemories, remember, updateMemory } from '../memory/repo.ts';
 import { listJournal, log } from '../journal.ts';
 import { errorMessage } from '../util.ts';
+import { createSkill, deleteSkill, listSkills, SkillError, toSkillDTO, updateSkill } from '../skills/repo.ts';
+import { ConnectorError, createConnector, deleteConnector, getConnector, listConnectors, toConnectorDTO, updateConnector } from '../connectors/repo.ts';
+import { closeMcpClient, refreshMcpConnector } from '../connectors/mcp.ts';
+import { fetchManifest, installPlugin, listPlugins, parseManifest, PluginError, uninstallPlugin } from '../connectors/plugins.ts';
+import { getDraft, MailError, pollAccount, testMailAccount, toDraftDTO, updateDraft } from '../mail/service.ts';
+import { answerRequest, getRequest, RequestError, toRequestDTO } from '../requests/service.ts';
+import { createActivity } from '../activities/repo.ts';
+import type { MailConfig } from '@opendots/shared';
 
 const modelSchema = z.object({
   provider: z.enum(['openrouter', 'ollama']),
@@ -45,7 +53,17 @@ export function createApi() {
 
   api.onError((err, c) => {
     console.error('[api]', err);
-    const status = err instanceof z.ZodError || err instanceof ActivityError || err instanceof ApprovalError ? 400 : 500;
+    const status =
+      err instanceof z.ZodError ||
+      err instanceof ActivityError ||
+      err instanceof ApprovalError ||
+      err instanceof SkillError ||
+      err instanceof ConnectorError ||
+      err instanceof PluginError ||
+      err instanceof MailError ||
+      err instanceof RequestError
+        ? 400
+        : 500;
     return c.json({ error: err instanceof z.ZodError ? 'Requête invalide' : errorMessage(err) }, status);
   });
 
@@ -238,9 +256,20 @@ export function createApi() {
     const parts = message.parts.filter((p) => p.type === 'text' || p.type === 'file');
     if (!parts.length) return c.json({ error: 'Message vide' }, 400);
     const conversationId = await mainConversationId(agent.id);
+    let finalParts = parts;
+    const metadata: OpenDotsUIMessage['metadata'] = {};
+    const answer = (message.metadata as { answer?: { requestId: string; answers: Record<string, unknown> } } | undefined)?.answer;
+    if (answer?.requestId) {
+      // Réponse à un formulaire : validée et résumée côté serveur.
+      const req = await getRequest(answer.requestId);
+      if (!req || req.agentId !== agent.id) return c.json({ error: 'Demande introuvable' }, 400);
+      const { row, summary } = await answerRequest(answer.requestId, answer.answers ?? {});
+      finalParts = [{ type: 'text', text: summary }];
+      metadata.answer = { requestId: row.id, answers: row.answers ?? {} };
+    }
     const { stream } = runTurn(agent.id, conversationId, {
       kind: 'user',
-      message: { id: String(message.id).slice(0, 64), role: 'user', parts, metadata: {} },
+      message: { id: String(message.id).slice(0, 64), role: 'user', parts: finalParts, metadata },
     });
     return createUIMessageStreamResponse({ stream: stream.readable() });
   });
@@ -275,8 +304,43 @@ export function createApi() {
     return c.json(rows.map(toActivityDTO));
   });
 
+  const scheduleSchema = z.discriminatedUnion('type', [
+    z.object({ type: z.literal('once'), at: z.string() }),
+    z.object({ type: z.literal('interval'), minutes: z.number().min(1) }),
+    z.object({ type: z.literal('cron'), expr: z.string(), tz: z.string().optional() }),
+  ]);
+  const watchSchema = z.object({ url: z.string().url(), mode: z.enum(['changed', 'contains', 'not_contains', 'regex']), value: z.string().nullable().optional() });
+  const filterSchema = z.object({ connectorId: z.string().nullable().optional(), from: z.string().nullable().optional(), subject: z.string().nullable().optional() });
+
+  api.post('/activities', async (c) => {
+    const body = z
+      .object({
+        agentId: z.string(),
+        title: z.string().min(1),
+        kind: z.enum(['schedule', 'watch', 'webhook', 'mail']),
+        instructions: z.string().min(1),
+        schedule: scheduleSchema.nullable().optional(),
+        watch: watchSchema.nullable().optional(),
+        filter: filterSchema.nullable().optional(),
+      })
+      .parse(await c.req.json());
+    if (!(await getAgent(body.agentId))) return c.json({ error: 'Compagnon introuvable' }, 404);
+    const row = await createActivity({ ...body, createdBy: 'user', tz: await getTimezone() });
+    await log(row.agentId, 'activity.created', `Tâche créée depuis l’interface : ${row.title}`, { activityId: row.id });
+    return c.json(toActivityDTO(row));
+  });
+
   api.patch('/activities/:id', async (c) => {
-    const body = z.object({ enabled: z.boolean().optional(), title: z.string().optional(), instructions: z.string().optional() }).parse(await c.req.json());
+    const body = z
+      .object({
+        enabled: z.boolean().optional(),
+        title: z.string().min(1).optional(),
+        instructions: z.string().min(1).optional(),
+        schedule: scheduleSchema.optional(),
+        watch: watchSchema.optional(),
+        filter: filterSchema.optional(),
+      })
+      .parse(await c.req.json());
     const row = await updateActivity(c.req.param('id'), null, body, await getTimezone());
     await log(row.agentId, 'activity.updated', `Activité modifiée depuis l’interface : ${row.title}`, body);
     return c.json(toActivityDTO(row));
@@ -337,6 +401,175 @@ export function createApi() {
   // --- Journal -----------------------------------------------------------------
 
   api.get('/journal', async (c) => c.json(await listJournal(c.req.query('agentId') || undefined, 150)));
+
+  // --- Skills --------------------------------------------------------------------
+
+  const skillSchema = z.object({ name: z.string().min(1).max(60), description: z.string().max(500), instructions: z.string().min(1) });
+  api.get('/skills', async (c) => c.json((await listSkills()).map(toSkillDTO)));
+  api.post('/skills', async (c) => c.json(toSkillDTO(await createSkill({ ...skillSchema.parse(await c.req.json()), createdBy: 'user' }))));
+  api.patch('/skills/:id', async (c) => {
+    const body = skillSchema.partial().extend({ enabled: z.boolean().optional() }).parse(await c.req.json());
+    return c.json(toSkillDTO(await updateSkill(c.req.param('id'), body)));
+  });
+  api.delete('/skills/:id', async (c) => c.json({ ok: await deleteSkill(c.req.param('id')) }));
+
+  // --- Connecteurs (MCP, mail) ------------------------------------------------------
+
+  const mcpConfigSchema = z.object({
+    transport: z.enum(['http', 'sse', 'stdio']),
+    url: z.string().url().optional(),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+  });
+  const mailConfigSchema = z.object({
+    email: z.string().email(),
+    displayName: z.string().optional(),
+    username: z.string().min(1),
+    imap: z.object({ host: z.string().min(1), port: z.number(), secure: z.boolean() }),
+    smtp: z.object({ host: z.string().min(1), port: z.number(), secure: z.boolean() }),
+    pollMinutes: z.number().min(1).max(1440).optional(),
+  });
+
+  /** Réveille le compagnon qui avait demandé la connexion. */
+  async function notifyRequester(agentId: string | undefined, text: string) {
+    if (!agentId || !(await getAgent(agentId))) return;
+    await enqueue(
+      'agent.wake',
+      { agentId, event: { type: 'system', title: 'Nouvelle connexion' }, text: `${text}\nReprends la tâche qui nécessitait cette connexion, si besoin.`, depth: 0 },
+      { agentId },
+    );
+  }
+
+  api.get('/connectors', async (c) => c.json((await listConnectors()).map(toConnectorDTO)));
+
+  api.post('/connectors/mail/test', async (c) => {
+    const body = z.object({ config: mailConfigSchema, password: z.string().optional(), connectorId: z.string().optional() }).parse(await c.req.json());
+    let pass = body.password ?? '';
+    if (!pass && body.connectorId) {
+      const existing = await getConnector(body.connectorId);
+      pass = existing ? ((await import('../connectors/repo.ts')).readSecrets(existing).password ?? '') : '';
+    }
+    return c.json(await testMailAccount(body.config as MailConfig, pass));
+  });
+
+  api.post('/connectors', async (c) => {
+    const body = z
+      .object({
+        name: z.string().min(1).max(80),
+        kind: z.enum(['mcp', 'mail']),
+        config: z.unknown(),
+        secrets: z.record(z.string(), z.string()).optional(),
+        approval: z.enum(['ask', 'auto']).optional(),
+        requestedBy: z.string().optional(),
+      })
+      .parse(await c.req.json());
+    if (body.kind === 'mail') {
+      const config = mailConfigSchema.parse(body.config);
+      if (!body.secrets?.password) return c.json({ error: 'Mot de passe requis' }, 400);
+      const test = await testMailAccount(config as MailConfig, body.secrets.password);
+      if (!test.ok) return c.json({ error: `Connexion impossible — IMAP : ${test.imap} · SMTP : ${test.smtp}` }, 400);
+      const row = await createConnector({ name: body.name, kind: 'mail', config, secrets: { password: body.secrets.password }, approval: 'ask' });
+      await updateConnector(row.id, { status: 'ok' });
+      void pollAccount((await getConnector(row.id))!).catch(() => {});
+      await log(null, 'connector.created', `Compte mail connecté : ${config.email}`);
+      await notifyRequester(body.requestedBy, `L'utilisateur a connecté le compte mail ${config.email} (id ${row.id}).`);
+      return c.json(toConnectorDTO((await getConnector(row.id))!));
+    }
+    const config = mcpConfigSchema.parse(body.config);
+    if (config.transport === 'stdio' ? !config.command : !config.url) return c.json({ error: 'Configuration incomplète' }, 400);
+    const row = await createConnector({ name: body.name, kind: 'mcp', config, secrets: body.secrets, approval: body.approval ?? 'ask' });
+    const refreshed = await refreshMcpConnector(row.id);
+    await log(null, 'connector.created', `Connecteur ajouté : ${row.name}`);
+    if (refreshed.status === 'ok') await notifyRequester(body.requestedBy, `L'utilisateur a ajouté le connecteur MCP « ${row.name} ».`);
+    return c.json(toConnectorDTO(refreshed));
+  });
+
+  api.patch('/connectors/:id', async (c) => {
+    const row = await getConnector(c.req.param('id'));
+    if (!row) return c.json({ error: 'Introuvable' }, 404);
+    const body = z
+      .object({
+        name: z.string().min(1).max(80).optional(),
+        enabled: z.boolean().optional(),
+        approval: z.enum(['ask', 'auto']).optional(),
+        config: z.unknown().optional(),
+        secrets: z.record(z.string(), z.string()).optional(),
+      })
+      .parse(await c.req.json());
+    const patch: Parameters<typeof updateConnector>[1] = { name: body.name, enabled: body.enabled, approval: body.approval, secrets: body.secrets };
+    if (body.config !== undefined) patch.config = row.kind === 'mail' ? mailConfigSchema.parse(body.config) : mcpConfigSchema.parse(body.config);
+    let updated = await updateConnector(row.id, patch);
+    if (row.kind === 'mcp' && (body.config !== undefined || body.secrets || body.enabled)) updated = await refreshMcpConnector(row.id);
+    if (row.kind === 'mcp' && body.enabled === false) await closeMcpClient(row.id);
+    return c.json(toConnectorDTO(updated));
+  });
+
+  api.post('/connectors/:id/refresh', async (c) => {
+    const row = await getConnector(c.req.param('id'));
+    if (!row) return c.json({ error: 'Introuvable' }, 404);
+    if (row.kind === 'mcp') return c.json(toConnectorDTO(await refreshMcpConnector(row.id)));
+    const count = await pollAccount(row);
+    return c.json({ ...toConnectorDTO((await getConnector(row.id))!), newMessages: count });
+  });
+
+  api.delete('/connectors/:id', async (c) => {
+    await closeMcpClient(c.req.param('id'));
+    return c.json({ ok: await deleteConnector(c.req.param('id')) });
+  });
+
+  // --- Plugins ------------------------------------------------------------------------
+
+  const pluginSource = z.object({ manifest: z.unknown().optional(), url: z.string().url().optional() });
+  async function loadManifest(body: z.infer<typeof pluginSource>) {
+    if (body.url) return fetchManifest(body.url);
+    const raw = typeof body.manifest === 'string' ? JSON.parse(body.manifest) : body.manifest;
+    return parseManifest(raw);
+  }
+  api.get('/plugins', async (c) => c.json(await listPlugins()));
+  api.post('/plugins/preview', async (c) => {
+    try {
+      return c.json(await loadManifest(pluginSource.parse(await c.req.json())));
+    } catch (err) {
+      return c.json({ error: err instanceof SyntaxError ? 'JSON invalide' : errorMessage(err) }, 400);
+    }
+  });
+  api.post('/plugins', async (c) => {
+    const body = pluginSource.extend({ secrets: z.record(z.string(), z.record(z.string(), z.string())).optional() }).parse(await c.req.json());
+    let manifest;
+    try {
+      manifest = await loadManifest(body);
+    } catch (err) {
+      return c.json({ error: err instanceof SyntaxError ? 'JSON invalide' : errorMessage(err) }, 400);
+    }
+    const id = await installPlugin(manifest, { source: body.url ?? 'manual', secrets: body.secrets });
+    return c.json({ ok: true, id });
+  });
+  api.delete('/plugins/:id', async (c) => {
+    await uninstallPlugin(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  // --- Brouillons d'e-mails --------------------------------------------------------------
+
+  api.get('/mail/drafts/:id', async (c) => {
+    const d = await getDraft(c.req.param('id'));
+    return d ? c.json(toDraftDTO(d, await getConnector(d.connectorId))) : c.json({ error: 'Introuvable' }, 404);
+  });
+  api.patch('/mail/drafts/:id', async (c) => {
+    const body = z
+      .object({ to: z.array(z.string()).optional(), cc: z.array(z.string()).optional(), subject: z.string().optional(), body: z.string().optional() })
+      .parse(await c.req.json());
+    const d = await updateDraft(c.req.param('id'), body);
+    await log(d.agentId, 'mail.draft_edited', `Brouillon modifié par l’utilisateur : ${d.subject}`);
+    return c.json(toDraftDTO(d, await getConnector(d.connectorId)));
+  });
+
+  // --- Demandes à l'utilisateur --------------------------------------------------------------
+
+  api.get('/requests/:id', async (c) => {
+    const r = await getRequest(c.req.param('id'));
+    return r ? c.json(toRequestDTO(r)) : c.json({ error: 'Introuvable' }, 404);
+  });
 
   // --- Temps réel ----------------------------------------------------------------
 

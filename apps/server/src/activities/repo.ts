@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { Cron } from 'croner';
-import type { ActivityDTO, ActivityKind, ActivitySchedule, ActivityWatch } from '@opendots/shared';
+import type { ActivityDTO, ActivityKind, ActivityMailFilter, ActivitySchedule, ActivityWatch } from '@opendots/shared';
 import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { publicBaseUrl } from '../config.ts';
@@ -37,7 +37,9 @@ export function computeNextRun(s: ActivitySchedule | null, tz: string, from = ne
   return next ?? null;
 }
 
-export function describeSchedule(s: ActivitySchedule | null): string {
+export function describeSchedule(s: ActivitySchedule | null, kind?: ActivityKind): string {
+  if (kind === 'mail') return 'à la réception d’un e-mail';
+  if (kind === 'webhook') return 'à chaque appel du webhook';
   if (!s) return 'sur événement';
   if (s.type === 'once') return `le ${new Date(s.at).toLocaleString('fr-FR')}`;
   if (s.type === 'interval') return s.minutes % 60 === 0 ? `toutes les ${s.minutes / 60} h` : `toutes les ${s.minutes} min`;
@@ -53,6 +55,7 @@ export function toActivityDTO(r: ActivityRow): ActivityDTO {
     instructions: r.instructions,
     schedule: r.schedule,
     watch: r.watch,
+    filter: r.filter,
     webhookUrl: r.webhookToken ? `${publicBaseUrl()}/api/hooks/${r.webhookToken}` : null,
     enabled: r.enabled,
     nextRunAt: r.nextRunAt?.toISOString() ?? null,
@@ -71,6 +74,7 @@ export async function createActivity(input: {
   instructions: string;
   schedule?: ActivitySchedule | null;
   watch?: ActivityWatch | null;
+  filter?: ActivityMailFilter | null;
   createdBy?: string;
   tz: string;
 }): Promise<ActivityRow> {
@@ -86,6 +90,7 @@ export async function createActivity(input: {
     schedule = schedule ?? { type: 'interval', minutes: 60 };
   }
   if (input.kind === 'schedule' && !schedule) throw new ActivityError('Une planification nécessite un horaire.');
+  if (input.kind === 'mail' || input.kind === 'webhook') schedule = null;
   if (schedule) validateSchedule(schedule, input.tz);
   const nextRunAt = input.kind === 'watch' ? new Date(Date.now() + 5_000) : computeNextRun(schedule, input.tz);
   if (input.kind === 'schedule' && !nextRunAt) throw new ActivityError('Cette date est déjà passée.');
@@ -96,7 +101,8 @@ export async function createActivity(input: {
     kind: input.kind,
     instructions: input.instructions.trim(),
     schedule,
-    watch: input.watch ?? null,
+    watch: input.kind === 'watch' ? (input.watch ?? null) : null,
+    filter: input.kind === 'mail' ? (input.filter ?? {}) : null,
     webhookToken: input.kind === 'webhook' ? newId('wh', 24) : null,
     nextRunAt,
     createdBy: input.createdBy ?? 'agent',
@@ -122,7 +128,7 @@ export async function listActivities(agentId?: string): Promise<ActivityRow[]> {
 export async function updateActivity(
   id: string,
   agentId: string | null,
-  patch: Partial<Pick<ActivityRow, 'title' | 'instructions' | 'schedule' | 'watch' | 'enabled'>>,
+  patch: Partial<Pick<ActivityRow, 'title' | 'instructions' | 'schedule' | 'watch' | 'enabled' | 'filter'>>,
   tz: string,
 ): Promise<ActivityRow> {
   const current = await getActivity(id);
@@ -131,7 +137,7 @@ export async function updateActivity(
   const schedule = patch.schedule !== undefined ? patch.schedule : current.schedule;
   if (patch.schedule) validateSchedule(patch.schedule, tz);
   if (patch.schedule !== undefined || (patch.enabled === true && !current.enabled)) {
-    next.nextRunAt = current.kind === 'webhook' ? null : computeNextRun(schedule, tz);
+    next.nextRunAt = current.kind === 'webhook' || current.kind === 'mail' ? null : computeNextRun(schedule, tz);
     if (current.kind === 'schedule' && !next.nextRunAt && (patch.enabled ?? current.enabled)) {
       throw new ActivityError('Cet horaire ne produit plus aucune exécution future.');
     }

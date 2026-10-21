@@ -14,6 +14,8 @@ export interface PromptInput {
   memories: MemoryDTO[];
   activities: ActivityRow[];
   pendingApprovals: { id: string; summary: string }[];
+  skills?: { name: string; description: string }[];
+  connectors?: string[];
   mode: TurnMode;
   tz: string;
   now: Date;
@@ -115,11 +117,30 @@ export function buildSystemPrompt(p: PromptInput): string {
       section(
         'Your activities',
         p.activities
-          .map((a) => `- [${a.id}] ${a.title} — ${a.kind} — ${describeSchedule(a.schedule)}${a.enabled ? '' : ' — PAUSED'}`)
+          .map((a) => `- [${a.id}] ${a.title} — ${a.kind} — ${describeSchedule(a.schedule, a.kind)}${a.enabled ? '' : ' — PAUSED'}`)
           .join('\n'),
       ),
     );
   }
+
+  if (p.skills?.length) {
+    out.push(
+      section(
+        'Skills (shared know-how — call skill_use to load one before applying it)',
+        p.skills.map((s) => `- ${s.name}: ${s.description}`).join('\n'),
+      ),
+    );
+  }
+
+  out.push(
+    section(
+      'Connections',
+      (p.connectors?.length ? p.connectors.map((c) => `- ${c}`).join('\n') + '\n' : '- No mail account or MCP connector is connected yet.\n') +
+        '- If a task needs a service that is not connected (email, an app with an MCP server…), call connection_request_setup instead of asking for passwords in chat.\n' +
+        '- Emails are never sent directly: mail_prepare shows a "ready to send" card and the user validates it.\n' +
+        '- When you need precise information or want the user to pick between options, prefer ask_user (an interactive form) over a long question in text.',
+    ),
+  );
 
   if (p.pendingApprovals.length) {
     out.push(section('Actions awaiting user approval', p.pendingApprovals.map((a) => `- [${a.id}] ${a.summary}`).join('\n')));
