@@ -144,6 +144,7 @@ export const api = {
       "GET",
       `/conversations/${id}/messages`,
     ),
+  teamPair: (a: string, b: string) => request<{ conversationId: string }>("GET", `/team/pair/${a}/${b}`),
   teamThreads: () => request<TeamThreadDTO[]>("GET", "/team/threads"),
 
   activities: (agentId?: string) => request<ActivityDTO[]>("GET", `/activities${agentId ? `?agentId=${agentId}` : ""}`),

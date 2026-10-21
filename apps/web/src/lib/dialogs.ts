@@ -10,6 +10,7 @@ export type DialogState =
   | { kind: "skill"; skill?: SkillDTO }
   | { kind: "activity"; activity?: ActivityDTO; agentId?: string }
   | { kind: "draft"; draftId: string }
+  | { kind: "team"; agentA: string; agentB: string }
   | null;
 
 let current: DialogState = null;

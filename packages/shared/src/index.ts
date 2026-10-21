@@ -179,7 +179,7 @@ export interface MessageMetadata {
   agentId?: string;
   /** Type d'événement pour les messages "event". */
   event?: {
-    type: 'schedule' | 'watch' | 'webhook' | 'mail' | 'agent_reply' | 'approval' | 'system';
+    type: 'schedule' | 'watch' | 'webhook' | 'mail' | 'agent_reply' | 'agent_message' | 'approval' | 'system';
     title: string;
     activityId?: string;
     approvalId?: string;

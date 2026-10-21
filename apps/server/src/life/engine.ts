@@ -49,6 +49,27 @@ export function registerLifeHandlers() {
     const tm = await getTeamMessage(teamMessageId);
     if (!tm || tm.status === 'answered' || tm.status === 'done') return;
     await updateTeamMessage(tm.id, { status: 'processing' });
+    // Trace visible dans le fil principal du destinataire : « Message reçu de … ».
+    try {
+      const from = await getAgent(tm.fromAgentId);
+      await saveMessage(
+        await mainConversationId(tm.toAgentId),
+        {
+          id: `msg_rcv_${tm.id}`,
+          role: 'user',
+          parts: [{ type: 'text', text: tm.content }],
+          metadata: {
+            kind: 'event',
+            agentId: tm.toAgentId,
+            createdAt: tm.createdAt.toISOString(),
+            event: { type: 'agent_message', title: `Message reçu de ${from?.name ?? 'un compagnon'}`, fromAgentId: tm.fromAgentId },
+          },
+        },
+        { author: 'event', agentId: tm.toAgentId },
+      );
+    } catch {
+      /* déjà enregistré (nouvelle tentative) */
+    }
     const { done } = runTurn(tm.toAgentId, tm.conversationId, {
       kind: 'team',
       teamMessageId: tm.id,
