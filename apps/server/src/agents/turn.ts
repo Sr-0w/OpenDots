@@ -16,25 +16,28 @@ import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow }
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
 import { buildCapabilityTools } from './capability-tools.ts';
+import { activeToolNames } from './lazy-tools.ts';
 import { ActiveStream, beginStream, finishStream } from './streams.ts';
 import { errorMessage, KeyedMutex, newId } from '../util.ts';
 
 export type TurnTrigger =
   | { kind: 'user'; message: OpenDotsUIMessage }
   | { kind: 'event'; event: NonNullable<MessageMetadata['event']>; text: string; depth: number }
-  | { kind: 'team'; teamMessageId: string; fromAgentId: string; expectsReply: boolean; depth: number };
+  | { kind: 'team'; teamMessageId: string; fromAgentId: string; expectsReply: boolean; depth: number; nudge?: boolean };
 
 export interface TurnResult {
   messageId: string | null;
   text: string;
   silent: boolean;
   error: string | null;
+  /** Le compagnon a explicitement indiqué qu'aucune réponse n'était nécessaire (<no_reply/>). */
+  noReply?: boolean;
 }
 
 const agentLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
-const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
+const SILENCE = /^\s*<(silence|no[_-]?reply)\s*\/?>\s*$/i;
 const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+|computer_action)$/;
 
 /** Le tour s'arrête dès qu'un formulaire a été présenté à l'utilisateur. */
@@ -47,14 +50,30 @@ export function isAgentBusy(agentId: string) {
   return agentLocks.isLocked(`${accountKey()}:${agentId}`);
 }
 
-function compactToolOutput(output: unknown): unknown {
+const MESSAGE_CHAR_CAP = 12_000;
+
+function compactToolOutput(output: unknown, max = 3000): unknown {
   const json = JSON.stringify(output ?? null);
-  if (json.length <= 3000) return output;
-  return { truncated: true, preview: json.slice(0, 3000) };
+  if (json.length <= max) return output;
+  return { truncated: true, preview: json.slice(0, max) };
+}
+
+/**
+ * Compacte entrées et sorties d'outils d'un message assistant. Un seul tour
+ * très outillé (fichiers écrits via le shell, longues listes) ne doit pas
+ * consommer tout le budget et faire oublier le reste de la conversation.
+ */
+function compactAssistantParts(parts: any[]): any[] {
+  const pass = (max: number) => parts
+    .filter((p) => p.type !== 'reasoning')
+    .map((p: any) => (p.type?.startsWith('tool-') ? { ...p, ...('input' in p ? { input: compactToolOutput(p.input, max) } : {}), ...('output' in p ? { output: compactToolOutput(p.output, max) } : {}) } : p));
+  let out = pass(3000);
+  if (JSON.stringify(out).length > MESSAGE_CHAR_CAP) out = pass(400);
+  return out;
 }
 
 /** Prépare l'historique pour le modèle : rôles, événements, sorties d'outils compactées. */
-function historyForModel(
+export function historyForModel(
   messages: OpenDotsUIMessage[],
   self: AgentRow,
   names: Map<string, string>,
@@ -78,9 +97,7 @@ function historyForModel(
     if (msg.role === 'assistant') {
       msg = {
         ...msg,
-        parts: msg.parts
-          .filter((p) => p.type !== 'reasoning')
-          .map((p: any) => (p.type?.startsWith('tool-') && 'output' in p ? { ...p, output: compactToolOutput(p.output) } : p)),
+        parts: compactAssistantParts(msg.parts as any[]) as OpenDotsUIMessage['parts'],
       };
     }
     budget -= JSON.stringify(msg.parts).length;
@@ -152,21 +169,36 @@ async function executeTurn(
       },
       { author: 'event', agentId },
     );
-    mode = { kind: 'event', title: trigger.event.title };
+    mode = { kind: 'event', title: trigger.event.title, eventType: trigger.event.type };
     hint = `${trigger.event.title} ${trigger.text}`;
   } else {
     // Le message du coéquipier est déjà enregistré dans le fil.
-    mode = { kind: 'team', peerName: names.get(trigger.fromAgentId) ?? 'un compagnon', expectsReply: trigger.expectsReply };
+    mode = { kind: 'team', peerName: names.get(trigger.fromAgentId) ?? 'un compagnon', expectsReply: trigger.expectsReply, nudge: trigger.nudge };
   }
 
   const depth = trigger.kind === 'user' ? 0 : trigger.depth;
-  const toolCtx = { agent, conversationId, isMain: !pair, userTurn: trigger.kind === 'user', depth, tz };
+  const toolCtx = {
+    agent,
+    conversationId,
+    isMain: !pair,
+    userTurn: trigger.kind === 'user',
+    depth,
+    tz,
+    peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
+  };
   const capabilities = await buildCapabilityTools(toolCtx);
   const tools = { ...capabilities.tools, ...buildTools(toolCtx) };
 
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
   const history = historyForModel(stored, agent, names, pair);
+  if (trigger.kind === 'team' && trigger.nudge) {
+    history.push({
+      id: newId('msg'),
+      role: 'user',
+      parts: [{ type: 'text', text: `[Système] Tu as terminé sans répondre à ${names.get(trigger.fromAgentId) ?? 'ton coéquipier'}. Écris maintenant ta réponse (elle lui sera transmise), ou exactement <no_reply/> si aucune réponse n'est nécessaire.` }],
+    } as OpenDotsUIMessage);
+  }
 
   const [memories, activities, pending] = await Promise.all([
     contextMemories(agent.id, hint),
@@ -188,7 +220,7 @@ async function executeTurn(
     mode,
     tz,
     now: new Date(),
-    toolNames: Object.keys(tools),
+    toolNames: activeToolNames(tools, capabilities.lazy),
   });
 
   const modelCfg = await effectiveModel(agent);
@@ -207,6 +239,9 @@ async function executeTurn(
       instructions: system,
       messages: await convertToModelMessages(await hydrateMessageImages(history), { ignoreIncompleteToolCalls: true, tools }),
       tools,
+      // Outils de services chargés à la demande : load_tools les active dès l'étape suivante.
+      activeTools: activeToolNames(tools, capabilities.lazy) as any,
+      prepareStep: () => ({ activeTools: activeToolNames(tools, capabilities.lazy) as any }),
       stopWhen: [isStepCount(config.maxStepsPerTurn), formShown],
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
@@ -258,7 +293,9 @@ async function executeTurn(
   const text = response ? messageText(response) : '';
   // Un réveil n'est masqué que s'il n'a rien produit de visible pour l'utilisateur.
   const acted = (response?.parts ?? []).some((p: any) => typeof p.type === 'string' && VISIBLE_EFFECT_TOOLS.test(p.type.slice(5)) && p.output?.ok !== false);
-  const silent = autonomous && !pair && !acted && (SILENCE.test(text) || (!text && !turnError));
+  // Une réponse d'un coéquipier est toujours montrée à l'utilisateur (jamais masquée).
+  const mustSurface = trigger.kind === 'event' && trigger.event.type === 'agent_reply';
+  const silent = autonomous && !pair && !acted && !mustSurface && (SILENCE.test(text) || (!text && !turnError));
   if (response && response.parts.length) {
     const parts = (SILENCE.test(text) ? response.parts.filter((p) => p.type !== 'text') : response.parts).map((p) =>
       p.type === 'text' ? { ...p, text: cleanModelText(p.text) } : p,
@@ -289,5 +326,11 @@ async function executeTurn(
     }
   }
 
-  return { messageId: response ? responseId : null, text: SILENCE.test(text) ? '' : text, silent, error: turnError };
+  return {
+    messageId: response ? responseId : null,
+    text: SILENCE.test(text) ? '' : text,
+    silent,
+    error: turnError,
+    noReply: /^\s*<no[_-]?reply\s*\/?>\s*$/i.test(text),
+  };
 }

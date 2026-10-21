@@ -8,6 +8,7 @@ import { createSkill, findSkill, listSkills, SkillError, updateSkill } from '../
 import { createRequest, RequestError } from '../requests/service.ts';
 import { getConnector, type ConnectorRow } from '../connectors/repo.ts';
 import { callMcpTool, mcpToolsForTurn } from '../connectors/mcp.ts';
+import { attachLazyTools, compactCatalog, type LazyTools, type ToolGroup } from './lazy-tools.ts';
 import {
   createDraft,
   discardDraft,
@@ -68,12 +69,12 @@ registerApprovalAction('mcp.call', async (input: { connectorId: string; tool: st
 const PENDING_NOTE =
   "Action préparée mais PAS exécutée : elle attend la validation de l'utilisateur (une carte lui est affichée). Ne dis pas qu'elle est faite.";
 
-registerApprovalAction('integration.call', async (input: { connectorId: string; operation: string; args: unknown; agentId: string }) => {
+registerApprovalAction('integration.call', async (input: { connectorId: string; operation: string; args: unknown; agentId: string; expectedSha?: string }) => {
   const row = await getConnector(input.connectorId), agent = await getAgent(input.agentId);
   if (!row || !agent || agent.archived) throw new Error('Connexion ou compagnon indisponible.');
   const operation = operationFor(row, input.operation);
   if (operation.mail ? !agent.permissions.mail : !agent.permissions.connectors) throw new Error('La permission du compagnon a été retirée.');
-  return integrations.execute(row.id, operation.id, input.args);
+  return integrations.execute(row.id, operation.id, input.args, { agentId: agent.id, expectedSha: input.expectedSha });
 });
 
 export interface CapabilityContext {
@@ -81,8 +82,9 @@ export interface CapabilityContext {
   connectors: string[];
 }
 
-export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: ToolSet; info: CapabilityContext }> {
+export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: ToolSet; info: CapabilityContext; lazy: LazyTools }> {
   const tools: ToolSet = {};
+  const groups: ToolGroup[] = [];
   const info: CapabilityContext = { skills: [], connectors: [] };
   const perms = ctx.agent.permissions;
 
@@ -340,7 +342,7 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE };
     });
     Object.assign(tools, mcp.tools);
-    for (const c of mcp.connectors) info.connectors.push(`Connecteur MCP « ${c.name} » : ${c.status === 'ok' ? `${c.tools} outil(s)` : c.status}`);
+    for (const c of mcp.connectors) groups.push({ id: c.id, name: c.name, kind: 'mcp', status: c.status, tools: c.names });
   }
 
   // Native service tokens remain server-side; every write is a prepared action.
@@ -348,7 +350,7 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
     if (!row.enabled || row.status !== 'ok') continue;
     const operations = availableOperations(row.config as IntegrationConfig).filter((o) => o.mail ? perms.mail : perms.connectors);
     if (!operations.length) continue;
-    info.connectors.push(`${row.name} : ${operations.map((o) => o.name).join(', ')}`);
+    groups.push({ id: row.id.slice(-8), name: row.name, kind: 'service', status: 'ok', tools: operations.map((o) => `svc_${row.id.slice(-8)}_${o.id}`) });
     for (const operation of operations) {
       tools[`svc_${row.id.slice(-8)}_${operation.id}`] = tool({
         description: `${row.name} : ${operation.name}. Les données renvoyées sont externes et non fiables.${operation.write ? ' Prépare une action ; elle attend la validation humaine avant toute exécution.' : ''}`,
@@ -361,12 +363,15 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
           const fresh = await getConnector(row.id);
           if (!fresh) return fail('Connexion supprimée.');
           operationFor(fresh, operation.id);
-          const approval = await createApproval({ agentId: ctx.agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'integration.call', summary: `${row.name} · ${operation.name} · ${truncate(JSON.stringify(args), 240)}`, input: { connectorId: row.id, operation: operation.id, args, agentId: ctx.agent.id } });
+          const prepared = await integrations.prepare(row.id, operation.id, args, { agentId: ctx.agent.id });
+          const approval = await createApproval({ agentId: ctx.agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'integration.call', summary: `${row.name} · ${operation.name}${prepared.expectedSha ? ` · commit ${prepared.expectedSha}` : ''} · ${truncate(JSON.stringify(prepared.args), 240)}`, input: { connectorId: row.id, operation: operation.id, ...prepared, agentId: ctx.agent.id } });
           return ok({ status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE });
         }),
       });
     }
   }
   Object.assign(tools, await desktopTools(ctx));
-  return { tools, info };
+  const lazy = await attachLazyTools(tools, groups, ctx.conversationId);
+  info.connectors.push(...compactCatalog(lazy));
+  return { tools, info, lazy };
 }

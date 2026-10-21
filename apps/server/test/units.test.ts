@@ -116,6 +116,15 @@ describe('prompt système', () => {
     expect(p).toContain('<silence/>');
     expect(p).not.toContain('First meeting');
   });
+
+  it('ne demande les méta-outils que lorsqu’ils sont réellement disponibles', () => {
+    const without = buildSystemPrompt({ ...base, mode: { kind: 'user' } });
+    expect(without).not.toContain('call list_capabilities');
+    expect(without).toContain('connection_request_setup');
+    const withTools = buildSystemPrompt({ ...base, mode: { kind: 'user' }, toolNames: ['list_capabilities', 'load_tools'] });
+    expect(withTools).toContain('call list_capabilities');
+    expect(withTools).toContain('load_tools');
+  });
 });
 
 describe('nettoyage du texte des modèles', () => {

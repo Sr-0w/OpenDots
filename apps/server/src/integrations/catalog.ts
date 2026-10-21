@@ -23,10 +23,11 @@ export const CATALOG: IntegrationCatalogEntry[] = [
     { id: 'calendar_read', label: 'Consulter les agendas', description: 'Lire les agendas et les rendez-vous.', scopes: ['Calendars.Read'], default: false },
     { id: 'calendar_create', label: 'Créer des événements', description: 'Microsoft accorde aussi la modification ; OpenDots expose seulement la création avec validation.', scopes: ['Calendars.ReadWrite'], default: false },
   ] },
-  { id: 'github', name: 'GitHub', category: 'development', oauth: 'github', description: 'Parcourir les dépôts, issues et pull requests ; préparer des issues et commentaires.', permissions: [
+  { id: 'github', name: 'GitHub', category: 'development', oauth: 'github', description: 'Parcourir les dépôts, issues et pull requests ; préparer des issues, commentaires, dépôts, branches, pull requests et git push.', permissions: [
     { id: 'read', label: 'Lire les dépôts publics, issues et pull requests', description: 'Accéder à ton identité GitHub et aux dépôts publics.', scopes: ['read:user'], default: true },
     { id: 'private', label: 'Accéder aux dépôts privés', description: 'Le scope GitHub repo inclut aussi l’écriture. OpenDots ne publie rien sans validation.', scopes: ['repo'], default: false },
     { id: 'write', label: 'Créer des issues et commentaires', description: 'Le scope public_repo inclut l’écriture sur les dépôts publics. Chaque publication attend ta validation.', scopes: ['public_repo'], default: false },
+    { id: 'code', label: 'Créer des dépôts, pousser du code et ouvrir des PR', description: 'Scopes GitHub repo et workflow (y compris les GitHub Actions). Création de dépôts, branches, pull requests, fusions et git push : chaque action attend ta validation.', scopes: ['repo', 'workflow'], default: false },
   ] },
   { id: 'imap-smtp', name: 'IMAP / SMTP', category: 'mail', oauth: null, description: 'Boîte mail standard : lecture IMAP, relève automatique et envoi SMTP après validation.', permissions: [] },
 ];

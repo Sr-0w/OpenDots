@@ -14,7 +14,7 @@ import { subscribe } from '../bus.ts';
 import { getAgent, listAgentRows, listAgents, mainConversationId, toAgentDTO, updateAgent, createAgent } from '../agents/repo.ts';
 import { runTurn } from '../agents/turn.ts';
 import { getActiveStream } from '../agents/streams.ts';
-import { getConversation, listTeamThreads, loadMessages, type OpenDotsUIMessage } from '../conversations/repo.ts';
+import { getConversation, listTeamThreads, pairConversationId, loadMessages, type OpenDotsUIMessage } from '../conversations/repo.ts';
 import {
   checkModel,
   listOllamaModels,
@@ -348,6 +348,12 @@ export function createApi() {
     if (!conv) return c.json({ error: 'Introuvable' }, 404);
     const { messages } = await loadMessages(conv.id, { limit: 200, includeHidden: conv.kind === 'pair' });
     return c.json({ conversation: conv, messages, active: Boolean(getActiveStream(conv.id)) });
+  });
+
+  api.get('/team/pair/:a/:b', async (c) => {
+    const [a, b] = [await getAgent(c.req.param('a')), await getAgent(c.req.param('b'))];
+    if (!a || !b || a.id === b.id) return c.json({ error: 'Introuvable' }, 404);
+    return c.json({ conversationId: await pairConversationId(a.id, b.id) });
   });
 
   api.get('/team/threads', async (c) => c.json(await listTeamThreads()));

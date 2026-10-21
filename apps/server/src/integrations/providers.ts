@@ -4,12 +4,16 @@ import type { IntegrationConfig, IntegrationProvider } from '@opendots/shared';
 import { ConnectorError, getConnector, updateConnector, type ConnectorRow } from '../connectors/repo.ts';
 import { oauth, type OAuthManager } from './oauth.ts';
 import { htmlToText } from '../tools/web.ts';
+import { companionGitHead } from '../computer/shell.ts';
+import { gitPushFromCompanion, type GitPushRequest } from '../computer/git-broker.ts';
 
 const id = z.string().min(1).max(512).refine((s) => s !== '.' && s !== '..' && !/[\r\n]/.test(s));
 const limit = z.number().int().min(1).max(25).default(10);
 const mail = z.object({ to: z.array(z.string().email()).min(1).max(30), subject: z.string().max(300).refine((s) => !/[\r\n]/.test(s)), body: z.string().min(1).max(200_000) }).strict();
 const event = z.object({ calendar_id: id.optional(), title: z.string().min(1).max(300), start: z.string().datetime({ offset: true }), end: z.string().datetime({ offset: true }), description: z.string().max(10_000).optional(), attendees: z.array(z.string().email()).max(30).optional() }).strict().refine((v) => Date.parse(v.end) > Date.parse(v.start), 'La fin doit être après le début.');
 const repo = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).refine((s) => s.split('/').every((v) => v !== '.' && v !== '..'));
+const branch = z.string().min(1).max(200).regex(/^[A-Za-z0-9._\/-]+$/).refine((s) => !s.startsWith('-') && !s.startsWith('/') && !s.endsWith('/') && !s.endsWith('.lock') && !s.includes('..') && !s.includes('//'), 'Nom de branche invalide.');
+const workspacePath = z.string().max(500).regex(/^[A-Za-z0-9._\/-]*$/).default('.').refine((s) => !s.startsWith('/') && !s.startsWith('-') && s.split('/').every((v) => v !== '..'), 'Chemin relatif au dossier du compagnon attendu.');
 export interface Operation { id: string; provider: IntegrationProvider; permission: string; name: string; write: boolean; mail: boolean; schema: z.ZodType<any> }
 const op = (provider: IntegrationProvider, id: string, permission: string, name: string, schema: z.ZodType<any>, write = false, isMail = false): Operation => ({ provider, id, permission, name, schema, write, mail: isMail });
 export const OPERATIONS: Operation[] = [
@@ -38,8 +42,13 @@ export const OPERATIONS: Operation[] = [
   op('github', 'github_pulls', 'read', 'Lister les pull requests GitHub', z.object({ repo, state: z.enum(['open', 'closed', 'all']).default('open'), limit }).strict()),
   op('github', 'github_issue_create', 'write', 'Créer une issue GitHub', z.object({ repo, title: z.string().min(1).max(200), body: z.string().max(50_000) }).strict(), true),
   op('github', 'github_comment', 'write', 'Publier un commentaire GitHub', z.object({ repo, number: z.number().int().positive(), body: z.string().min(1).max(50_000) }).strict(), true),
+  op('github', 'github_repo_create', 'code', 'Créer un dépôt GitHub', z.object({ name: z.string().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/).refine((s) => s !== '.' && s !== '..'), private: z.boolean().default(true), description: z.string().max(350).optional(), auto_init: z.boolean().default(false), org: z.string().regex(/^[A-Za-z0-9-]{1,39}$/).optional() }).strict(), true),
+  op('github', 'github_branch_create', 'code', 'Créer une branche GitHub', z.object({ repo, branch, from: z.string().min(1).max(200).regex(/^[A-Za-z0-9._\/-]+$/).refine((s) => !s.includes('..')) }).strict(), true),
+  op('github', 'github_pr_create', 'code', 'Ouvrir une pull request GitHub', z.object({ repo, title: z.string().min(1).max(256), head: z.string().min(1).max(250).regex(/^[A-Za-z0-9._\/:-]+$/), base: branch, body: z.string().max(65_000).optional(), draft: z.boolean().default(false) }).strict(), true),
+  op('github', 'github_pr_merge', 'code', 'Fusionner une pull request GitHub', z.object({ repo, number: z.number().int().positive(), method: z.enum(['merge', 'squash', 'rebase']).default('merge'), commit_title: z.string().max(256).optional() }).strict(), true),
+  op('github', 'github_push', 'code', 'Pousser (git push) une branche depuis l’ordinateur du compagnon', z.object({ repo, path: workspacePath, branch, set_upstream: z.boolean().default(true) }).strict(), true),
 ];
-export function availableOperations(config: IntegrationConfig) { return OPERATIONS.filter((o) => o.provider === config.provider && (config.permissions.includes(o.permission) || config.provider === 'github' && o.permission === 'read' && config.permissions.includes('private'))); }
+export function availableOperations(config: IntegrationConfig) { return OPERATIONS.filter((o) => o.provider === config.provider && (config.permissions.includes(o.permission) || config.provider === 'github' && (o.permission === 'read' && (config.permissions.includes('private') || config.permissions.includes('code'))))); }
 export function operationFor(row: ConnectorRow, operation: string) {
   if (row.kind !== 'integration' || !row.enabled) throw new ConnectorError('Connexion indisponible.');
   const found = availableOperations(row.config as IntegrationConfig).find((o) => o.id === operation);
@@ -61,7 +70,7 @@ function gmailMessage(value: any, full = false) {
 }
 
 export class IntegrationExecutor {
-  constructor(private manager: OAuthManager = oauth, private transport: typeof fetch = (...args) => fetch(...args)) {}
+  constructor(private manager: OAuthManager = oauth, private transport: typeof fetch = (...args) => fetch(...args), private gitPush: (request: GitPushRequest) => Promise<unknown> = gitPushFromCompanion) {}
   private async request(row: ConnectorRow, url: string, method = 'GET', body?: unknown, contentType = 'application/json') {
     const expected = row.config.provider === 'outlook' ? 'https://graph.microsoft.com' : row.config.provider === 'github' ? 'https://api.github.com' : 'https://www.googleapis.com';
     if (new URL(url).origin !== expected) throw new ConnectorError('Destination du connecteur invalide.');
@@ -77,7 +86,20 @@ export class IntegrationExecutor {
     const text = Buffer.concat(chunks).toString('utf8');
     return text ? /json/i.test(response.headers.get('content-type') ?? '') ? JSON.parse(text) : text : { accepted: true };
   }
-  async execute(connectorId: string, operationId: string, args: unknown): Promise<any> {
+  /** Resolve mutable selectors server-side before showing the approval card. */
+  async prepare(connectorId: string, operationId: string, args: unknown, context: { agentId: string }): Promise<{ args: unknown; expectedSha?: string }> {
+    const row = await getConnector(connectorId);
+    if (!row) throw new ConnectorError('Connexion introuvable.');
+    const a = operationFor(row, operationId).schema.parse(args);
+    if (operationId === 'github_push') return { args: a, expectedSha: await companionGitHead({ agentId: context.agentId, path: a.path, branch: a.branch }) };
+    if (operationId === 'github_pr_merge') {
+      const pr = await this.request(row, `https://api.github.com/repos/${a.repo.split('/').map(encode).join('/')}/pulls/${a.number}`);
+      if (!/^[a-f0-9]{40}$/.test(pr?.head?.sha ?? '') || pr?.state !== 'open') throw new ConnectorError('Pull request ouverte et commit de tête valides requis.');
+      return { args: a, expectedSha: pr.head.sha };
+    }
+    return { args: a };
+  }
+  async execute(connectorId: string, operationId: string, args: unknown, context: { agentId?: string; expectedSha?: string } = {}): Promise<any> {
     const row = await getConnector(connectorId);
     if (!row) throw new ConnectorError('Connexion introuvable.');
     const operation = operationFor(row, operationId), a = operation.schema.parse(args);
@@ -132,6 +154,27 @@ export class IntegrationExecutor {
       case 'github_issue': return get(`${github}/repos/${a.repo.split('/').map(encode).join('/')}/issues/${a.number}`);
       case 'github_pulls': return get(query(`${github}/repos/${a.repo.split('/').map(encode).join('/')}/pulls`, { state: a.state, per_page: a.limit }));
       case 'github_issue_create': return post(`${github}/repos/${a.repo.split('/').map(encode).join('/')}/issues`, { title: a.title, body: a.body });
+      case 'github_repo_create': return post(a.org ? `${github}/orgs/${encode(a.org)}/repos` : `${github}/user/repos`, { name: a.name, private: a.private, description: a.description, auto_init: a.auto_init });
+      case 'github_branch_create': {
+        const path = `${github}/repos/${a.repo.split('/').map(encode).join('/')}`;
+        const sha = /^[0-9a-f]{40}$/i.test(a.from) ? a.from : (await get(`${path}/git/ref/heads/${a.from.split('/').map(encode).join('/')}`))?.object?.sha;
+        if (typeof sha !== 'string') throw new ConnectorError('Branche ou commit de départ introuvable.');
+        return post(`${path}/git/refs`, { ref: `refs/heads/${a.branch}`, sha });
+      }
+      case 'github_pr_create': return post(`${github}/repos/${a.repo.split('/').map(encode).join('/')}/pulls`, { title: a.title, head: a.head, base: a.base, body: a.body, draft: a.draft });
+      case 'github_pr_merge': {
+        if (!/^[a-f0-9]{40}$/.test(context.expectedSha ?? '')) throw new ConnectorError('Approbation obsolète : prépare une nouvelle fusion avec le commit exact.');
+        const result = await this.request(row, `${github}/repos/${a.repo.split('/').map(encode).join('/')}/pulls/${a.number}/merge`, 'PUT', { merge_method: a.method, commit_title: a.commit_title, sha: context.expectedSha });
+        if (result.merged !== true) throw new ConnectorError('La pull request n’a pas été fusionnée. Vérifie son état et prépare une nouvelle validation.');
+        return result;
+      }
+      case 'github_push': {
+        // Le courtier serveur garde le jeton hors du conteneur du compagnon.
+        if (!context.agentId) throw new ConnectorError('Le push doit être lancé par un compagnon après validation.');
+        if (!/^[a-f0-9]{40}$/.test(context.expectedSha ?? '')) throw new ConnectorError('Approbation obsolète : prépare un nouveau push avec le commit exact.');
+        const token = await this.manager.accessToken(row);
+        return this.gitPush({ agentId: context.agentId, path: a.path, repo: a.repo, branch: a.branch, setUpstream: a.set_upstream, expectedSha: context.expectedSha!, token });
+      }
       case 'github_comment': return post(`${github}/repos/${a.repo.split('/').map(encode).join('/')}/issues/${a.number}/comments`, { body: a.body });
       default: throw new ConnectorError('Opération inconnue.');
     }

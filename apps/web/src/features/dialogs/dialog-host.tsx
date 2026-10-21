@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { closeDialog, useDialog } from "@/lib/dialogs";
 import { toast } from "sonner";
 import { ActivityDialog, Field } from "./activity-dialog";
+import { TeamThreadDialog } from "./team-thread-dialog";
 import { McpDialog, MailDialog, PluginDialog } from "./connector-dialogs";
 
 import { t } from "@/lib/i18n";
@@ -31,6 +32,8 @@ export function DialogHost() {
       return <ActivityDialog activity={d.activity} agentId={d.agentId} onClose={closeDialog} />;
     case "draft":
       return <DraftDialog draftId={d.draftId} onClose={closeDialog} />;
+    case "team":
+      return <TeamThreadDialog agentA={d.agentA} agentB={d.agentB} onClose={closeDialog} />;
   }
 }
 

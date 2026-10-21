@@ -28,6 +28,7 @@ import { cn, formatDateTime } from "@/lib/utils";
 import { ApprovalCard } from "./approval-card";
 import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard, SearchResultsCard, TerminalCard } from "./cards";
 import { DotAvatar } from "../dot-avatar";
+import { openDialog } from "@/lib/dialogs";
 
 import { t } from "@/lib/i18n";
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
@@ -139,7 +140,71 @@ const EVENT_ICONS: Record<string, ReactNode> = {
 };
 
 /** Événement ayant réveillé le compagnon : affiché discrètement, détails au clic. */
-function EventChip({ message }: { message: ODMessage }) {
+function EventChip({ message, agentId }: { message: ODMessage; agentId?: string }) {
+  const event = message.metadata?.event;
+  if ((event?.type === "agent_reply" || event?.type === "agent_message") && event.fromAgentId && (agentId ?? message.metadata?.agentId))
+    return <TeamEventCard message={message} agentId={(agentId ?? message.metadata?.agentId)!} />;
+  return <PlainEventChip message={message} />;
+}
+
+function TeamEventCard({ message, agentId }: { message: ODMessage; agentId: string }) {
+  const event = message.metadata!.event!;
+  const peer = useStore((s) => s.agents.find((a) => a.id === event.fromAgentId));
+  const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n");
+  // Pour une réponse, le texte de l'événement contient « Sa réponse : … » : on n'affiche que la réponse.
+  const preview = event.type === "agent_reply" ? (text.split(/Sa réponse :\n/)[1]?.split(/\n\nPoursuis ta tâche/)[0] ?? text) : text;
+  const name = peer?.name ?? t("un compagnon");
+  return (
+    <TeamCard
+      title={event.type === "agent_reply" ? (event.title?.startsWith("Échec") ? event.title : t("Réponse de {v0}", { v0: name })) : event.title?.match(/^(Message envoyé à|Réponse envoyée à|Message traité)/) ? event.title : t("Message reçu de {v0}", { v0: name })}
+      color={peer?.color}
+      date={message.metadata?.createdAt}
+      preview={preview}
+      onOpen={() => openDialog({ kind: "team", agentA: agentId, agentB: event.fromAgentId! })}
+    />
+  );
+}
+
+/** Carte d'échange entre compagnons (envoi ou réception) ; ouvre le fil complet au clic. */
+function TeamCard({ title, color, date, preview, onOpen }: { title: string; color?: string; date?: string; preview: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="mx-auto flex w-full max-w-lg flex-col gap-1.5 rounded-xl border border-dashed bg-card/40 px-3 py-2 text-left text-xs transition-colors hover:bg-card"
+    >
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        {color ? <DotAvatar color={color} size={14} /> : <MessagesSquareIcon className="size-3.5" />}
+        <span className="font-medium text-foreground">{title}</span>
+        {date && <span className="opacity-60">· {formatDateTime(date)}</span>}
+      </span>
+      {preview.trim() && <span className="line-clamp-2 whitespace-pre-wrap text-muted-foreground">{preview.trim()}</span>}
+    </button>
+  );
+}
+
+function SentTeamCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string; date?: string }) {
+  const input = (part as any).input ?? {};
+  const out = (part as any).output;
+  const peer = useStore((s) => s.agents.find((a) => a.id === input.to || a.name.toLowerCase() === String(out?.to ?? input.to ?? "").toLowerCase()));
+  const name = out?.to ?? peer?.name ?? input.to ?? t("un compagnon");
+  return (
+    <TeamCard
+      title={t("Message envoyé à {v0}", { v0: name })}
+      color={peer?.color}
+      date={date}
+      preview={String(input.message ?? "")}
+      onOpen={() => peer && agentId && openDialog({ kind: "team", agentA: agentId, agentB: peer.id })}
+    />
+  );
+}
+
+function isSentTeam(part: ToolUIPart) {
+  const out = (part as any).output;
+  return part.type === "tool-team_send_message" && part.state === "output-available" && out?.ok !== false && out?.status === "sent";
+}
+
+function PlainEventChip({ message }: { message: ODMessage }) {
   const event = message.metadata?.event;
   const from = useStore((s) => s.agents.find((a) => a.id === event?.fromAgentId));
   const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n");
@@ -158,12 +223,13 @@ function EventChip({ message }: { message: ODMessage }) {
 }
 
 /** Rendu riche de certains outils, directement dans la conversation. */
-function ToolCard({ part, agentId }: { part: ToolUIPart; agentId?: string }) {
+function ToolCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string; date?: string }) {
   if (part.state !== "output-available") return null;
   const name = part.type.slice(5);
   const out = (part as any).output;
   const input = (part as any).input ?? {};
   if (!out || out.ok === false) return null;
+  if (isSentTeam(part)) return <SentTeamCard part={part} agentId={agentId} date={date} />;
   if (name === "ask_user" && out.requestId) return <AskUserCard requestId={out.requestId} title={input.title} questions={input.questions ?? []} />;
   if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} provider={input.provider} reason={input.reason} agentId={agentId} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
@@ -201,8 +267,8 @@ function groupParts(parts: ODMessage["parts"], streaming: boolean): Group[] {
   return groups;
 }
 
-export function MessageView({ message, streaming }: { message: ODMessage; streaming: boolean }) {
-  if (message.metadata?.kind === "event") return <EventChip message={message} />;
+export function MessageView({ message, streaming, agentId }: { message: ODMessage; streaming: boolean; agentId?: string }) {
+  if (message.metadata?.kind === "event") return <EventChip message={message} agentId={agentId} />;
 
   const groups = groupParts(message.parts, streaming);
   if (!groups.length && !streaming) return null;
@@ -239,15 +305,15 @@ export function MessageView({ message, streaming }: { message: ODMessage; stream
                   <ReasoningContent>{g.reasoning}</ReasoningContent>
                 </Reasoning>
               )}
-              {g.tools.length > 0 && (
+              {g.tools.some((t) => !isSentTeam(t)) && (
                 <div className="flex flex-wrap items-start gap-1.5">
-                  {g.tools.map((t) => (
+                  {g.tools.filter((t) => !isSentTeam(t)).map((t) => (
                     <ToolPart key={t.toolCallId} part={t} />
                   ))}
                 </div>
               )}
               {g.tools.map((t) => (
-                <ToolCard key={`card-${t.toolCallId}`} part={t} agentId={message.metadata?.agentId} />
+                <ToolCard key={`card-${t.toolCallId}`} part={t} agentId={message.metadata?.agentId ?? agentId} date={message.metadata?.createdAt} />
               ))}
             </div>
           );

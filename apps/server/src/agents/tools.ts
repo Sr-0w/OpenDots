@@ -46,6 +46,8 @@ export interface ToolContext {
   userTurn: boolean;
   depth: number;
   tz: string;
+  /** Pendant le traitement d'un message d'un coéquipier : l'id de ce coéquipier. */
+  peerAgentId?: string;
 }
 
 const ok = (data: Record<string, unknown> = {}) => ({ ok: true, ...data });
@@ -387,7 +389,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
   if (perms.messageAgents) {
     tools.team_send_message = tool({
       description:
-        "Envoie un message à un autre compagnon (demande d'expertise, délégation, transmission de résultats). C'est asynchrone : sa réponse t'arrivera plus tard sous forme d'événement. Donne-lui tout le contexte nécessaire, sans partager d'informations privées inutiles.",
+        "Envoie un NOUVEAU message à un autre compagnon (demande d'expertise, délégation, transmission de résultats). Asynchrone : s'il répond, tu seras réveillé automatiquement avec sa réponse. Message autonome et complet (contexte, question précise, format de réponse attendu), sans informations privées inutiles. N'utilise PAS cet outil pour répondre au coéquipier qui t'écrit : ta réponse finale lui est renvoyée automatiquement. N'envoie jamais de simple remerciement ou accusé de réception (expects_reply=false dans ce cas). Après l'envoi, dis à l'utilisateur en une phrase à qui tu as écrit et pourquoi.",
       inputSchema: z.object({
         to: z.string().describe('Nom ou id du compagnon'),
         message: z.string().min(1),
@@ -399,6 +401,8 @@ export function buildTools(ctx: ToolContext): ToolSet {
           const target = await resolveAgentRef(to);
           if (!target) return fail(`Aucun compagnon nommé « ${to} ».`);
           if (target.id === ctx.agent.id) return fail('Tu ne peux pas t’envoyer un message.');
+          if (ctx.peerAgentId && target.id === ctx.peerAgentId)
+            return fail(`Inutile : ta réponse finale à ce tour est automatiquement transmise à ${target.name}. Écris simplement ta réponse (ou <no_reply/> si aucune réponse n'est nécessaire).`);
           try {
             const sent = await sendTeamMessage({
               fromAgentId: ctx.agent.id,

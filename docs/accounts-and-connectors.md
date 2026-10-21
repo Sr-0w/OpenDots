@@ -37,7 +37,7 @@ The built-in catalog works for ordinary users without MCP setup.
 | Google Calendar | List calendars, read events, create events/invitations |
 | Gmail | Search/read mail, list/create labels, create drafts, send mail |
 | Outlook / Microsoft 365 | Search/read mail, drafts, send mail, calendars/events |
-| GitHub | Repositories, issues, PRs, search, create issues/comments |
+| GitHub | Repositories, issues, PRs, search, create issues/comments; with **code** permission (`repo` + `workflow`): create private/public repositories, branches, pull requests, merge PRs and `git push` from the companion's Docker computer |
 | IMAP / SMTP | Standard mail reading/polling and approved sending |
 
 Users select permissions before connecting. Reading is selected by default;
@@ -99,6 +99,38 @@ localhost and 127.0.0.1 have different cookies.
   require administrator consent.
 - **GitHub:** register an OAuth App with the exact callback. Organization SSO and
   third-party application restrictions may require organization approval.
+  The permission **Créer des dépôts, pousser du code et ouvrir des PR** requests
+  `repo` and `workflow`; existing connections must be reconnected with it.
+
+### GitHub write operations and `git push`
+
+Every write operation (`github_repo_create`, `github_branch_create`,
+`github_pr_create`, `github_pr_merge`, `github_push`) is a prepared action that
+runs only after human approval. The **code** permission must be selected in
+OpenDots; selecting private-repository access alone does not enable these actions.
+Companions make commits with their normal shell in their isolated computer.
+Push and merge approvals display and retain the exact commit SHA:
+
+- a merge sends GitHub's expected `sha`; a changed PR head requires a new approval;
+- a push exports a credential-free Git bundle from the account's Docker computer
+  (network enabled, sudo disabled). A branch changed since preparation is rejected;
+- the server imports objects into a fresh private bare repository, validates them,
+  and pushes the approved SHA to `https://github.com/<owner>/<repo>.git`. It never
+  copies the source repository's configuration, hooks, alternates, or home folder;
+- the server needs `/usr/bin/git`. Only the server's Git transport receives the
+  OAuth token. The companion container receives no token, and cannot see the
+  server's PID namespace or temporary repository;
+- TLS verification remains enabled; HTTP redirects are disabled. Proxy and CA
+  settings come from the trusted server environment. Source repository settings
+  cannot override them. Temporary snapshots are removed after success or failure;
+- source bundle export is limited to 128 MiB / 60 seconds; authenticated transport
+  to 180 seconds. `set_upstream` updates local tracking after a successful push.
+
+Pending push/merge approvals created by older versions have no captured SHA and
+are refused; prepare a new action. On upgrade, managed shell/search containers
+with the old mount configuration are recreated automatically to apply SELinux
+labels. Workspace bind mounts retain the companion's files; install additional
+system packages through a custom image if they must survive recreation.
 
 Then ordinary users click **Connect**, select access, and sign in directly with
 the provider in a popup. Authorization uses one-time state, PKCE S256 and a

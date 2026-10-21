@@ -69,10 +69,10 @@ async function start(): Promise<string> {
     await writeFile(caPath, ca, { mode: 0o644 });
     await chmod(caPath, 0o644); // readable by the container despite a restrictive host umask
     settings.outgoing.verify = '/run/opendots-ca.pem';
-    extraArgs.push('--mount', `type=bind,src=${caPath},dst=/run/opendots-ca.pem,readonly`, '-e', 'SSL_CERT_FILE=/run/opendots-ca.pem');
+    extraArgs.push('-v', `${caPath}:/run/opendots-ca.pem:ro,z`, '-e', 'SSL_CERT_FILE=/run/opendots-ca.pem');
   }
   const serialized = JSON.stringify(settings, null, 2);
-  const fingerprint = createHash('sha256').update(IMAGE + serialized + ca + proxyHost).digest('hex');
+  const fingerprint = createHash('sha256').update('2-selinux:' + IMAGE + serialized + ca + proxyHost).digest('hex');
   const settingsPath = join(dir, 'settings.yml'); // JSON is also valid YAML.
   let state = await inspect();
   if (state && state.fingerprint !== fingerprint) {
@@ -89,7 +89,7 @@ async function start(): Promise<string> {
         '--label', 'opendots.search=managed', '--label', `opendots.search-config=${fingerprint}`,
         '--restart', 'unless-stopped', '--memory', '1g', '--pids-limit', '256',
         '-p', '127.0.0.1::8080',
-        '--mount', `type=bind,src=${settingsPath},dst=/etc/searxng/settings.yml,readonly`,
+        '-v', `${settingsPath}:/etc/searxng/settings.yml:ro,Z`,
         ...extraArgs, IMAGE], 30_000);
     } catch (error) {
       const raced = await inspect(); // another app process may have created it

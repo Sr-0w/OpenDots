@@ -106,7 +106,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
         <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-4 pt-6 pb-10 sm:px-6">
           {empty && <EmptyState agent={agent} onPick={(t) => sendMessage({ text: t })} />}
           {messages.map((m, i) => (
-            <MessageView key={m.id} message={m} streaming={busy && i === messages.length - 1 && m.role === "assistant"} />
+            <MessageView key={m.id} message={m} agentId={agent.id} streaming={busy && i === messages.length - 1 && m.role === "assistant"} />
           ))}
           {waiting && (
             <div className="flex items-center gap-2.5 text-sm">
