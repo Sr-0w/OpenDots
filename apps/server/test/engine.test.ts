@@ -10,6 +10,7 @@ import { createApproval, getApproval, registerApprovalAction, resolveApproval } 
 import { buildTools } from '../src/agents/tools.ts';
 import { remember, searchMemories, contextMemories } from '../src/memory/repo.ts';
 import { sleep } from '../src/util.ts';
+import { getSearchSettings, setSearchSettings, getSetting } from '../src/settings.ts';
 
 let server: Server;
 let page = '<html><body><p>Prix : 349 €</p></body></html>';
@@ -46,6 +47,18 @@ describe('compagnons', () => {
     expect(a.named).toBe(false);
     const conv = await mainConversationId(a.id);
     expect(await mainConversationId(a.id)).toBe(conv);
+  });
+});
+
+describe('recherche sans compte', () => {
+  it('remplace les anciens moteurs par le mode libre sans lire leurs clés', async () => {
+    const { setSetting } = await import('../src/settings.ts');
+    await setSetting('search.config', { provider: 'serper', apiKey: 'ancienne-cle-non-dechiffrable', url: 'https://ancien.example' });
+    expect(await getSearchSettings()).toEqual({ provider: 'auto', url: null });
+    await setSearchSettings({ provider: 'searxng', url: 'http://localhost:8888' });
+    expect(await getSearchSettings()).toEqual({ provider: 'searxng', url: 'http://localhost:8888' });
+    expect((await getSetting('search.config'))?.apiKey).toBeUndefined();
+    await setSearchSettings({ provider: 'auto' });
   });
 });
 

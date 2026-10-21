@@ -11,11 +11,11 @@ interface SettingsShape {
   'engine.paused': boolean;
   'onboarding.done': boolean;
   'user.timezone': string;
-  'search.config': { provider: SearchProvider; apiKey?: string | null; url?: string | null };
+  'search.config': { provider: string; apiKey?: string | null; url?: string | null }; // clés historiques ignorées
   'shell.config': ShellSettings;
 }
 
-export type SearchProvider = 'auto' | 'duckduckgo' | 'bing' | 'brave' | 'tavily' | 'searxng';
+export type SearchProvider = 'auto' | 'mwmbl' | 'searxng';
 
 export interface ShellSettings {
   /** auto = Docker si disponible, sinon machine hôte. */
@@ -73,20 +73,19 @@ export async function isPaused(): Promise<boolean> {
   return (await getSetting('engine.paused')) ?? false;
 }
 
-/** Réglages de recherche, avec la clé API déchiffrée (jamais exposée au frontend). */
-export async function getSearchSettings(): Promise<{ provider: SearchProvider; apiKey: string | null; url: string | null }> {
+/** Recherche sans compte : les anciennes clés de moteurs payants ne sont plus lues. */
+export async function getSearchSettings(): Promise<{ provider: SearchProvider; url: string | null }> {
   const s = await getSetting('search.config');
+  const provider: SearchProvider = s?.provider === 'mwmbl' || s?.provider === 'searxng' ? s.provider : 'auto';
   return {
-    provider: s?.provider ?? 'auto',
-    apiKey: s?.apiKey ? decryptSecret(s.apiKey) : null,
-    url: s?.url ?? null,
+    provider,
+    url: provider === 'searxng' ? (s?.url ?? null) : null,
   };
 }
 
-export async function setSearchSettings(input: { provider: SearchProvider; apiKey?: string | null; url?: string | null }) {
+export async function setSearchSettings(input: { provider: SearchProvider; url?: string | null }) {
   const current = await getSetting('search.config');
-  const apiKey = input.apiKey === undefined ? (current?.apiKey ?? null) : input.apiKey ? encryptSecret(input.apiKey) : null;
-  await setSetting('search.config', { provider: input.provider, apiKey, url: input.url ?? current?.url ?? null });
+  await setSetting('search.config', { provider: input.provider, url: input.url === undefined ? (current?.url ?? null) : input.url });
 }
 
 export async function getShellSettings(): Promise<ShellSettings> {

@@ -76,7 +76,7 @@ export interface SettingsDTO {
   ollamaUrl: string | null;
   timezone: string;
   paused: boolean;
-  search: { provider: "auto" | "duckduckgo" | "bing" | "brave" | "tavily" | "searxng"; hasKey: boolean; url: string | null };
+  search: { provider: "auto" | "mwmbl" | "searxng"; url: string | null };
   shell: ShellSettingsDTO;
 }
 
@@ -103,7 +103,7 @@ export const api = {
   updateSettings: (
     patch: Partial<Omit<SettingsDTO, "openrouterKey" | "search" | "shell">> & {
       openrouterKey?: string;
-      search?: { provider: SettingsDTO["search"]["provider"]; apiKey?: string | null; url?: string | null };
+      search?: { provider: SettingsDTO["search"]["provider"]; url?: string | null };
       shell?: Partial<ShellSettingsDTO>;
     },
   ) => request<{ ok: boolean }>("PUT", "/settings", patch),

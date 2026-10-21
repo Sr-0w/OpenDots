@@ -141,7 +141,7 @@ export function createApi() {
       ollamaUrl: await getSetting('ollama.url'),
       timezone: await getTimezone(),
       paused: await isPaused(),
-      search: await getSearchSettings().then((x) => ({ provider: x.provider, hasKey: Boolean(x.apiKey), url: x.url })),
+      search: await getSearchSettings(),
       shell: await getShellSettings(),
     });
   });
@@ -156,8 +156,7 @@ export function createApi() {
         paused: z.boolean().optional(),
         search: z
           .object({
-            provider: z.enum(['auto', 'duckduckgo', 'bing', 'brave', 'tavily', 'searxng']),
-            apiKey: z.string().nullable().optional(),
+            provider: z.enum(['auto', 'mwmbl', 'searxng']),
             url: z.string().url().nullable().optional(),
           })
           .optional(),

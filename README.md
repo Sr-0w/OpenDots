@@ -97,7 +97,7 @@ When a companion needs something only you can provide, it asks you through a sma
 | **Skills** | Shared know-how loaded on demand. Create one from the Skills page or say "save that as a skill" |
 | **MCP connectors** | HTTP, SSE or local stdio servers, encrypted secrets, per-connector approval, a failing server stays isolated |
 | **Plugins** | Bundles of skills and MCP connectors described in a JSON manifest, with a preview before install |
-| **Tools** | Web search (DuckDuckGo → Bing with no key, or Brave, Tavily, SearXNG), web page reading, date and time |
+| **Tools** | Free web search through Mwmbl and SearXNG, without accounts or API keys; web page reading, date and time |
 | **Shared computer** | A Linux shell in a Docker container (Python, Node, git, curl, jq, sqlite…), one Linux user and private home per companion plus a shared folder. Network and sudo are configurable, with a host fallback that approves each command |
 | **Models** | Any OpenRouter model (reasoning effort, preferred provider) or local Ollama, set per companion or as the default |
 | **Security** | Secrets are encrypted at rest (AES-256-GCM) and never sent to the model or the browser. External content is marked untrusted, SSRF protection is built in, and config tools are disabled during autonomous wake-ups |
@@ -240,6 +240,29 @@ pnpm typecheck
 pnpm test                                     # engine tests (in-memory PGlite)
 pnpm --filter @opendots/server db:generate    # after editing src/db/schema.ts
 ```
+
+Web search defaults to **Automatic**, using the anonymous search endpoint of
+[Mwmbl](https://github.com/mwmbl/mwmbl) and then public
+[SearXNG](https://github.com/searxng/searxng) instances if necessary. Both projects
+are open source. No account, API key, extra installation or Docker is required.
+SearXNG aggregates third-party search engines; Mwmbl has its own community index.
+
+Public requests go to `mwmbl.org`, `searx.tiekoetter.com`, `search.inetol.net` and
+`searx.be` as needed. Allow these HTTPS destinations in restricted environments.
+Searches are sent to these public services; availability and rate limits depend
+on their operators. Each search has a 20-second budget. JSON-disabled SearXNG
+instances are read through their normal HTML interface; CAPTCHA and throttling
+cause failure or failover, never a fabricated answer.
+
+Under **Settings → Tools → Web search**, choose **Mwmbl** alone or **SearXNG**.
+An empty SearXNG URL uses the public instances; supply your own instance URL for
+self-hosting. Queries to a personal instance never fall back to public services.
+Legacy search-provider settings automatically use the free default, and old
+provider keys are ignored and removed on the next search-settings save.
+
+The search adapter rejects mismatched queries and results with no identifiable
+query terms. This sanity check does not establish factual relevance: companions
+still need to read sources and verify the requested place, date and units.
 
 `HTTPS_PROXY` / `NO_PROXY` are respected. To try connectors without external services:
 

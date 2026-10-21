@@ -14,7 +14,6 @@ type Update = (patch: Parameters<typeof api.updateSettings>[0], message?: string
 /** Réglages des outils partagés : recherche web et ordinateur des compagnons. */
 export function ToolsSettings({ settings, update, busy }: { settings: SettingsDTO; update: Update; busy: boolean }) {
   const [provider, setProvider] = useState(settings.search.provider);
-  const [apiKey, setApiKey] = useState("");
   const [url, setUrl] = useState(settings.search.url ?? "");
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [image, setImage] = useState(settings.shell.image);
@@ -24,7 +23,6 @@ export function ToolsSettings({ settings, update, busy }: { settings: SettingsDT
     void refresh();
   }, [settings.shell.mode, settings.shell.network, settings.shell.image]);
 
-  const needsKey = provider === "brave" || provider === "tavily";
   const shell = settings.shell;
 
   return (
@@ -40,29 +38,19 @@ export function ToolsSettings({ settings, update, busy }: { settings: SettingsDT
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">{t("Automatique (DuckDuckGo, puis Bing)")}</SelectItem>
-              <SelectItem value="duckduckgo">{t("DuckDuckGo (sans clé)")}</SelectItem>
-              <SelectItem value="bing">{t("Bing (sans clé)")}</SelectItem>
-              <SelectItem value="brave">{t("Brave Search (clé API)")}</SelectItem>
-              <SelectItem value="tavily">{t("Tavily (clé API)")}</SelectItem>
-              <SelectItem value="searxng">{t("SearXNG (instance personnelle)")}</SelectItem>
+              <SelectItem value="auto">{t("Automatique (Mwmbl + SearXNG publics)")}</SelectItem>
+              <SelectItem value="mwmbl">{t("Mwmbl (libre, sans compte)")}</SelectItem>
+              <SelectItem value="searxng">{t("SearXNG (public ou personnel)")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        {needsKey && (
-          <Input
-            type="password"
-            placeholder={settings.search.hasKey && settings.search.provider === provider ? t("Clé enregistrée — laisser vide pour la conserver") : t("Clé API")}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-        )}
-        {provider === "searxng" && <Input placeholder="https://searx.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />}
+        <p className="text-muted-foreground text-xs">{t("La recherche automatique utilise des services libres et gratuits, sans clé ni compte. Les instances publiques peuvent limiter les requêtes.")}</p>
+        {provider === "searxng" && <Input placeholder={t("URL SearXNG personnelle (facultative)")} value={url} onChange={(e) => setUrl(e.target.value)} />}
         <Button
           size="sm"
           variant="outline"
-          disabled={busy || (provider === "searxng" && !url)}
-          onClick={() => update({ search: { provider, apiKey: apiKey || undefined, url: url || null } }, t("Recherche web mise à jour")).then(() => setApiKey(""))}
+          disabled={busy}
+          onClick={() => update({ search: { provider, url: url.trim() || null } }, t("Recherche web mise à jour"))}
         >
           {t("Enregistrer")}
         </Button>
