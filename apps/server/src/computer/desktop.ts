@@ -67,6 +67,28 @@ async function inspect() {
     return value;
   } catch (error) { if (error instanceof DesktopError) throw error; return null; }
 }
+/** Arguments `docker run` du bureau. Montages en `-v` pour porter les étiquettes SELinux. */
+export function desktopRunArgs(o: { name: string; owner: string; home: string; proxy?: string | null; extra: string[]; proxyCa?: string | null; memory?: string }) {
+  for (const path of [o.home, o.proxyCa].filter(Boolean) as string[]) if (/[:,]/.test(path)) throw new DesktopError('Chemin de montage invalide pour le bureau.');
+  const proxy = o.proxy ? ['-e', `HTTPS_PROXY=${o.proxy}`, '-e', `HTTP_PROXY=${o.proxy}`, '-e', `https_proxy=${o.proxy}`, '-e', `http_proxy=${o.proxy}`] : [];
+  return ['run', '-d', '--name', o.name, '--label', `opendots.desktop.owner=${o.owner}`, '--restart', 'unless-stopped', '--memory', o.memory ?? process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g', '--pids-limit', '512', '--shm-size', '256m', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--security-opt', 'no-new-privileges', '-p', '127.0.0.1::5900',
+    // :Z — dossier privé à ce conteneur ; :ro,z — certificat partagé en lecture seule (SELinux enforcing).
+    '-v', `${o.home}:/home/opendots:Z`, ...o.extra, ...proxy, ...(o.proxyCa ? ['-v', `${o.proxyCa}:/usr/local/share/ca-certificates/opendots-proxy.crt:ro,z`] : []), DESKTOP_IMAGE];
+}
+
+/** Attend que le conteneur tourne vraiment ; signale une boucle de redémarrage. */
+async function runningState() {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const state = await inspect();
+    if (state?.State.Running && !state.State.Restarting && state.NetworkSettings.Ports?.['5900/tcp']?.length) return state;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  const state = await inspect();
+  if (!state) throw new DesktopError('Le conteneur du bureau a disparu au démarrage.');
+  if (state.State.Restarting || !state.State.Running) throw new DesktopError(`Le conteneur du bureau redémarre en boucle (${state.RestartCount ?? 0} redémarrage(s)${state.State.Error ? ` : ${String(state.State.Error).slice(0, 160)}` : ''}). Consulte ses logs : docker logs ${name()}`);
+  return state;
+}
+
 export async function desktopStatus() {
   const available = await dockerAvailable();
   const state = available ? await inspect() : null;
@@ -92,9 +114,9 @@ export async function startDesktop(): Promise<number> {
       const home = join(config.dataDir, 'desktop');
       await mkdir(home, { recursive: true, mode: 0o700 });
       const network = await proxyArgs(), ca = await trust();
-      await docker(['run', '-d', '--name', name(), '--label', `opendots.desktop.owner=${systemDataDir}:${accountKey()}`, '--restart', 'unless-stopped', '--memory', process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g', '--pids-limit', '512', '--shm-size', '256m', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--security-opt', 'no-new-privileges', '-p', '127.0.0.1::5900', '--mount', `type=bind,src=${home},dst=/home/opendots`, ...network.extra, ...(network.proxy ? ['-e', `HTTPS_PROXY=${network.proxy}`, '-e', `HTTP_PROXY=${network.proxy}`, '-e', `https_proxy=${network.proxy}`, '-e', `http_proxy=${network.proxy}`] : []), ...(ca.proxyFile ? ['--mount', `type=bind,src=${ca.proxyFile},dst=/usr/local/share/ca-certificates/opendots-proxy.crt,readonly`] : []), DESKTOP_IMAGE]);
+      await docker(desktopRunArgs({ name: name(), owner: `${systemDataDir}:${accountKey()}`, home, proxy: network.proxy, extra: network.extra, proxyCa: ca.proxyFile }));
     } else if (!state.State.Running) await docker(['start', name()]);
-    state = await inspect();
+    state = await runningState();
     const binding = state.NetworkSettings.Ports['5900/tcp']?.find((p: any) => p.HostIp === '127.0.0.1');
     if (!binding) throw new DesktopError('Le bureau ne dispose pas de port privé.');
     for (let attempt = 0; attempt < 100; attempt++) {
