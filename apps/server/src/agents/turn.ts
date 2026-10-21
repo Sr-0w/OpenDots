@@ -1,3 +1,4 @@
+import { accountKey } from '../auth/context.ts';
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
 import { cleanModelText, type MessageMetadata } from '@opendots/shared';
@@ -33,7 +34,7 @@ const agentLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
-const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+)$/;
+const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+)$/;
 
 /** Le tour s'arrête dès qu'un formulaire a été présenté à l'utilisateur. */
 const formShown: StopCondition<any> = ({ steps }) =>
@@ -42,7 +43,7 @@ const formShown: StopCondition<any> = ({ steps }) =>
   );
 
 export function isAgentBusy(agentId: string) {
-  return agentLocks.isLocked(agentId);
+  return agentLocks.isLocked(`${accountKey()}:${agentId}`);
 }
 
 function compactToolOutput(output: unknown): unknown {
@@ -102,7 +103,7 @@ export function runTurn(
   trigger: TurnTrigger,
 ): { stream: ActiveStream; done: Promise<TurnResult> } {
   const stream = new ActiveStream(conversationId);
-  const done = agentLocks.run(agentId, () => executeTurn(agentId, conversationId, trigger, stream));
+  const done = agentLocks.run(`${accountKey()}:${agentId}`, () => executeTurn(agentId, conversationId, trigger, stream));
   done.catch(() => finishStream(stream));
   return { stream, done };
 }

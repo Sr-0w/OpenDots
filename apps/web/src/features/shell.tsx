@@ -29,6 +29,8 @@ import { SettingsDialog } from "./settings-dialog";
 import { lazy, Suspense } from "react";
 
 import { t } from "@/lib/i18n";
+import { api } from '@/lib/api';
+import { useAccount } from '@/lib/account';
 // Pages et modales secondaires chargées à la demande.
 const TeamView = lazy(() => import("./team-view").then((m) => ({ default: m.TeamView })));
 const TasksPage = lazy(() => import("./pages/tasks-page").then((m) => ({ default: m.TasksPage })));
@@ -130,6 +132,7 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
       </nav>
 
       <div className="space-y-0.5 border-t p-2">
+        <AccountFooter />
         {paused && (
           <div className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-foreground text-xs">
             <PauseCircleIcon className="size-3.5" /> {t("Activités autonomes suspendues")}
@@ -161,6 +164,11 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
       </div>
     </div>
   );
+}
+
+function AccountFooter() {
+  const account = useAccount();
+  return account ? <div className="mb-2 flex items-center gap-2 px-2 text-xs"><span className="min-w-0 flex-1 truncate text-muted-foreground" title={account.email}>{account.email}</span><button className="shrink-0 underline" onClick={() => api.logout().then(() => location.reload())}>{t('Se déconnecter')}</button></div> : null;
 }
 
 function SideButton({

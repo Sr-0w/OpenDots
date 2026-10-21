@@ -5,12 +5,12 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { config, repoRoot } from '../config.ts';
+import { systemDataDir, repoRoot } from '../config.ts';
 
 // Official upstream image, pinned to the digest exercised by test:search:live.
 const IMAGE = 'searxng/searxng@sha256:5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271';
 const run = promisify(execFile);
-const name = `opendots-search-${createHash('sha256').update(config.dataDir).digest('hex').slice(0, 12)}`;
+const name = `opendots-search-${createHash('sha256').update(systemDataDir).digest('hex').slice(0, 12)}`;
 let starting: Promise<string> | undefined;
 let endpoint: string | undefined;
 
@@ -40,7 +40,7 @@ async function healthy(base: string) {
 async function start(): Promise<string> {
   try { await docker(['info', '--format', '{{.ServerVersion}}'], 5000); }
   catch { throw new Error('SearXNG intégré nécessite Docker en cours d’exécution. Installe/démarre Docker, ou choisis Mwmbl dans les paramètres pour rechercher sans Docker.'); }
-  const dir = join(config.dataDir, 'search');
+  const dir = join(systemDataDir, 'search');
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const secretPath = join(dir, 'secret.key');
   try { await writeFile(secretPath, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 }); }

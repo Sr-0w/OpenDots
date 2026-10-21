@@ -5,6 +5,8 @@ import { promisify } from 'node:util';
 import { config } from '../config.ts';
 import { BUILTIN_COMPUTER_IMAGE, getShellSettings, type ShellSettings } from '../settings.ts';
 import { truncate } from '../util.ts';
+import { createHash } from 'node:crypto';
+import { accountKey, currentAccount } from '../auth/context.ts';
 
 /**
  * L'ordinateur des compagnons (section 10) : un seul conteneur Linux partagé,
@@ -13,7 +15,7 @@ import { truncate } from '../util.ts';
  * du compagnon, et demandent alors une validation par défaut.
  */
 const run = promisify(execFile);
-const container = () => process.env.OPENDOTS_CONTAINER ?? 'opendots-computer';
+const container = () => (process.env.OPENDOTS_CONTAINER ?? 'opendots-computer') + (currentAccount() ? `-${createHash('sha256').update(accountKey()).digest('hex').slice(0, 12)}` : '');
 const MAX_OUTPUT = 200_000;
 
 export const workspacesDir = () => join(config.dataDir, 'workspaces');
@@ -48,6 +50,8 @@ export async function dockerAvailable(): Promise<boolean> {
 export async function resolveBackend(s?: ShellSettings): Promise<Backend | null> {
   const settings = s ?? (await getShellSettings());
   if (settings.mode === 'off') return null;
+  // A host shell could read other accounts' files under the same OS user.
+  if (currentAccount()) return settings.mode !== 'host' && await dockerAvailable() ? 'docker' : null;
   if (settings.mode === 'host') return 'host';
   if (settings.mode === 'docker') return 'docker';
   return (await dockerAvailable()) ? 'docker' : 'host';
@@ -68,10 +72,11 @@ function linuxUser(agentId: string) {
 function ensureHostDirs(agentId: string) {
   const root = workspacesDir();
   mkdirSync(join(root, 'shared'), { recursive: true });
+  chmodSync(root, 0o755);
   const home = join(root, agentId);
   mkdirSync(home, { recursive: true });
   try {
-    chmodSync(join(root, 'shared'), 0o777);
+    chmodSync(join(root, 'shared'), 0o1777);
   } catch {
     // système de fichiers sans permissions POSIX
   }
@@ -80,15 +85,15 @@ function ensureHostDirs(agentId: string) {
 
 // --- Conteneur ----------------------------------------------------------------
 
-async function inspect(): Promise<{ running: boolean; image: string; network: string } | null> {
+async function inspect(): Promise<{ running: boolean; image: string; network: string; workspaces: string } | null> {
   try {
     const { stdout } = await run(
       'docker',
-      ['inspect', '-f', '{{.State.Running}}|{{index .Config.Labels "opendots.image"}}|{{index .Config.Labels "opendots.network"}}', container()],
+      ['inspect', '-f', '{{.State.Running}}|{{index .Config.Labels "opendots.image"}}|{{index .Config.Labels "opendots.network"}}|{{index .Config.Labels "opendots.workspaces"}}', container()],
       { timeout: 10_000 },
     );
-    const [running, image, network] = stdout.trim().split('|');
-    return { running: running === 'true', image, network };
+    const [running, image, network, workspaces] = stdout.trim().split('|');
+    return { running: running === 'true', image, network, workspaces };
   } catch {
     return null;
   }
@@ -129,15 +134,18 @@ async function ensureImage(image: string) {
   }
 }
 
-let ensuring: Promise<void> | null = null;
+const ensuring = new Map<string, Promise<void>>();
 
 export async function ensureContainer(settings?: ShellSettings): Promise<void> {
-  ensuring ??= (async () => {
+  const key = accountKey();
+  if (ensuring.has(key)) return ensuring.get(key)!;
+  const pending = (async () => {
     const s = settings ?? (await getShellSettings());
     mkdirSync(join(workspacesDir(), 'shared'), { recursive: true });
+    chmodSync(workspacesDir(), 0o755);
     const state = await inspect();
     const network = s.network ? 'on' : 'off';
-    if (state && (state.image !== s.image || state.network !== network)) {
+    if (state && (state.image !== s.image || state.network !== network || state.workspaces !== workspacesDir())) {
       await run('docker', ['rm', '-f', container()], { timeout: 30_000 }).catch(() => {});
     } else if (state?.running) {
       return;
@@ -161,6 +169,8 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
         `opendots.image=${s.image}`,
         '--label',
         `opendots.network=${network}`,
+        '--label',
+        `opendots.workspaces=${workspacesDir()}`,
         ...(s.network ? [] : ['--network', 'none']),
         '--memory',
         process.env.OPENDOTS_COMPUTER_MEMORY ?? '2g',
@@ -178,9 +188,10 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
     );
     await run('docker', ['exec', container(), 'sh', '-c', 'chmod 1777 /workspaces/shared'], { timeout: 15_000 });
   })().finally(() => {
-    ensuring = null;
+    ensuring.delete(key);
   });
-  return ensuring;
+  ensuring.set(key, pending);
+  return pending;
 }
 
 async function ensureUser(agentId: string, sudo: boolean) {

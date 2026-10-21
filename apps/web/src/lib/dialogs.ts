@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from "react";
-import type { ActivityDTO, ConnectorDTO, SkillDTO } from "@opendots/shared";
+import type { ActivityDTO, ConnectorDTO, IntegrationProvider, SkillDTO } from "@opendots/shared";
 
 /** Modales globales, ouvrables depuis n'importe où (cartes de conversation, pages…). */
 export type DialogState =
-  | { kind: "mail"; requestedBy?: string; connector?: ConnectorDTO }
+  | { kind: "mail"; initialPreset?: "custom"; requestedBy?: string; connector?: ConnectorDTO }
   | { kind: "mcp"; requestedBy?: string; connector?: ConnectorDTO }
+  | { kind: 'integration'; requestedBy?: string; provider?: IntegrationProvider; connector?: ConnectorDTO }
   | { kind: "plugin" }
   | { kind: "skill"; skill?: SkillDTO }
   | { kind: "activity"; activity?: ActivityDTO; agentId?: string }

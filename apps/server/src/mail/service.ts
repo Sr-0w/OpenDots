@@ -1,3 +1,4 @@
+import { accountKey } from '../auth/context.ts';
 import { and, eq } from 'drizzle-orm';
 import { ImapFlow, type SearchObject } from 'imapflow';
 import nodemailer from 'nodemailer';
@@ -35,6 +36,7 @@ function imapClient(cfg: MailConfig, pass: string) {
     host: cfg.imap.host,
     port: cfg.imap.port,
     secure: cfg.imap.secure,
+    doSTARTTLS: !cfg.imap.secure && process.env.OPENDOTS_MAIL_INSECURE_TLS !== '1' ? true : undefined,
     auth: { user: cfg.username, pass },
     logger: false,
     emitLogs: false,
@@ -63,6 +65,7 @@ function smtpTransport(cfg: MailConfig, pass: string) {
     host: cfg.smtp.host,
     port: cfg.smtp.port,
     secure: cfg.smtp.secure,
+    requireTLS: !cfg.smtp.secure && process.env.OPENDOTS_MAIL_INSECURE_TLS !== '1',
     auth: { user: cfg.username, pass },
     tls: { rejectUnauthorized: process.env.OPENDOTS_MAIL_INSECURE_TLS !== '1' },
   });
@@ -374,12 +377,10 @@ export async function pollAccount(row: ConnectorRow): Promise<number> {
   return newMessages.length;
 }
 
-let pollTimer: NodeJS.Timeout | null = null;
-let polling = false;
 
 export async function pollDueAccounts() {
-  if (polling) return;
-  polling = true;
+  if (runtime().polling) return;
+  runtime().polling = true;
   try {
     for (const row of await mailAccounts()) {
       const cfg = row.config as MailConfig;
@@ -388,16 +389,23 @@ export async function pollDueAccounts() {
       if (!last || Date.now() - new Date(last).getTime() >= every) await pollAccount(row);
     }
   } finally {
-    polling = false;
+    runtime().polling = false;
   }
 }
 
 export function startMailPoller() {
-  pollTimer = setInterval(() => void pollDueAccounts().catch((e) => console.error('[mail]', e)), 30_000);
+  runtime().pollTimer = setInterval(() => void pollDueAccounts().catch((e) => console.error('[mail]', e)), 30_000);
   setTimeout(() => void pollDueAccounts().catch(() => {}), 3_000);
 }
 
 export function stopMailPoller() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = null;
+  if (runtime().pollTimer) clearInterval(runtime().pollTimer!);
+  runtime().pollTimer = null;
+}
+
+const runtimes = new Map<string, { pollTimer: NodeJS.Timeout | null; polling: boolean }>();
+function runtime() {
+  const key = accountKey();
+  if (!runtimes.has(key)) runtimes.set(key, { pollTimer: null, polling: false });
+  return runtimes.get(key)!;
 }

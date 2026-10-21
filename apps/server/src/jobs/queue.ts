@@ -1,6 +1,7 @@
 import { and, eq, lt, sql } from 'drizzle-orm';
 import { db, schema } from '../db/client.ts';
 import { config } from '../config.ts';
+import { accountKey } from '../auth/context.ts';
 import { log } from '../journal.ts';
 import { errorMessage } from '../util.ts';
 
@@ -12,10 +13,12 @@ export type JobRow = typeof schema.jobs.$inferSelect;
 type Handler = (payload: any, job: JobRow) => Promise<void>;
 
 const handlers = new Map<string, Handler>();
-const running = new Map<number, string | null>();
-let timer: NodeJS.Timeout | null = null;
-let stopped = true;
-let pumping = false;
+const states = new Map<string, { running: Map<number, string | null>; timer: NodeJS.Timeout | null; stopped: boolean; pumping: boolean }>();
+function state() {
+  const key = accountKey();
+  if (!states.has(key)) states.set(key, { running: new Map(), timer: null, stopped: true, pumping: false });
+  return states.get(key)!;
+}
 
 export function registerJobHandler(type: string, handler: Handler) {
   handlers.set(type, handler);
@@ -43,12 +46,12 @@ export async function enqueue(
 }
 
 export function kick() {
-  if (!stopped) setImmediate(() => void pump());
+  if (!state().stopped) setImmediate(() => void pump());
 }
 
 /** Réserve une tâche prête, en évitant les compagnons déjà occupés. */
 async function claimOne(): Promise<JobRow | null> {
-  const busyAgents = [...running.values()].filter((v): v is string => !!v);
+  const busyAgents = [...state().running.values()].filter((v): v is string => !!v);
   const busyFilter = busyAgents.length
     ? sql`AND (agent_id IS NULL OR agent_id NOT IN (${sql.join(busyAgents.map((a) => sql`${a}`), sql`, `)}))`
     : sql``;
@@ -83,22 +86,22 @@ async function claimOne(): Promise<JobRow | null> {
 }
 
 async function pump() {
-  if (pumping || stopped) return;
-  pumping = true;
+  if (state().pumping || state().stopped) return;
+  state().pumping = true;
   try {
-    while (running.size < config.maxConcurrentJobs) {
+    while (state().running.size < config.maxConcurrentJobs) {
       const job = await claimOne();
       if (!job) break;
-      running.set(job.id, job.agentId);
+      state().running.set(job.id, job.agentId);
       void execute(job).finally(() => {
-        running.delete(job.id);
+        state().running.delete(job.id);
         kick();
       });
     }
   } catch (err) {
     console.error('[jobs] erreur de la file', err);
   } finally {
-    pumping = false;
+    state().pumping = false;
   }
 }
 
@@ -127,7 +130,8 @@ async function execute(job: JobRow) {
 export class PermanentJobError extends Error {}
 
 export async function startQueue() {
-  stopped = false;
+  if (!state().stopped) return;
+  state().stopped = false;
   // Reprise après interruption : les tâches « running » orphelines sont remises en file.
   await db()
     .update(schema.jobs)
@@ -137,16 +141,16 @@ export async function startQueue() {
   await db()
     .delete(schema.jobs)
     .where(and(eq(schema.jobs.status, 'done'), lt(schema.jobs.finishedAt, new Date(Date.now() - 7 * 86400_000))));
-  timer = setInterval(() => void pump(), 1000);
+  state().timer = setInterval(() => void pump(), 1000);
   kick();
 }
 
 export async function stopQueue() {
-  stopped = true;
-  if (timer) clearInterval(timer);
-  timer = null;
+  state().stopped = true;
+  if (state().timer) clearInterval(state().timer!);
+  state().timer = null;
 }
 
 export function runningJobs() {
-  return running.size;
+  return state().running.size;
 }

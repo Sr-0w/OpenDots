@@ -11,6 +11,7 @@
     "search:up": "tsx scripts/search-service.ts up",
     "search:down": "tsx scripts/search-service.ts down",
     "search:logs": "tsx scripts/search-service.ts logs",
+    "auth:admin": "tsx scripts/auth-admin.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

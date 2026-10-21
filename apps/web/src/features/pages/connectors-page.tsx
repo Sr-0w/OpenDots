@@ -10,9 +10,12 @@ import { useServerEvent } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageShell } from "./page-shell";
+import { IntegrationCatalog } from '../integration-catalog';
+import { useAccount } from '@/lib/account';
 
 import { t } from "@/lib/i18n";
 export function ConnectorsPage() {
+  const account = useAccount();
   const [connectors, setConnectors] = useState<ConnectorDTO[] | null>(null);
   const [plugins, setPlugins] = useState<PluginDTO[]>([]);
   const reload = useCallback(() => {
@@ -30,6 +33,7 @@ export function ConnectorsPage() {
       title={t("Connecteurs")}
       description={t("Les services que tes compagnons peuvent utiliser. Partagés par toute l’équipe ; les actions sensibles demandent toujours ta validation.")}
     >
+      <IntegrationCatalog connectors={connectors ?? []} />
       <Section
         icon={<MailIcon className="size-4" />}
         title={t("Comptes mail")}
@@ -46,7 +50,7 @@ export function ConnectorsPage() {
         ))}
       </Section>
 
-      <Section
+      {account?.role === 'admin' && <Section
         icon={<PlugIcon className="size-4" />}
         title={t("Serveurs MCP")}
         hint={t("Des outils supplémentaires (GitHub, Notion, Home Assistant, fichiers…) via le Model Context Protocol.")}
@@ -61,7 +65,7 @@ export function ConnectorsPage() {
           const cfg = c.config as McpConfig;
           return <ConnectorRow key={c.id} connector={c} subtitle={cfg.transport === "stdio" ? `${cfg.command} ${(cfg.args ?? []).join(" ")}` : (cfg.url ?? "")} />;
         })}
-      </Section>
+      </Section>}
 
       <Section
         icon={<PackageIcon className="size-4" />}
@@ -169,7 +173,7 @@ function ConnectorRow({ connector: c, subtitle }: { connector: ConnectorDTO; sub
           <DropdownMenuItem onClick={refresh}>
             <RefreshCwIcon /> {c.kind === "mail" ? t("Relever maintenant") : t("Reconnecter")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => openDialog({ kind: c.kind, connector: c })}>
+          <DropdownMenuItem onClick={() => openDialog({ kind: c.kind === 'mail' ? 'mail' : 'mcp', connector: c })}>
             <PencilIcon /> {t("Modifier")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />

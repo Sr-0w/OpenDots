@@ -8,6 +8,7 @@ import { createConnector } from './repo.ts';
 import { closeMcpClient, refreshMcpConnector } from './mcp.ts';
 import { log } from '../journal.ts';
 import { newId } from '../util.ts';
+import { currentAccount } from '../auth/context.ts';
 
 /**
  * Plugins : paquets regroupant des skills et des connecteurs MCP, installés
@@ -71,6 +72,7 @@ export async function listPlugins(): Promise<PluginDTO[]> {
 }
 
 export async function installPlugin(manifest: PluginManifest, opts: { source: string; secrets?: Record<string, Record<string, string>> }) {
+  if (currentAccount()?.role === 'user' && Boolean(manifest.connectors?.length)) throw new PluginError('Ce plugin contient des connecteurs MCP avancés et doit être installé par l’administrateur.');
   for (const s of manifest.skills ?? []) {
     if (await findSkill(s.name)) throw new PluginError(`Un skill « ${s.name} » existe déjà.`);
   }

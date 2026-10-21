@@ -199,13 +199,13 @@ export function AnswerBubble({ text }: { text: string }) {
 
 // --- Demande de connexion ------------------------------------------------------------
 
-export function ConnectionRequestCard({ kind, reason, agentId }: { kind: "mail" | "mcp"; reason: string; agentId?: string }) {
+export function ConnectionRequestCard({ kind, reason, agentId, provider }: { kind: "mail" | "mcp" | 'integration'; reason: string; agentId?: string; provider?: import('@opendots/shared').IntegrationProvider }) {
   const Icon = kind === "mail" ? MailIcon : PlugIcon;
   const [connected, setConnected] = useState<string[]>([]);
   const reload = () =>
     api
       .connectors()
-      .then((list) => setConnected(list.filter((c) => c.kind === kind && c.enabled && c.status !== "error").map((c) => c.name)))
+      .then((list) => setConnected(list.filter((c) => c.kind === kind && c.enabled && c.status !== "error" && (!provider || 'provider' in c.config && c.config.provider === provider)).map((c) => c.name)))
       .catch(() => {});
   useEffect(() => {
     void reload();
@@ -228,7 +228,7 @@ export function ConnectionRequestCard({ kind, reason, agentId }: { kind: "mail" 
             <CheckIcon className="size-3.5 shrink-0" /> <span className="truncate">{t("Connecté :")} {connected.join(", ")}</span>
           </span>
         )}
-        <Button size="sm" variant={connected.length ? "outline" : "default"} onClick={() => openDialog({ kind, requestedBy: agentId })}>
+        <Button size="sm" variant={connected.length ? "outline" : "default"} onClick={() => kind === 'integration' ? openDialog({ kind, provider, requestedBy: agentId }) : openDialog({ kind, requestedBy: agentId })}>
           {connected.length ? t("Ajouter un autre") : kind === "mail" ? t("Connecter") : t("Configurer")}
         </Button>
       </div>

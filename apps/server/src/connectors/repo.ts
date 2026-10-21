@@ -4,6 +4,7 @@ import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { decryptSecret, encryptSecret } from '../secrets.ts';
 import { newId } from '../util.ts';
+import { currentAccount } from '../auth/context.ts';
 
 export type ConnectorRow = typeof schema.connectors.$inferSelect;
 
@@ -56,8 +57,9 @@ export async function createConnector(input: {
   approval?: 'ask' | 'auto';
   pluginId?: string | null;
 }): Promise<ConnectorRow> {
+  if (input.kind === 'mcp' && currentAccount()?.role === 'user') throw new ConnectorError('Les connecteurs MCP avancés sont réservés à l’administrateur du déploiement. Utilise les intégrations du catalogue.');
   const row = {
-    id: newId(input.kind === 'mail' ? 'mail' : 'mcp'),
+    id: newId(input.kind === 'mail' ? 'mail' : input.kind === 'integration' ? 'svc' : 'mcp'),
     name: input.name.trim().slice(0, 80) || 'Connecteur',
     kind: input.kind,
     config: input.config,
@@ -95,6 +97,11 @@ export async function deleteConnector(id: string): Promise<boolean> {
   const res = await db().delete(schema.connectors).where(eq(schema.connectors.id, id)).returning({ id: schema.connectors.id });
   publish({ type: 'connectors.changed' });
   return res.length > 0;
+}
+
+/** Replace, rather than merge, OAuth tokens so old grants cannot survive reconnect. */
+export async function replaceConnectorSecrets(id: string, secrets: Record<string, string>) {
+  await db().update(schema.connectors).set({ secret: Object.keys(secrets).length ? encryptSecret(JSON.stringify(secrets)) : null, updatedAt: new Date() }).where(eq(schema.connectors.id, id));
 }
 
 /** Identifiant court utilisable dans un nom d'outil. */

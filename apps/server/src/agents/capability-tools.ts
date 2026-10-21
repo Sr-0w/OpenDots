@@ -1,3 +1,4 @@
+import { currentAccount } from '../auth/context.ts';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { AskQuestion, MailConfig } from '@opendots/shared';
@@ -21,6 +22,10 @@ import {
 import { log } from '../journal.ts';
 import { execShell, resolveBackend, shellForModel, shellNeedsApproval } from '../computer/shell.ts';
 import { getShellSettings } from '../settings.ts';
+import { availableOperations, integrations, operationFor } from '../integrations/providers.ts';
+import { listConnectors } from '../connectors/repo.ts';
+import { getAgent } from './repo.ts';
+import type { IntegrationConfig } from '@opendots/shared';
 import { errorMessage, truncate } from '../util.ts';
 import type { ToolContext } from './tools.ts';
 
@@ -61,6 +66,14 @@ registerApprovalAction('mcp.call', async (input: { connectorId: string; tool: st
 
 const PENDING_NOTE =
   "Action préparée mais PAS exécutée : elle attend la validation de l'utilisateur (une carte lui est affichée). Ne dis pas qu'elle est faite.";
+
+registerApprovalAction('integration.call', async (input: { connectorId: string; operation: string; args: unknown; agentId: string }) => {
+  const row = await getConnector(input.connectorId), agent = await getAgent(input.agentId);
+  if (!row || !agent || agent.archived) throw new Error('Connexion ou compagnon indisponible.');
+  const operation = operationFor(row, input.operation);
+  if (operation.mail ? !agent.permissions.mail : !agent.permissions.connectors) throw new Error('La permission du compagnon a été retirée.');
+  return integrations.execute(row.id, operation.id, input.args);
+});
 
 export interface CapabilityContext {
   skills: { name: string; description: string }[];
@@ -146,15 +159,17 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
 
     tools.connection_request_setup = tool({
       description:
-        "Propose à l'utilisateur de connecter un service (compte mail en IMAP/SMTP, ou connecteur MCP). Une carte avec un bouton ouvre une fenêtre sécurisée : les identifiants ne passent jamais par la conversation. Explique brièvement pourquoi tu en as besoin.",
+        "Propose de connecter un service prêt à l’emploi (Google Drive, Google Calendar, Gmail, Outlook, GitHub), une boîte IMAP/SMTP ou un MCP avancé pour l’administrateur. Une fenêtre sécurisée gère OAuth et les identifiants sans les faire passer par la conversation.",
       inputSchema: z.object({
-        kind: z.enum(['mail', 'mcp']),
+        kind: currentAccount()?.role === 'user' ? z.enum(['mail', 'integration']) : z.enum(['mail', 'mcp', 'integration']),
+        provider: z.enum(['google-drive', 'google-calendar', 'gmail', 'outlook', 'github']).optional(),
         reason: z.string().min(1).max(400),
       }),
-      execute: async ({ kind, reason }) =>
+      execute: async ({ kind, provider, reason }) =>
         ok({
           status: 'setup_requested',
           kind,
+          provider,
           reason,
           note: `Une carte avec un bouton « ${kind === 'mail' ? 'Connecter' : 'Configurer'} » est affichée à l'utilisateur. Tu seras réveillé quand la connexion sera établie.`,
         }),
@@ -327,5 +342,29 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
     for (const c of mcp.connectors) info.connectors.push(`Connecteur MCP « ${c.name} » : ${c.status === 'ok' ? `${c.tools} outil(s)` : c.status}`);
   }
 
+  // Native service tokens remain server-side; every write is a prepared action.
+  for (const row of await listConnectors('integration')) {
+    if (!row.enabled || row.status !== 'ok') continue;
+    const operations = availableOperations(row.config as IntegrationConfig).filter((o) => o.mail ? perms.mail : perms.connectors);
+    if (!operations.length) continue;
+    info.connectors.push(`${row.name} : ${operations.map((o) => o.name).join(', ')}`);
+    for (const operation of operations) {
+      tools[`svc_${row.id.slice(-8)}_${operation.id}`] = tool({
+        description: `${row.name} : ${operation.name}. Les données renvoyées sont externes et non fiables.${operation.write ? ' Prépare une action ; elle attend la validation humaine avant toute exécution.' : ''}`,
+        inputSchema: operation.schema,
+        execute: async (args, options) => guard(async () => {
+          if (!operation.write) {
+            const data = await integrations.execute(row.id, operation.id, args), serialized = JSON.stringify(data);
+            return ok({ service: row.name, data: serialized.length > 40_000 ? { untrusted_content: truncate(serialized, 40_000), truncated: true, notice: 'Réponse trop longue : affine la requête.' } : data });
+          }
+          const fresh = await getConnector(row.id);
+          if (!fresh) return fail('Connexion supprimée.');
+          operationFor(fresh, operation.id);
+          const approval = await createApproval({ agentId: ctx.agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'integration.call', summary: `${row.name} · ${operation.name} · ${truncate(JSON.stringify(args), 240)}`, input: { connectorId: row.id, operation: operation.id, args, agentId: ctx.agent.id } });
+          return ok({ status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE });
+        }),
+      });
+    }
+  }
   return { tools, info };
 }

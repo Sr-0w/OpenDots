@@ -61,7 +61,7 @@ export function ToolsSettings({ settings, update, busy }: { settings: SettingsDT
           <MonitorIcon className="size-4" /> {t("Ordinateur des compagnons")}
         </h3>
         <p className="text-muted-foreground text-xs">
-          {t("Un shell Linux partagé : chaque compagnon a son utilisateur et son dossier, plus un dossier commun. Avec Docker, tout s’exécute dans un conteneur isolé.")}
+          {t("Un shell Linux partagé : chaque compagnon a son utilisateur et son dossier, plus un dossier commun. Docker est nécessaire : les comptes utilisent des conteneurs distincts.")}
         </p>
         {status && (
           <div className="rounded-xl border p-3 text-xs">
@@ -93,7 +93,7 @@ export function ToolsSettings({ settings, update, busy }: { settings: SettingsDT
               <SelectContent>
                 <SelectItem value="auto">{t("Automatique")}</SelectItem>
                 <SelectItem value="docker">{t("Conteneur Docker")}</SelectItem>
-                <SelectItem value="host">{t("Machine hôte")}</SelectItem>
+                <SelectItem value="host" disabled>{t("Machine hôte — indisponible pour les comptes utilisateurs")}</SelectItem>
                 <SelectItem value="off">{t("Désactivé")}</SelectItem>
               </SelectContent>
             </Select>

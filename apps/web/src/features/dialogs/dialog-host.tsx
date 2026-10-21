@@ -12,13 +12,15 @@ import { ActivityDialog, Field } from "./activity-dialog";
 import { McpDialog, MailDialog, PluginDialog } from "./connector-dialogs";
 
 import { t } from "@/lib/i18n";
+import { IntegrationConnectDialog } from '../integration-catalog';
 /** Point de montage unique des modales globales. */
 export function DialogHost() {
   const d = useDialog();
   if (!d) return null;
   switch (d.kind) {
+    case 'integration': return <IntegrationConnectDialog requestedBy={d.requestedBy} provider={d.provider} connector={d.connector} onClose={closeDialog} />;
     case "mail":
-      return <MailDialog connector={d.connector} requestedBy={d.requestedBy} onClose={closeDialog} />;
+      return <MailDialog initialPreset={d.initialPreset} connector={d.connector} requestedBy={d.requestedBy} onClose={closeDialog} />;
     case "mcp":
       return <McpDialog connector={d.connector} requestedBy={d.requestedBy} onClose={closeDialog} />;
     case "plugin":

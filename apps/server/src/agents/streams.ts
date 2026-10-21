@@ -1,3 +1,4 @@
+import { accountKey } from '../auth/context.ts';
 import type { UIMessageChunk } from 'ai';
 
 /**
@@ -6,6 +7,7 @@ import type { UIMessageChunk } from 'ai';
  * la suite en direct. Le tour continue même si aucun client n'écoute.
  */
 export class ActiveStream {
+  readonly owner = accountKey();
   readonly chunks: UIMessageChunk[] = [];
   private listeners = new Set<(chunk: UIMessageChunk | null) => void>();
   done = false;
@@ -57,15 +59,15 @@ export class ActiveStream {
 const active = new Map<string, ActiveStream>();
 
 export function beginStream(stream: ActiveStream) {
-  active.set(stream.conversationId, stream);
+  active.set(`${stream.owner}:${stream.conversationId}`, stream);
 }
 
 export function finishStream(stream: ActiveStream) {
   stream.end();
-  if (active.get(stream.conversationId) === stream) active.delete(stream.conversationId);
+  if (active.get(`${stream.owner}:${stream.conversationId}`) === stream) active.delete(`${stream.owner}:${stream.conversationId}`);
 }
 
 export function getActiveStream(conversationId: string): ActiveStream | null {
-  const s = active.get(conversationId);
+  const s = active.get(`${accountKey()}:${conversationId}`);
   return s && !s.done ? s : null;
 }

@@ -1,3 +1,4 @@
+import { accountKey } from '../auth/context.ts';
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import type { MessageMetadata } from '@opendots/shared';
 import { config } from '../config.ts';
@@ -27,8 +28,6 @@ interface WakePayload {
   depth: number;
 }
 
-let tickTimer: NodeJS.Timeout | null = null;
-let ticking = false;
 
 export function registerLifeHandlers() {
   registerJobHandler('agent.wake', async (p: WakePayload) => {
@@ -154,8 +153,8 @@ export async function checkWatch(act: ActivityRow): Promise<{ triggered: boolean
 
 /** Un tick du scheduler : déclenche les activités arrivées à échéance. */
 export async function tick() {
-  if (ticking) return;
-  ticking = true;
+  if (runtime().ticking) return;
+  runtime().ticking = true;
   try {
     if (await isPaused()) return;
     const tz = await getTimezone();
@@ -195,7 +194,7 @@ export async function tick() {
   } catch (err) {
     console.error('[scheduler]', err);
   } finally {
-    ticking = false;
+    runtime().ticking = false;
   }
 }
 
@@ -225,13 +224,13 @@ export async function ingestWebhook(act: ActivityRow, payload: unknown, dedupe?:
 }
 
 export function startScheduler() {
-  tickTimer = setInterval(() => void tick(), config.tickMs);
+  runtime().tickTimer = setInterval(() => void tick(), config.tickMs);
   void tick();
 }
 
 export function stopScheduler() {
-  if (tickTimer) clearInterval(tickTimer);
-  tickTimer = null;
+  if (runtime().tickTimer) clearInterval(runtime().tickTimer!);
+  runtime().tickTimer = null;
 }
 
 /** Message système affiché dans la conversation (ex. accueil). */
@@ -241,4 +240,11 @@ export async function postSystemNote(conversationId: string, agentId: string, te
     { id: newId('msg'), role: 'assistant', parts: [{ type: 'text', text }], metadata: { kind: 'chat', agentId, createdAt: new Date().toISOString() } },
     { author: 'agent', agentId },
   );
+}
+
+const runtimes = new Map<string, { tickTimer: NodeJS.Timeout | null; ticking: boolean }>();
+function runtime() {
+  const key = accountKey();
+  if (!runtimes.has(key)) runtimes.set(key, { tickTimer: null, ticking: false });
+  return runtimes.get(key)!;
 }

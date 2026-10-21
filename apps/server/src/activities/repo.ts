@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { Cron } from 'croner';
 import type { ActivityDTO, ActivityKind, ActivityMailFilter, ActivitySchedule, ActivityWatch } from '@opendots/shared';
 import { db, schema } from '../db/client.ts';
+import { currentAccount } from '../auth/context.ts';
 import { publish } from '../bus.ts';
 import { publicBaseUrl } from '../config.ts';
 import { newId } from '../util.ts';
@@ -64,7 +65,7 @@ export function toActivityDTO(r: ActivityRow): ActivityDTO {
     schedule: r.schedule,
     watch: r.watch,
     filter: r.filter,
-    webhookUrl: r.webhookToken ? `${publicBaseUrl()}/api/hooks/${r.webhookToken}` : null,
+    webhookUrl: r.webhookToken ? `${publicBaseUrl()}/api/hooks/${currentAccount() ? currentAccount()!.id + '/' : ''}${r.webhookToken}` : null,
     enabled: r.enabled,
     nextRunAt: r.nextRunAt?.toISOString() ?? null,
     lastRunAt: r.lastRunAt?.toISOString() ?? null,

@@ -3,7 +3,11 @@ import { closeDatabase, openDatabase } from '../src/db/client.ts';
 import { createAgent, getAgent, mainConversationId } from '../src/agents/repo.ts';
 import { buildTools } from '../src/agents/tools.ts';
 import { buildCapabilityTools } from '../src/agents/capability-tools.ts';
-import { dockerAvailable, execShell } from '../src/computer/shell.ts';
+import { withAccount, type AccountContext } from '../src/auth/context.ts';
+import { config } from '../src/config.ts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { dockerAvailable, execShell, computerStatus } from '../src/computer/shell.ts';
 import { setSetting } from '../src/settings.ts';
 import { resolveApproval } from '../src/approvals/service.ts';
 
@@ -89,5 +93,32 @@ describe('ordinateur partagé (Docker)', () => {
     expect(rb.stderr).toMatch(/Permission denied/);
     const net = await execShell(b.agent.id, 'getent hosts example.com || echo sans-reseau', { timeoutSeconds: 10 });
     expect(net.stdout).toContain('sans-reseau');
+  }, 120_000);
+});
+
+// Unlike the shared folder inside one account, different accounts must never
+// share a bind mount or container, including when agent IDs are known.
+describe('ordinateurs privés par compte', () => {
+  it('sépare réellement les conteneurs et fichiers de deux comptes', async (t) => {
+    if (!await dockerAvailable()) return t.skip();
+    const names: string[] = [];
+    try {
+      for (const who of ['alice', 'bob']) {
+        const account: AccountContext = { id: `computer-${who}`, email: `${who}@example.com`, role: 'user', dataDir: `${config.dataDir}/computer-${who}` };
+        await withAccount(account, async () => {
+          await openDatabase({ memory: true });
+          await setSetting('shell.config', { mode: 'docker', approval: 'ask', image: 'debian:stable-slim', network: false, sudo: false });
+          const agent = await createAgent({ name: who });
+          if (who === 'alice') expect((await execShell(agent.id, 'echo alice-private > /workspaces/shared/alice.txt')).exitCode).toBe(0);
+          else {
+            const output = await execShell(agent.id, 'cat /workspaces/shared/alice.txt');
+            expect(output.exitCode).not.toBe(0); expect(output.stdout).not.toContain('alice-private');
+          }
+          names.push((await computerStatus()).container!.name);
+          await closeDatabase();
+        });
+      }
+      expect(new Set(names).size).toBe(2);
+    } finally { for (const name of names) await promisify(execFile)('docker', ['rm', '-f', name]); }
   }, 120_000);
 });

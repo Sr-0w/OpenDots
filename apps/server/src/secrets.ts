@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.ts';
 
@@ -9,17 +9,21 @@ import { config } from './config.ts';
  * données, ou variable OPENDOTS_SECRET_KEY). Ils ne sont jamais envoyés au
  * frontend ni aux modèles.
  */
-let key: Buffer | null = null;
+const keys = new Map<string, Buffer>();
 
 function masterKey(): Buffer {
-  if (key) return key;
+  const cached = keys.get(config.dataDir);
+  if (cached) return cached;
+  let key: Buffer;
   const fromEnv = process.env.OPENDOTS_SECRET_KEY;
   if (fromEnv) {
     key = Buffer.from(fromEnv, 'base64');
     if (key.length !== 32) throw new Error('OPENDOTS_SECRET_KEY doit faire 32 octets encodés en base64');
+    keys.set(config.dataDir, key);
     return key;
   }
   const file = join(config.dataDir, 'secret.key');
+  mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   if (!existsSync(file)) {
     writeFileSync(file, randomBytes(32).toString('base64'), { mode: 0o600 });
   }
@@ -29,6 +33,7 @@ function masterKey(): Buffer {
     // systèmes de fichiers sans permissions POSIX
   }
   key = Buffer.from(readFileSync(file, 'utf8').trim(), 'base64');
+  keys.set(config.dataDir, key);
   return key;
 }
 

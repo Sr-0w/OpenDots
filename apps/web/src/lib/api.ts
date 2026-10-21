@@ -9,6 +9,10 @@ import type {
   McpConfig,
   PluginDTO,
   PluginManifest,
+  IntegrationCatalogEntry,
+  IntegrationProvider,
+  OAuthAppDTO,
+  OAuthProvider,
   SkillDTO,
   UserRequestDTO,
   AgentDTO,
@@ -21,6 +25,7 @@ import type {
 } from "@opendots/shared";
 import type { UIMessage } from "ai";
 import type { MessageMetadata } from "@opendots/shared";
+import type { Account } from './account';
 
 export type ODMessage = UIMessage<MessageMetadata>;
 
@@ -38,7 +43,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new ApiError(data?.error ?? `Erreur ${res.status}`, res.status);
+  if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('opendots:unauthorized'));
+    throw new ApiError(data?.error ?? `Erreur ${res.status}`, res.status);
+  }
   return data as T;
 }
 
@@ -90,6 +98,15 @@ export interface ComputerStatus {
 }
 
 export const api = {
+  integrationCatalog: () => request<{ entries: IntegrationCatalogEntry[]; apps: OAuthAppDTO[] }>('GET', '/integrations/catalog'),
+  saveOAuthApp: (provider: OAuthProvider, clientId: string, clientSecret?: string) => request<{ apps: OAuthAppDTO[] }>('PUT', `/integrations/oauth/apps/${provider}`, { clientId, clientSecret }),
+  startOAuth: (provider: IntegrationProvider, permissions: string[], connectorId?: string, requestedBy?: string) => request<{ url: string; expiresAt: number }>('POST', '/integrations/oauth/start', { provider, permissions, connectorId, requestedBy }),
+  testIntegration: (id: string) => request<{ ok: boolean; connector: ConnectorDTO }>('POST', `/integrations/${id}/test`),
+  disconnectIntegration: (id: string, revoke = false) => request<{ ok: boolean; warning?: string }>('POST', `/integrations/${id}/disconnect`, { revoke }),
+  me: () => request<{ account: Account | null; registrationOpen: boolean }>('GET', '/auth/me'),
+  login: (email: string, password: string) => request<{ account: Account }>('POST', '/auth/login', { email, password }),
+  register: (email: string, password: string) => request<{ account: Account }>('POST', '/auth/register', { email, password }),
+  logout: () => request<{ ok: boolean }>('POST', '/auth/logout'),
   bootstrap: () => request<BootstrapDTO>("GET", "/bootstrap"),
   saveKey: (key: string) => request<{ ok: boolean }>("POST", "/onboarding/key", { key }),
   completeOnboarding: (model: ModelConfig, timezone: string) =>

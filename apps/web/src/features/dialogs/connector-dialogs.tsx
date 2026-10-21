@@ -59,17 +59,17 @@ function guessPreset(email: string): string {
 }
 
 /** Connexion d'un compte mail. Le mot de passe va directement au moteur, chiffré. */
-export function MailDialog({ connector, requestedBy, onClose }: { connector?: ConnectorDTO; requestedBy?: string; onClose: () => void }) {
+export function MailDialog({ connector, requestedBy, initialPreset, onClose }: { initialPreset?: "custom"; connector?: ConnectorDTO; requestedBy?: string; onClose: () => void }) {
   const existing = connector?.config as MailConfig | undefined;
   const [email, setEmail] = useState(existing?.email ?? "");
   const [displayName, setDisplayName] = useState(existing?.displayName ?? "");
   const [username, setUsername] = useState(existing?.username ?? "");
   const [password, setPassword] = useState("");
-  const [preset, setPreset] = useState(existing ? "custom" : "gmail");
-  const [imap, setImap] = useState(existing?.imap ?? PRESETS.gmail.imap);
-  const [smtp, setSmtp] = useState(existing?.smtp ?? PRESETS.gmail.smtp);
+  const [preset, setPreset] = useState(existing ? "custom" : initialPreset ?? "gmail");
+  const [imap, setImap] = useState(existing?.imap ?? PRESETS[initialPreset ?? "gmail"].imap);
+  const [smtp, setSmtp] = useState(existing?.smtp ?? PRESETS[initialPreset ?? "gmail"].smtp);
   const [pollMinutes, setPollMinutes] = useState(existing?.pollMinutes ?? 2);
-  const [advanced, setAdvanced] = useState(Boolean(existing));
+  const [advanced, setAdvanced] = useState(Boolean(existing) || initialPreset === "custom");
   const [test, setTest] = useState<{ ok: boolean; imap: string; smtp: string } | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
 
@@ -182,7 +182,7 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
             </div>
           )}
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <ShieldCheckIcon className="size-3.5" /> {t("Le mot de passe est chiffré sur ta machine et n’est jamais montré aux modèles.")}
+            <ShieldCheckIcon className="size-3.5" /> {t("Le mot de passe est chiffré sur le serveur et n’est jamais montré aux modèles.")}
           </p>
         </div>
 

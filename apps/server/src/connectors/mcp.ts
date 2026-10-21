@@ -4,6 +4,7 @@ import { tool, type ToolSet } from 'ai';
 import type { McpConfig } from '@opendots/shared';
 import { connectorSlug, getConnector, listConnectors, readSecrets, updateConnector, type ConnectorRow } from './repo.ts';
 import { errorMessage, truncate } from '../util.ts';
+import { accountKey, currentAccount } from '../auth/context.ts';
 
 /**
  * Gestionnaire des connecteurs MCP : une connexion paresseuse et mise en cache
@@ -41,27 +42,31 @@ async function connect(row: ConnectorRow): Promise<Client> {
 }
 
 export async function getMcpClient(row: ConnectorRow): Promise<Client> {
-  const cached = clients.get(row.id);
+  if (currentAccount()?.role === 'user') throw new Error('Un connecteur MCP avancé nécessite les droits d’administrateur du déploiement.');
+  const key = `${accountKey()}:${row.id}`;
+  const cached = clients.get(key);
   if (cached && cached.updatedAt >= row.updatedAt) return cached.client;
   if (cached) await closeMcpClient(row.id);
-  let pending = connecting.get(row.id);
+  let pending = connecting.get(key);
   if (!pending) {
-    pending = withTimeout(connect(row), 20_000, `Connexion à ${row.name}`).finally(() => connecting.delete(row.id));
-    connecting.set(row.id, pending);
+    pending = withTimeout(connect(row), 20_000, `Connexion à ${row.name}`).finally(() => connecting.delete(key));
+    connecting.set(key, pending);
   }
   const client = await pending;
-  clients.set(row.id, { client, updatedAt: row.updatedAt });
+  clients.set(key, { client, updatedAt: row.updatedAt });
   return client;
 }
 
 export async function closeMcpClient(id: string) {
-  const entry = clients.get(id);
-  clients.delete(id);
+  const key = `${accountKey()}:${id}`;
+  const entry = clients.get(key);
+  clients.delete(key);
   await entry?.client.close().catch(() => {});
 }
 
 export async function closeAllMcpClients() {
-  await Promise.all([...clients.keys()].map(closeMcpClient));
+  await Promise.all([...clients.values()].map((entry) => entry.client.close().catch(() => {})));
+  clients.clear();
 }
 
 /** Connecte le serveur, met à jour la liste des outils et l'état du connecteur. */

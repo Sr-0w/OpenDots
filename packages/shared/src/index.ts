@@ -240,7 +240,34 @@ export interface SkillDTO {
   updatedAt: string;
 }
 
-export type ConnectorKind = 'mcp' | 'mail';
+export type ConnectorKind = 'mcp' | 'mail' | 'integration';
+export type IntegrationProvider = 'google-drive' | 'google-calendar' | 'gmail' | 'outlook' | 'github';
+export type OAuthProvider = 'google' | 'microsoft' | 'github';
+
+export interface IntegrationConfig {
+  provider: IntegrationProvider;
+  account: { id: string; label: string; email?: string };
+  permissions: string[];
+  grantedScopes: string[];
+}
+
+export interface IntegrationCatalogEntry {
+  id: IntegrationProvider | 'imap-smtp';
+  name: string;
+  description: string;
+  category: 'files' | 'calendar' | 'mail' | 'development';
+  oauth: OAuthProvider | null;
+  permissions: { id: string; label: string; description: string; scopes: string[]; default: boolean }[];
+}
+
+export interface OAuthAppDTO {
+  provider: OAuthProvider;
+  configured: boolean;
+  clientId: string;
+  hasSecret: boolean;
+  source: 'environment' | 'local';
+  callbackUrl: string;
+}
 
 export interface McpConfig {
   transport: 'http' | 'sse' | 'stdio';
@@ -263,7 +290,7 @@ export interface ConnectorDTO {
   id: string;
   name: string;
   kind: ConnectorKind;
-  config: McpConfig | MailConfig;
+  config: McpConfig | MailConfig | IntegrationConfig;
   /** Noms des secrets enregistrés (valeurs jamais renvoyées). */
   secretKeys: string[];
   enabled: boolean;

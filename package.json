@@ -11,10 +11,13 @@
     "search:up": "pnpm --filter @opendots/server search:up",
     "search:down": "pnpm --filter @opendots/server search:down",
     "search:logs": "pnpm --filter @opendots/server search:logs",
-    "test:search:live": "pnpm --filter @opendots/server test:search:live"
+    "test:search:live": "pnpm --filter @opendots/server test:search:live",
+    "auth:admin": "pnpm --filter @opendots/server auth:admin",
+    "test:ui": "pnpm --filter @opendots/server exec tsx scripts/ui-smoke.ts"
   },
   "devDependencies": {
-    "concurrently": "^10.0.6"
+    "concurrently": "^10.0.6",
+    "playwright": "1.58.2"
   },
   "packageManager": "pnpm@10.28.0"
 }

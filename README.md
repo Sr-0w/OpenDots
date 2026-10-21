@@ -95,6 +95,8 @@ When a companion needs something only you can provide, it asks you through a sma
 | **Team** | Create companions in natural language, async internal messaging, delegation, browsable threads |
 | **Mail** | IMAP/SMTP (Gmail, Outlook, iCloud, Yahoo… presets), periodic checks, "on incoming email" rules, search and read, "Ready to send" drafts |
 | **Skills** | Shared know-how loaded on demand. Create one from the Skills page or say "save that as a skill" |
+| **Built-in connectors** | Drive, Calendar, Gmail, Outlook, GitHub and IMAP/SMTP; selected permissions, encrypted tokens, approved writes |
+| **Private accounts** | Login/signup, personal OpenRouter keys, separate databases, workspaces and event streams |
 | **MCP connectors** | HTTP, SSE or local stdio servers, encrypted secrets, per-connector approval, a failing server stays isolated |
 | **Plugins** | Bundles of skills and MCP connectors described in a JSON manifest, with a preview before install |
 | **Tools** | Free web search through Mwmbl and SearXNG, without accounts or API keys; web page reading, date and time |
@@ -126,12 +128,20 @@ pnpm build
 pnpm start        # http://127.0.0.1:4317
 ```
 
-On first launch OpenDots asks for two things only:
+Create a private account, then supply your **own OpenRouter key** and choose a
+default model. Each account has its own companions, conversations, connectors,
+settings and encrypted keys. A deployment-wide OpenRouter key is never shared with
+signed-in users.
 
-1. an **OpenRouter key** (encrypted locally),
-2. a **default model**.
+No database installation is needed: OpenDots uses one PGlite database per account
+under `./data/users` and a separate account registry. The built-in connector catalog
+includes **Google Drive, Google Calendar, Gmail, Outlook, GitHub and IMAP/SMTP**.
+The operator registers OAuth applications once; users then connect through the
+provider's consent screen. All built-in writes require human approval.
 
-You don't need to install a database. OpenDots ships with embedded PostgreSQL (PGlite) in `./data`. To use your own server, set `DATABASE_URL`. Every other setting is optional and listed in [`.env.example`](.env.example).
+See [accounts, OAuth setup, public deployment and migration notes](docs/accounts-and-connectors.md)
+before exposing an existing installation. Environment variables are listed in
+[`.env.example`](.env.example).
 
 ---
 
@@ -183,7 +193,7 @@ A French example lives in [`examples/plugin-redaction.json`](examples/plugin-red
 
 ### An MCP connector
 
-**Connectors → Add an MCP connector**, then pick HTTP, SSE or local (stdio):
+**Connectors → Add an MCP connector** (deployment administrator), then pick HTTP, SSE or local (stdio):
 
 ```text
 Name        GitHub

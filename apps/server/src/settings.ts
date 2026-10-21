@@ -3,6 +3,7 @@ import type { ModelConfig } from '@opendots/shared';
 import { db, schema } from './db/client.ts';
 import { decryptSecret, encryptSecret } from './secrets.ts';
 import { publish } from './bus.ts';
+import { currentAccount } from './auth/context.ts';
 
 interface SettingsShape {
   'openrouter.key': string; // chiffré
@@ -50,7 +51,7 @@ export async function setSetting<K extends keyof SettingsShape>(key: K, value: S
 }
 
 export async function getOpenRouterKey(): Promise<string | null> {
-  if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
+  if (!currentAccount() && process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
   const enc = await getSetting('openrouter.key');
   return enc ? decryptSecret(enc) : null;
 }

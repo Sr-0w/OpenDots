@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { getCookie } from 'hono/cookie';
+import { onSessionRevoked, sessionAccount } from '../auth/store.ts';
 import { streamSSE } from 'hono/streaming';
 import { createUIMessageStreamResponse } from 'ai';
 import { z } from 'zod';
@@ -40,6 +42,8 @@ import { getDraft, MailError, pollAccount, testMailAccount, toDraftDTO, updateDr
 import { answerRequest, getRequest, RequestError, toRequestDTO } from '../requests/service.ts';
 import { createActivity } from '../activities/repo.ts';
 import type { MailConfig } from '@opendots/shared';
+import { currentAccount } from '../auth/context.ts';
+import { integrationRoutes } from '../integrations/routes.ts';
 import { computerStatus, resetContainer } from '../computer/shell.ts';
 import { getSearchSettings, getShellSettings, setSearchSettings } from '../settings.ts';
 
@@ -74,7 +78,7 @@ export function createApi() {
   api.use('*', async (c, next) => {
     const token = process.env.OPENDOTS_TOKEN;
     if (c.req.path.startsWith('/api/hooks/')) return next();
-    if (token && c.req.header('authorization') !== `Bearer ${token}` && c.req.query('token') !== token) {
+    if (token && !currentAccount() && c.req.header('authorization') !== `Bearer ${token}` && c.req.query('token') !== token) {
       return c.json({ error: 'Non autorisé' }, 401);
     }
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.header('x-opendots-client') !== '1') {
@@ -84,6 +88,7 @@ export function createApi() {
   });
 
   // --- Démarrage & onboarding ---------------------------------------------
+  api.route('/integrations', integrationRoutes());
 
   api.get('/bootstrap', async (c) => {
     const dto: BootstrapDTO = {
@@ -313,6 +318,7 @@ export function createApi() {
   });
 
   api.get('/agents/:id/stream', async (c) => {
+    if (!await getAgent(c.req.param('id'))) return c.json({ error: 'Introuvable' }, 404);
     const conversationId = await mainConversationId(c.req.param('id'));
     const active = getActiveStream(conversationId);
     if (!active) return c.body(null, 204);
@@ -320,6 +326,7 @@ export function createApi() {
   });
 
   api.post('/agents/:id/stop', async (c) => {
+    if (!await getAgent(c.req.param('id'))) return c.json({ error: 'Introuvable' }, 404);
     const conversationId = await mainConversationId(c.req.param('id'));
     const active = getActiveStream(conversationId);
     active?.abort.abort();
@@ -535,6 +542,7 @@ export function createApi() {
       })
       .parse(await c.req.json());
     const patch: Parameters<typeof updateConnector>[1] = { name: body.name, enabled: body.enabled, approval: body.approval, secrets: body.secrets };
+    if (row.kind === 'integration' && (body.config !== undefined || body.secrets !== undefined || body.approval !== undefined)) return c.json({ error: 'Reconnecte ce service pour modifier les permissions. Les jetons OAuth ne se modifient pas par cette route.' }, 400);
     if (body.config !== undefined) patch.config = row.kind === 'mail' ? mailConfigSchema.parse(body.config) : mcpConfigSchema.parse(body.config);
     let updated = await updateConnector(row.id, patch);
     if (row.kind === 'mcp' && (body.config !== undefined || body.secrets || body.enabled)) updated = await refreshMcpConnector(row.id);
@@ -546,12 +554,16 @@ export function createApi() {
     const row = await getConnector(c.req.param('id'));
     if (!row) return c.json({ error: 'Introuvable' }, 404);
     if (row.kind === 'mcp') return c.json(toConnectorDTO(await refreshMcpConnector(row.id)));
+    if (row.kind === 'integration') return c.json({ error: 'Utilise le test de connexion du catalogue.' }, 400);
     const count = await pollAccount(row);
     return c.json({ ...toConnectorDTO((await getConnector(row.id))!), newMessages: count });
   });
 
   api.delete('/connectors/:id', async (c) => {
-    await closeMcpClient(c.req.param('id'));
+    const row = await getConnector(c.req.param('id'));
+    if (!row) return c.json({ error: 'Introuvable' }, 404);
+    if (row.kind === 'mcp') await closeMcpClient(row.id);
+    if (row.kind === 'integration') return c.json({ error: 'Déconnecte ce compte depuis le catalogue pour gérer son autorisation OAuth.' }, 400);
     return c.json({ ok: await deleteConnector(c.req.param('id')) });
   });
 
@@ -614,25 +626,38 @@ export function createApi() {
   api.get('/events', (c) =>
     streamSSE(c, async (sse) => {
       let open = true;
+      const token = getCookie(c, 'opendots_session');
+      const owner = currentAccount()?.id;
+      const valid = async () => !owner || (await sessionAccount(token))?.id === owner;
+      let wake: (() => void) | undefined;
+      let heartbeat: ReturnType<typeof setTimeout> | undefined;
+      const stop = () => { if (!open) return; open = false; if (heartbeat) clearTimeout(heartbeat); wake?.(); void sse.close().catch(() => {}); };
+      const offSession = token ? onSessionRevoked(token, stop) : () => {};
       const unsubscribe = subscribe((event) => {
-        if (open) void sse.writeSSE({ data: JSON.stringify(event) }).catch(() => (open = false));
+        void valid().then((allowed) => {
+          if (!allowed) stop();
+          else if (open) void sse.writeSSE({ data: JSON.stringify(event) }).catch(stop);
+        }).catch(stop);
       });
-      sse.onAbort(() => {
-        open = false;
-        unsubscribe();
-      });
-      await sse.writeSSE({ data: JSON.stringify({ type: 'hello' }) });
-      while (open) {
-        await sse.sleep(20_000);
-        if (open) await sse.writeSSE({ event: 'ping', data: '{}' }).catch(() => (open = false));
-      }
-      unsubscribe();
+      sse.onAbort(stop);
+      try {
+        // Recheck after subscribing: logout can race with stream creation.
+        if (!await valid()) return;
+        await sse.writeSSE({ data: JSON.stringify({ type: 'hello' }) });
+        while (open) {
+          await new Promise<void>((resolve) => { wake = resolve; heartbeat = setTimeout(resolve, 20_000); });
+          if (!open) break;
+          if (!await valid()) stop();
+          if (open) await sse.writeSSE({ event: 'ping', data: '{}' });
+        }
+      } finally { open = false; if (heartbeat) clearTimeout(heartbeat); unsubscribe(); offSession(); }
     }),
   );
 
   // --- Webhooks entrants (publics, protégés par un jeton secret) ---------------
 
-  api.post('/hooks/:token', async (c) => {
+  api.post('/hooks/:account/:token', async (c) => {
+    if (currentAccount()?.id !== c.req.param('account')) return c.json({ error: 'Introuvable' }, 404);
     const act = await findActivityByWebhook(c.req.param('token'));
     if (!act) return c.json({ error: 'Introuvable' }, 404);
     const raw = await c.req.text();

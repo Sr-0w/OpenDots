@@ -32,7 +32,9 @@ const sent: { from: string; to: string[]; raw: string }[] = [];
 let imap: any;
 let imapPort = 0;
 
+const previousMailTls = process.env.OPENDOTS_MAIL_INSECURE_TLS;
 beforeAll(async () => {
+  process.env.OPENDOTS_MAIL_INSECURE_TLS = '1';
   await openDatabase({ memory: true });
   smtp = new SMTPServer({
     authOptional: true,
@@ -60,6 +62,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (previousMailTls === undefined) delete process.env.OPENDOTS_MAIL_INSECURE_TLS; else process.env.OPENDOTS_MAIL_INSECURE_TLS = previousMailTls;
   await closeAllMcpClients();
   smtp.close();
   imap.close?.();
@@ -269,4 +272,13 @@ describe('mail', () => {
     expect(tools.mail_search).toBeUndefined();
     expect(buildTools(ctx).activity_create).toBeDefined();
   });
+});
+
+it('refuse une authentification mail sans TLS en dehors du mode de test explicite', async () => {
+  delete process.env.OPENDOTS_MAIL_INSECURE_TLS;
+  try {
+    const tested = await testMailAccount({ email: 'local@example.com', username: 'testuser', imap: { host: '127.0.0.1', port: imapPort, secure: false }, smtp: { host: '127.0.0.1', port: smtpPort, secure: false } }, 'testpass');
+    expect(tested.ok).toBe(false);
+    expect(tested.imap).not.toBe('ok'); expect(tested.smtp).not.toBe('ok');
+  } finally { process.env.OPENDOTS_MAIL_INSECURE_TLS = '1'; }
 });

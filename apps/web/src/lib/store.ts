@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { AgentDTO, ApprovalDTO, ServerEvent } from "@opendots/shared";
 import { api } from "./api";
+import { closeDialog } from "./dialogs";
 import { notifyFromEvent } from "./notify";
 
 /** État global minimal, alimenté par le flux SSE du backend. */
@@ -11,6 +12,7 @@ interface State {
   paused: boolean;
 }
 
+let generation = 0;
 let state: State = { agents: [], approvals: [], connected: false, paused: false };
 const listeners = new Set<() => void>();
 const eventListeners = new Set<(e: ServerEvent) => void>();
@@ -54,18 +56,20 @@ function upsertAgent(agent: AgentDTO) {
 
 const refreshTimers = new Map<string, number>();
 function refreshAgent(id: string) {
+  const requestGeneration = generation;
   window.clearTimeout(refreshTimers.get(id));
   refreshTimers.set(
     id,
     window.setTimeout(() => {
-      api.agent(id).then((a) => !a.archived && upsertAgent(a)).catch(() => {});
+      api.agent(id).then((a) => requestGeneration === generation && !a.archived && upsertAgent(a)).catch(() => {});
     }, 250),
   );
 }
 
 export async function loadInitial() {
+  const requestGeneration = generation;
   const [agents, approvals, settings] = await Promise.all([api.agents(), api.approvals(), api.settings()]);
-  set({ agents, approvals, paused: settings.paused });
+  if (requestGeneration === generation) set({ agents, approvals, paused: settings.paused });
 }
 
 function handle(e: ServerEvent) {
@@ -93,9 +97,11 @@ function handle(e: ServerEvent) {
         if (owner) refreshAgent(owner.id);
       }
       break;
-    case "settings.changed":
-      api.settings().then((s) => set({ paused: s.paused })).catch(() => {});
+    case "settings.changed": {
+      const requestGeneration = generation;
+      api.settings().then((s) => requestGeneration === generation && set({ paused: s.paused })).catch(() => {});
       break;
+    }
   }
   for (const l of eventListeners) l(e);
   try {
@@ -106,17 +112,28 @@ function handle(e: ServerEvent) {
 }
 
 let source: EventSource | null = null;
+export function clearAccountState() {
+  generation++;
+  closeDialog();
+  source?.close(); source = null;
+  for (const timer of refreshTimers.values()) window.clearTimeout(timer);
+  refreshTimers.clear();
+  set({ agents: [], approvals: [], connected: false, paused: false });
+}
 
 export function connectEvents() {
   if (source) return;
   source = new EventSource("/api/events");
+  const connectedSource = source;
   source.onopen = () => {
+    if (source !== connectedSource) return;
     set({ connected: true });
     // Après une reconnexion, on resynchronise l'état.
     loadInitial().catch(() => {});
   };
-  source.onerror = () => set({ connected: false });
+  source.onerror = () => { if (source === connectedSource) set({ connected: false }); };
   source.onmessage = (msg) => {
+    if (source !== connectedSource) return;
     try {
       const e = JSON.parse(msg.data) as ServerEvent | { type: "hello" };
       if (e.type !== "hello") handle(e as ServerEvent);

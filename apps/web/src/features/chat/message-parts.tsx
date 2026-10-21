@@ -163,7 +163,7 @@ function ToolCard({ part, agentId }: { part: ToolUIPart; agentId?: string }) {
   const input = (part as any).input ?? {};
   if (!out || out.ok === false) return null;
   if (name === "ask_user" && out.requestId) return <AskUserCard requestId={out.requestId} title={input.title} questions={input.questions ?? []} />;
-  if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} reason={input.reason} agentId={agentId} />;
+  if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} provider={input.provider} reason={input.reason} agentId={agentId} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
   if (name === "shell_exec" && "exit_code" in out) return <TerminalCard command={input.command} output={out} />;
   if (name === "web_search" && Array.isArray(out.results)) return <SearchResultsCard results={out.results} />;
