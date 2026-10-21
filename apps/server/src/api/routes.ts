@@ -40,6 +40,8 @@ import { getDraft, MailError, pollAccount, testMailAccount, toDraftDTO, updateDr
 import { answerRequest, getRequest, RequestError, toRequestDTO } from '../requests/service.ts';
 import { createActivity } from '../activities/repo.ts';
 import type { MailConfig } from '@opendots/shared';
+import { computerStatus, resetContainer } from '../computer/shell.ts';
+import { getSearchSettings, getShellSettings, setSearchSettings } from '../settings.ts';
 
 const modelSchema = z.object({
   provider: z.enum(['openrouter', 'ollama']),
@@ -139,6 +141,8 @@ export function createApi() {
       ollamaUrl: await getSetting('ollama.url'),
       timezone: await getTimezone(),
       paused: await isPaused(),
+      search: await getSearchSettings().then((x) => ({ provider: x.provider, hasKey: Boolean(x.apiKey), url: x.url })),
+      shell: await getShellSettings(),
     });
   });
 
@@ -150,8 +154,31 @@ export function createApi() {
         ollamaUrl: z.string().nullable().optional(),
         timezone: z.string().optional(),
         paused: z.boolean().optional(),
+        search: z
+          .object({
+            provider: z.enum(['auto', 'duckduckgo', 'bing', 'brave', 'tavily', 'searxng']),
+            apiKey: z.string().nullable().optional(),
+            url: z.string().url().nullable().optional(),
+          })
+          .optional(),
+        shell: z
+          .object({
+            mode: z.enum(['auto', 'docker', 'host', 'off']),
+            approval: z.enum(['ask', 'auto', 'default']),
+            image: z.string().min(1).max(200),
+            network: z.boolean(),
+            sudo: z.boolean(),
+          })
+          .partial()
+          .optional(),
       })
       .parse(await c.req.json());
+    if (body.search) await setSearchSettings(body.search);
+    if (body.shell) {
+      const next = { ...(await getShellSettings()), ...body.shell };
+      await setSetting('shell.config', next);
+      await log(null, 'computer.settings', `Ordinateur : mode ${next.mode}, validation ${next.approval}`);
+    }
     if (body.openrouterKey) {
       const res = await validateOpenRouterKey(body.openrouterKey.trim());
       if (!res.ok) return c.json({ error: res.error }, 400);
@@ -169,6 +196,15 @@ export function createApi() {
       await log(null, 'engine.paused', body.paused ? 'Activités autonomes suspendues' : 'Activités autonomes reprises');
     }
     return c.json({ ok: true });
+  });
+
+  // --- Ordinateur ------------------------------------------------------------
+
+  api.get('/computer', async (c) => c.json(await computerStatus()));
+  api.post('/computer/reset', async (c) => {
+    await resetContainer();
+    await log(null, 'computer.reset', 'Ordinateur des compagnons réinitialisé');
+    return c.json(await computerStatus());
   });
 
   // --- Compagnons ------------------------------------------------------------
@@ -199,6 +235,7 @@ export function createApi() {
             manageMemory: z.boolean(),
             mail: z.boolean(),
             connectors: z.boolean(),
+            shell: z.boolean(),
             createAgents: z.enum(['allow', 'ask', 'deny']),
           })
           .partial()

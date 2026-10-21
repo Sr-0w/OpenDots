@@ -51,7 +51,9 @@ Aucune base de données à installer : OpenDots embarque PostgreSQL (PGlite) dan
 | **Plugins** | Paquets de skills et de connecteurs décrits par un manifeste JSON (URL ou collé), aperçu avant installation — voir [`examples/plugin-redaction.json`](examples/plugin-redaction.json) |
 | **Interactions** | Formulaires dans la conversation (texte, choix unique, choix multiples, confirmation, nombre, date), demandes de connexion avec bouton vers une modale sécurisée, cartes « tâche créée » |
 | **Tâches planifiées** | Page dédiée : toutes les routines, surveillances, règles mail et webhooks, avec pause/reprise, édition manuelle (répétition, jours, heure, cron, conditions), exécution immédiate |
-| **Interface** | React, shadcn/ui, AI Elements, AI SDK ; liste des compagnons, panneau Activités / Mémoire / Journal / Profil, validations, notifications du navigateur, paramètres minimaux, thème sombre, mobile |
+| **Outils** | Recherche web (automatique DuckDuckGo → Bing sans clé, ou Brave, Tavily, SearXNG), lecture de pages, date et heure avec calculs relatifs |
+| **Ordinateur** | Shell Linux partagé : un conteneur Docker (image avec Python, Node, git, curl, jq, sqlite…), un utilisateur et un dossier privé par compagnon, un dossier commun ; repli sur la machine hôte avec validation de chaque commande ; réseau et sudo configurables |
+| **Interface** | Noir et blanc, couleurs réservées aux avatars ; React, shadcn/ui, AI Elements, AI SDK ; liste des compagnons, panneau Activités / Mémoire / Journal / Profil, validations, notifications du navigateur, paramètres minimaux, thème sombre, mobile |
 
 ## Architecture
 
@@ -100,7 +102,7 @@ Pour essayer les connecteurs sans service externe :
 - [x] **Phase 2** — Mémoire, outils, permissions, Ollama (recherche sémantique à venir)
 - [x] **Phase 3** — Autonomie : planifications, surveillances, webhooks, service mail IMAP/SMTP, approbations, reprise (Gmail API / Microsoft Graph natifs à venir)
 - [x] **Phase 4** — Collaboration multi-agents (partage de fichiers à venir)
-- [ ] **Phase 5** — Ordinateur Linux partagé (VM, navigateur, computer use)
+- [~] **Phase 5** — Ordinateur partagé : shell en conteneur avec utilisateurs séparés ✔ — navigateur, bureau graphique et computer use à venir
 - [ ] **Phase 6** — Distribution desktop Tauri, notifications natives, sauvegarde
 - [ ] **Phase 7** — Mascottes 3D (Three.js / React Three Fiber) synchronisées avec les états réels
 

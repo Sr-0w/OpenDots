@@ -15,13 +15,13 @@ export const Tool = ({ className, ...props }: ToolProps) => (
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
 const statusIcons: Record<ToolPart["state"], ReactNode> = {
-  "approval-requested": <CircleDashedIcon className="size-3.5 text-amber-500" />,
-  "approval-responded": <CheckIcon className="size-3.5 text-sky-500" />,
+  "approval-requested": <CircleDashedIcon className="size-3.5 text-muted-foreground" />,
+  "approval-responded": <CheckIcon className="size-3.5 text-muted-foreground" />,
   "input-available": <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />,
   "input-streaming": <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />,
-  "output-available": <CheckIcon className="size-3.5 text-emerald-500" />,
-  "output-denied": <XIcon className="size-3.5 text-orange-500" />,
-  "output-error": <XIcon className="size-3.5 text-red-500" />,
+  "output-available": <CheckIcon className="size-3.5 text-foreground" />,
+  "output-denied": <XIcon className="size-3.5 text-muted-foreground" />,
+  "output-error": <XIcon className="size-3.5 text-destructive" />,
 };
 
 export type ToolHeaderProps = {

@@ -50,12 +50,12 @@ export class KeyedMutex {
 }
 
 export const AGENT_COLORS = [
-  '#7c9cff',
-  '#ff9fb2',
-  '#7fd6c2',
-  '#ffc078',
-  '#b49cff',
-  '#8fd3ff',
-  '#f7a8e0',
-  '#a9dc76',
+  '#2563eb',
+  '#e11d48',
+  '#16a34a',
+  '#ea580c',
+  '#7c3aed',
+  '#0891b2',
+  '#ca8a04',
+  '#db2777',
 ];

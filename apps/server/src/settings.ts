@@ -11,7 +11,26 @@ interface SettingsShape {
   'engine.paused': boolean;
   'onboarding.done': boolean;
   'user.timezone': string;
+  'search.config': { provider: SearchProvider; apiKey?: string | null; url?: string | null };
+  'shell.config': ShellSettings;
 }
+
+export type SearchProvider = 'auto' | 'duckduckgo' | 'bing' | 'brave' | 'tavily' | 'searxng';
+
+export interface ShellSettings {
+  /** auto = Docker si disponible, sinon machine hôte. */
+  mode: 'auto' | 'docker' | 'host' | 'off';
+  /** ask = chaque commande demande une validation ; auto = exécution directe. */
+  approval: 'ask' | 'auto' | 'default';
+  image: string;
+  network: boolean;
+  /** Autoriser les compagnons à administrer le conteneur (installer des paquets). */
+  sudo: boolean;
+}
+
+export const BUILTIN_COMPUTER_IMAGE = 'opendots/computer:1';
+
+export const DEFAULT_SHELL: ShellSettings = { mode: 'auto', approval: 'default', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: false };
 
 export async function getSetting<K extends keyof SettingsShape>(key: K): Promise<SettingsShape[K] | null> {
   const [row] = await db().select().from(schema.settings).where(eq(schema.settings.key, key));
@@ -52,4 +71,24 @@ export async function getTimezone(): Promise<string> {
 
 export async function isPaused(): Promise<boolean> {
   return (await getSetting('engine.paused')) ?? false;
+}
+
+/** Réglages de recherche, avec la clé API déchiffrée (jamais exposée au frontend). */
+export async function getSearchSettings(): Promise<{ provider: SearchProvider; apiKey: string | null; url: string | null }> {
+  const s = await getSetting('search.config');
+  return {
+    provider: s?.provider ?? 'auto',
+    apiKey: s?.apiKey ? decryptSecret(s.apiKey) : null,
+    url: s?.url ?? null,
+  };
+}
+
+export async function setSearchSettings(input: { provider: SearchProvider; apiKey?: string | null; url?: string | null }) {
+  const current = await getSetting('search.config');
+  const apiKey = input.apiKey === undefined ? (current?.apiKey ?? null) : input.apiKey ? encryptSecret(input.apiKey) : null;
+  await setSetting('search.config', { provider: input.provider, apiKey, url: input.url ?? current?.url ?? null });
+}
+
+export async function getShellSettings(): Promise<ShellSettings> {
+  return { ...DEFAULT_SHELL, ...((await getSetting('shell.config')) ?? {}) };
 }

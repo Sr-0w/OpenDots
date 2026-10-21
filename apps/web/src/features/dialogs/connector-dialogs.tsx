@@ -115,7 +115,7 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
-          <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-muted text-foreground">
             <MailIcon className="size-4" />
           </div>
           <DialogTitle>{connector ? "Modifier le compte mail" : "Connecter une boîte mail"}</DialogTitle>
@@ -175,7 +175,7 @@ export function MailDialog({ connector, requestedBy, onClose }: { connector?: Co
             </div>
           )}
           {test && (
-            <div className={cn("space-y-1 rounded-xl border p-3 text-xs", test.ok ? "border-emerald-500/40" : "border-destructive/40")}>
+            <div className={cn("space-y-1 rounded-xl border p-3 text-xs", test.ok ? "border-foreground/30" : "border-destructive/40")}>
               <Status label="Réception (IMAP)" value={test.imap} />
               <Status label="Envoi (SMTP)" value={test.smtp} />
             </div>
@@ -218,7 +218,7 @@ function Status({ label, value }: { label: string; value: string }) {
   const ok = value === "ok";
   return (
     <p className="flex items-start gap-1.5">
-      {ok ? <CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-500" /> : <XCircleIcon className="size-3.5 shrink-0 text-destructive" />}
+      {ok ? <CheckCircle2Icon className="size-3.5 shrink-0 text-foreground" /> : <XCircleIcon className="size-3.5 shrink-0 text-destructive" />}
       <span>
         <span className="font-medium">{label}</span> {ok ? "— connexion réussie" : `— ${value}`}
       </span>
@@ -268,7 +268,7 @@ export function McpDialog({ connector, requestedBy, onClose }: { connector?: Con
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
-          <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-muted text-foreground">
             <PlugIcon className="size-4" />
           </div>
           <DialogTitle>{connector ? "Modifier le connecteur" : "Ajouter un connecteur MCP"}</DialogTitle>
@@ -293,7 +293,7 @@ export function McpDialog({ connector, requestedBy, onClose }: { connector?: Con
               <Field label="Arguments">
                 <Input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y @modelcontextprotocol/server-filesystem /chemin" className="font-mono" />
               </Field>
-              <p className="text-amber-600 text-[11px]">Cette commande s’exécutera sur ta machine : n’ajoute que des serveurs de confiance.</p>
+              <p className="text-foreground font-medium text-[11px]">Cette commande s’exécutera sur ta machine : n’ajoute que des serveurs de confiance.</p>
             </>
           ) : (
             <Field label="URL du serveur">
@@ -435,7 +435,7 @@ export function PluginDialog({ onClose }: { onClose: () => void }) {
                         {c.config.transport === "stdio" ? `${c.config.command} ${(c.config.args ?? []).join(" ")}` : c.config.url}
                       </span>
                     </p>
-                    {c.config.transport === "stdio" && <p className="text-amber-600 text-[11px]">Exécutera une commande sur ta machine.</p>}
+                    {c.config.transport === "stdio" && <p className="text-foreground font-medium text-[11px]">Exécutera une commande sur ta machine.</p>}
                     {(c.secrets ?? []).map((key) => (
                       <Input
                         key={key}

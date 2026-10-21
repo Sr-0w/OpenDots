@@ -51,7 +51,7 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
     <div className="flex min-h-full items-center justify-center px-4 py-10">
       <div className="flex w-full max-w-md flex-col items-center gap-8">
         <div className="flex flex-col items-center gap-4 text-center">
-          <DotAvatar color="#7c9cff" size={64} named={false} />
+          <DotAvatar color="#27272a" size={64} named={false} />
           <div className="space-y-1.5">
             <h1 className="font-semibold text-2xl tracking-tight">Bienvenue dans OpenDots</h1>
             <p className="text-balance text-muted-foreground text-sm">
@@ -100,7 +100,7 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
           <div className="flex w-full flex-col gap-3">
             <ModelPicker value={model?.id ?? null} onChange={setModel} className="h-80" />
             {model && !model.tools && (
-              <p className="text-amber-600 text-xs">Ce modèle ne sait pas utiliser d’outils : ton compagnon pourra parler, mais pas agir.</p>
+              <p className="text-foreground font-medium text-xs">Ce modèle ne sait pas utiliser d’outils : ton compagnon pourra parler, mais pas agir.</p>
             )}
             {error && <p className="text-destructive text-sm">{error}</p>}
             <Button size="lg" onClick={finish} disabled={busy || !model}>

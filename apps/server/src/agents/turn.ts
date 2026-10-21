@@ -209,7 +209,7 @@ async function executeTurn(
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
       abortSignal: stream.abort.signal,
-      timeout: { totalMs: 10 * 60_000, toolMs: 60_000 },
+      timeout: { totalMs: 30 * 60_000, toolMs: 60_000, tools: { shell_execMs: 31 * 60_000 } } as any,
       onError: ({ error }) => {
         turnError = errorMessage(error);
       },

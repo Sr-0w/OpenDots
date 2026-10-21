@@ -124,7 +124,7 @@ export function AgentPanel({ agent }: { agent: AgentDTO }) {
         {memories?.length === 0 && <Empty title="Mémoire vide" text={`Dis « Souviens-toi que… » et ${agent.named ? agent.name : "ton compagnon"} le retiendra.`} />}
         {memories?.map((m) => (
           <div key={m.id} className="group flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-accent/60">
-            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand" />
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/40" />
             <p className="flex-1 leading-snug">
               {m.content}
               {!m.agentId && <span className="ml-1.5 rounded bg-muted px-1 text-[10px] text-muted-foreground">partagé</span>}

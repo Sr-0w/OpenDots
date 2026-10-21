@@ -13,7 +13,7 @@ import { removeAgentLocally } from "@/lib/store";
 import { toast } from "sonner";
 import { ModelPicker } from "../model-picker";
 
-const COLORS = ["#7c9cff", "#ff9fb2", "#7fd6c2", "#ffc078", "#b49cff", "#8fd3ff", "#f7a8e0", "#a9dc76"];
+const COLORS = ["#2563eb", "#e11d48", "#16a34a", "#ea580c", "#7c3aed", "#0891b2", "#ca8a04", "#db2777"];
 
 const PERMS: { key: Exclude<keyof AgentPermissions, "createAgents">; label: string }[] = [
   { key: "web", label: "Lire des pages web" },
@@ -22,6 +22,7 @@ const PERMS: { key: Exclude<keyof AgentPermissions, "createAgents">; label: stri
   { key: "manageMemory", label: "Gérer sa mémoire" },
   { key: "mail", label: "Lire les e-mails (l’envoi demande ton accord)" },
   { key: "connectors", label: "Utiliser les connecteurs MCP" },
+  { key: "shell", label: "Utiliser l’ordinateur (shell)" },
 ];
 
 /**
@@ -73,7 +74,7 @@ export function AgentSettings({ agent }: { agent: AgentDTO }) {
               style={{ background: c, boxShadow: agent.color === c ? `0 0 0 2px ${c}` : undefined }}
               aria-label={c}
             >
-              {agent.color === c && <CheckIcon className="size-3 text-[#1b1d2b]" />}
+              {agent.color === c && <CheckIcon className="size-3 text-white" />}
             </button>
           ))}
         </div>

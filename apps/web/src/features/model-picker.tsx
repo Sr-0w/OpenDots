@@ -84,7 +84,7 @@ export function ModelPicker({
               <div className="flex items-center gap-2">
                 <span className="truncate font-medium text-sm">{m.name}</span>
                 {RECOMMENDED[0] === m.id && (
-                  <span className="rounded-full bg-brand/15 px-1.5 py-0.5 font-medium text-[10px] text-brand">recommandé</span>
+                  <span className="rounded-full border px-1.5 py-0.5 font-medium text-[10px] text-muted-foreground">recommandé</span>
                 )}
               </div>
               <div className="flex items-center gap-2 text-muted-foreground text-xs">
@@ -96,7 +96,7 @@ export function ModelPicker({
               {m.tools ? (
                 <WrenchIcon className="size-3.5" aria-label="Outils" />
               ) : (
-                <span className="text-[10px] text-amber-600">sans outils</span>
+                <span className="text-[10px] text-foreground font-medium">sans outils</span>
               )}
               {m.reasoning && <BrainIcon className="size-3.5" aria-label="Raisonnement" />}
               {value === m.id && <CheckIcon className="size-4 text-foreground" />}

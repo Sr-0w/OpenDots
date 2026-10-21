@@ -12,6 +12,7 @@ import { api, type SettingsDTO } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
 import { ModelPicker } from "./model-picker";
+import { ToolsSettings } from "./tools-settings";
 import { notificationsEnabled, notificationsSupported, setNotifications } from "@/lib/notify";
 
 /** Paramètres globaux : volontairement peu nombreux (15.3). */
@@ -61,11 +62,16 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <LoaderIcon className="mx-auto animate-spin" />
         ) : (
           <Tabs defaultValue="models" className="min-h-0 flex-1">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="models">Modèles</TabsTrigger>
+              <TabsTrigger value="tools">Outils</TabsTrigger>
               <TabsTrigger value="connections">Connexions</TabsTrigger>
               <TabsTrigger value="general">Général</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="tools" className="space-y-6 overflow-y-auto pt-2">
+              <ToolsSettings settings={settings} update={update} busy={busy} />
+            </TabsContent>
 
             <TabsContent value="models" className="flex min-h-0 flex-col gap-3 overflow-y-auto pt-2">
               <div className="space-y-1">

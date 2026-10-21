@@ -44,7 +44,7 @@ export function SkillsPage() {
           return (
             <div key={s.id} className={cn("flex flex-col gap-2 rounded-2xl border bg-card/50 p-4", !s.enabled && "opacity-60")}>
               <div className="flex items-start gap-2">
-                <SparklesIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+                <SparklesIcon className="mt-0.5 size-4 shrink-0 text-foreground" />
                 <p className="min-w-0 flex-1 font-medium text-sm">{s.name}</p>
                 <Switch checked={s.enabled} onCheckedChange={(enabled) => api.updateSkill(s.id, { enabled }).catch((e) => toast.error(e.message))} />
               </div>

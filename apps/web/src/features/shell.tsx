@@ -80,7 +80,7 @@ function AgentRow({ agent, active, onClick }: { agent: AgentDTO; active: boolean
             {busy ? agent.stateDetail || AGENT_STATE_LABELS[agent.state] : agent.state === "error" ? "Erreur — voir le journal" : plainPreview(agent.lastMessagePreview) || agent.description || "Dis bonjour !"}
           </p>
           {agent.unread > 0 && !active && (
-            <span className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-brand px-1 font-semibold text-[10px] text-white">
+            <span className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-foreground px-1 font-semibold text-[10px] text-background">
               {agent.unread}
             </span>
           )}
@@ -101,8 +101,8 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex items-center gap-2 px-4 pt-4 pb-3">
         <div className="flex gap-0.5">
-          {["#7c9cff", "#ff9fb2", "#7fd6c2"].map((c) => (
-            <span key={c} className="size-2.5 rounded-full" style={{ background: c }} />
+          {["bg-foreground", "bg-foreground/55", "bg-foreground/25"].map((c) => (
+            <span key={c} className={`size-2.5 rounded-full ${c}`} />
           ))}
         </div>
         <span className="font-semibold tracking-tight">OpenDots</span>
@@ -130,7 +130,7 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
 
       <div className="space-y-0.5 border-t p-2">
         {paused && (
-          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-amber-700 text-xs dark:text-amber-400">
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-foreground text-xs">
             <PauseCircleIcon className="size-3.5" /> Activités autonomes suspendues
           </div>
         )}
@@ -188,7 +188,7 @@ function SideButton({
     >
       {icon}
       <span className="flex-1 text-left">{children}</span>
-      {!!badge && <span className="rounded-full bg-amber-500 px-1.5 font-semibold text-[10px] text-white">{badge}</span>}
+      {!!badge && <span className="rounded-full bg-foreground px-1.5 font-semibold text-[10px] text-background">{badge}</span>}
     </button>
   );
 }

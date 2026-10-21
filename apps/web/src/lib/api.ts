@@ -62,12 +62,31 @@ export interface ModelInfo {
   completionPrice: number | null;
 }
 
+export interface ShellSettingsDTO {
+  mode: "auto" | "docker" | "host" | "off";
+  approval: "ask" | "auto" | "default";
+  image: string;
+  network: boolean;
+  sudo: boolean;
+}
+
 export interface SettingsDTO {
   openrouterKey: string | null;
   defaultModel: ModelConfig;
   ollamaUrl: string | null;
   timezone: string;
   paused: boolean;
+  search: { provider: "auto" | "duckduckgo" | "bing" | "brave" | "tavily" | "searxng"; hasKey: boolean; url: string | null };
+  shell: ShellSettingsDTO;
+}
+
+export interface ComputerStatus {
+  settings: ShellSettingsDTO;
+  dockerAvailable: boolean;
+  backend: "docker" | "host" | null;
+  container: { name: string; running: boolean; image: string; network: boolean } | null;
+  approvalRequired: boolean;
+  workspaces: string;
 }
 
 export const api = {
@@ -81,8 +100,15 @@ export const api = {
   ollamaModels: (url?: string) => request<ModelInfo[]>("GET", `/models/ollama${url ? `?url=${encodeURIComponent(url)}` : ""}`),
 
   settings: () => request<SettingsDTO>("GET", "/settings"),
-  updateSettings: (patch: Partial<Omit<SettingsDTO, "openrouterKey">> & { openrouterKey?: string }) =>
-    request<{ ok: boolean }>("PUT", "/settings", patch),
+  updateSettings: (
+    patch: Partial<Omit<SettingsDTO, "openrouterKey" | "search" | "shell">> & {
+      openrouterKey?: string;
+      search?: { provider: SettingsDTO["search"]["provider"]; apiKey?: string | null; url?: string | null };
+      shell?: Partial<ShellSettingsDTO>;
+    },
+  ) => request<{ ok: boolean }>("PUT", "/settings", patch),
+  computer: () => request<ComputerStatus>("GET", "/computer"),
+  resetComputer: () => request<ComputerStatus>("POST", "/computer/reset"),
 
   agents: () => request<AgentDTO[]>("GET", "/agents"),
   agent: (id: string) => request<AgentDTO>("GET", `/agents/${id}`),

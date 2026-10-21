@@ -4,6 +4,9 @@ import {
   BotIcon,
   BrainIcon,
   CalendarClockIcon,
+  ClockIcon,
+  SearchIcon,
+  TerminalIcon,
   ClipboardListIcon,
   MailIcon,
   PlugIcon,
@@ -23,7 +26,7 @@ import type { ODMessage } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { cn, formatDateTime } from "@/lib/utils";
 import { ApprovalCard } from "./approval-card";
-import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard } from "./cards";
+import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard, SearchResultsCard, TerminalCard } from "./cards";
 import { DotAvatar } from "../dot-avatar";
 
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
@@ -75,6 +78,12 @@ function describeTool(name: string, input: any, output: any): { title: string; i
       return { title: "Modifie une activité", icon: <CalendarClockIcon className="size-3.5" /> };
     case "activity_delete":
       return { title: "Supprime une activité", icon: <CalendarClockIcon className="size-3.5" /> };
+    case "web_search":
+      return { title: i.query ? `Cherche « ${String(i.query).slice(0, 50)} »` : "Cherche sur le web", icon: <SearchIcon className="size-3.5" /> };
+    case "datetime":
+      return { title: "Consulte la date et l’heure", icon: <ClockIcon className="size-3.5" /> };
+    case "shell_exec":
+      return { title: `$ ${String(i.command ?? "").split("\n")[0].slice(0, 60)}`, icon: <TerminalIcon className="size-3.5" /> };
     case "web_fetch":
       return { title: `Lit ${output?.title ? `« ${String(output.title).slice(0, 40)} »` : host(i.url)}`, icon: <GlobeIcon className="size-3.5" /> };
     case "ask_user":
@@ -155,6 +164,8 @@ function ToolCard({ part, agentId }: { part: ToolUIPart; agentId?: string }) {
   if (name === "ask_user" && out.requestId) return <AskUserCard requestId={out.requestId} title={input.title} questions={input.questions ?? []} />;
   if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} reason={input.reason} agentId={agentId} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
+  if (name === "shell_exec" && "exit_code" in out) return <TerminalCard command={input.command} output={out} />;
+  if (name === "web_search" && Array.isArray(out.results)) return <SearchResultsCard results={out.results} />;
   if (name === "activity_create" && out.activity) return <ActivityCreatedCard title={out.activity.title} when={out.activity.when} kind={out.activity.kind} />;
   if (out.status === "pending_approval" && out.approvalId) return <ApprovalCard approvalId={out.approvalId} fallbackSummary={out.summary} />;
   return null;

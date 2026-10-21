@@ -23,6 +23,7 @@ export function DotAvatar({
   named?: boolean;
 }) {
   const active = ACTIVE.includes(state);
+  const eye = luminance(color) > 0.55 ? "#111111" : "#ffffff";
   return (
     <div
       className={cn("od-dot relative shrink-0 rounded-full", className)}
@@ -33,8 +34,8 @@ export function DotAvatar({
           width: size,
           height: size,
           "--dot": color,
-          background: `radial-gradient(circle at 32% 28%, color-mix(in oklch, white 75%, ${color}) 0%, ${color} 58%, color-mix(in oklch, black 18%, ${color}) 100%)`,
-          boxShadow: `inset 0 -${size / 10}px ${size / 5}px color-mix(in oklch, black 12%, transparent), inset 0 ${size / 14}px ${size / 8}px color-mix(in oklch, white 45%, transparent)`,
+          background: `radial-gradient(circle at 34% 28%, color-mix(in oklch, white 22%, ${color}) 0%, ${color} 55%, color-mix(in oklch, black 22%, ${color}) 100%)`,
+          boxShadow: `inset 0 -${size / 10}px ${size / 5}px color-mix(in oklch, black 18%, transparent), inset 0 ${size / 16}px ${size / 10}px color-mix(in oklch, white 22%, transparent)`,
         } as CSSProperties
       }
       aria-hidden
@@ -43,8 +44,9 @@ export function DotAvatar({
         {[0, 1].map((i) => (
           <span
             key={i}
-            className="od-eye block rounded-full bg-[#1b1d2b]"
+            className="od-eye block rounded-full"
             style={{
+              background: eye,
               width: size * 0.12,
               height: size * (named ? 0.2 : 0.16),
               animationDelay: `${i * 0.04}s`,
@@ -57,4 +59,15 @@ export function DotAvatar({
       )}
     </div>
   );
+}
+
+function luminance(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return 0;
+  const n = parseInt(m[1], 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }

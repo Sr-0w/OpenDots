@@ -8,6 +8,7 @@ export default defineConfig({
       OPENDOTS_DATA_DIR: join(tmpdir(), `opendots-test-${process.pid}`),
       OPENDOTS_ALLOW_PRIVATE_FETCH: '1',
       OPENROUTER_API_KEY: '',
+      OPENDOTS_CONTAINER: 'opendots-computer-test',
     },
     testTimeout: 30_000,
     hookTimeout: 60_000,

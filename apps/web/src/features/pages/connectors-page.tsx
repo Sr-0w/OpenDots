@@ -137,7 +137,7 @@ function ConnectorRow({ connector: c, subtitle }: { connector: ConnectorDTO; sub
   return (
     <div className={cn("flex items-center gap-3 px-4 py-3", !c.enabled && "opacity-60")}>
       <span
-        className={cn("size-2 shrink-0 rounded-full", c.status === "ok" ? "bg-emerald-500" : c.status === "error" ? "bg-red-500" : "bg-muted-foreground/40")}
+        className={cn("size-2 shrink-0 rounded-full", c.status === "ok" ? "bg-foreground" : c.status === "error" ? "bg-red-500" : "bg-muted-foreground/40")}
         title={c.status === "error" ? (c.lastError ?? "") : c.status}
       />
       <div className="min-w-0 flex-1">

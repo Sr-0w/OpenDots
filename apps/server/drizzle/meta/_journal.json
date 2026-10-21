@@ -15,6 +15,13 @@
       "when": 1792585841371,
       "tag": "0001_capabilities",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792587869922,
+      "tag": "0002_avatar_colors",
+      "breakpoints": true
     }
   ]
 }

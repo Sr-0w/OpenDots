@@ -51,6 +51,8 @@ export interface AgentPermissions {
   mail: boolean;
   /** Utiliser les connecteurs MCP. */
   connectors: boolean;
+  /** Exécuter des commandes sur l'ordinateur des compagnons. */
+  shell: boolean;
 }
 
 export const DEFAULT_PERMISSIONS: AgentPermissions = {
@@ -61,6 +63,7 @@ export const DEFAULT_PERMISSIONS: AgentPermissions = {
   manageMemory: true,
   mail: true,
   connectors: true,
+  shell: true,
 };
 
 export interface AgentDTO {

@@ -19,6 +19,8 @@ import {
   setDraftApproval,
 } from '../mail/service.ts';
 import { log } from '../journal.ts';
+import { execShell, resolveBackend, shellForModel, shellNeedsApproval } from '../computer/shell.ts';
+import { getShellSettings } from '../settings.ts';
 import { errorMessage, truncate } from '../util.ts';
 import type { ToolContext } from './tools.ts';
 
@@ -44,6 +46,12 @@ registerApprovalAction(
   async (input: { draftId: string }) => sendDraft(input.draftId),
   async (input: { draftId: string }) => discardDraft(input.draftId),
 );
+
+registerApprovalAction('shell.exec', async (input: { agentId: string; command: string; timeoutSeconds?: number }) => {
+  const r = await execShell(input.agentId, input.command, { timeoutSeconds: input.timeoutSeconds });
+  await log(input.agentId, 'shell.exec', `Commande exécutée (code ${r.exitCode})`, { command: input.command });
+  return shellForModel(r);
+});
 
 registerApprovalAction('mcp.call', async (input: { connectorId: string; tool: string; args: unknown }) => {
   const res = await callMcpTool(input.connectorId, input.tool, input.args);
@@ -259,6 +267,44 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
             summary: approval.summary,
             note: `${PENDING_NOTE} La carte affiche déjà l'e-mail complet avec les boutons Envoyer / Modifier / Abandonner : ne recopie pas le message, dis-le en une phrase. N'annonce aucune autre action (classement, archivage…) que tu n'as pas effectuée.`,
           });
+        }),
+    });
+  }
+
+  // --- Ordinateur (shell) -----------------------------------------------------------
+  const backend = perms.shell ? await resolveBackend() : null;
+  if (backend) {
+    const needsApproval = await shellNeedsApproval();
+    info.connectors.push(
+      `Ordinateur : ${backend === 'docker' ? `conteneur Linux partagé (Debian avec python3, pip, node, npm, git, curl, jq, sqlite3), ton dossier personnel est ton répertoire courant, dossier commun : /workspaces/shared${(await getShellSettings()).sudo ? ', sudo autorisé pour installer des paquets' : ' ; pas de sudo : installe les paquets Python avec pip install --user'}` : "machine hôte de l'utilisateur, dans ton dossier personnel ; dossier commun : $OPENDOTS_SHARED"}${needsApproval ? ' — chaque commande demande une validation' : ''}`,
+    );
+    tools.shell_exec = tool({
+      description: [
+        `Exécute une commande bash sur ton ordinateur (${backend === 'docker' ? 'conteneur Linux partagé avec les autres compagnons' : 'machine hôte'}).`,
+        'Ton dossier personnel est persistant ; un dossier commun permet de partager des fichiers avec les autres compagnons.',
+        'Utilise-le pour manipuler des fichiers, lancer des scripts, installer et utiliser des outils en ligne de commande (curl, python, git…).',
+        'Préfère les commandes non interactives et courtes ; enchaîne-les avec && si besoin.',
+        needsApproval ? "Chaque commande est soumise à la validation de l'utilisateur." : '',
+      ].join(' '),
+      inputSchema: z.object({
+        command: z.string().min(1).max(8000),
+        timeout_seconds: z.number().optional().describe('120 par défaut, 1800 max'),
+      }),
+      execute: async ({ command, timeout_seconds }, { toolCallId }) =>
+        guard(async () => {
+          if (needsApproval) {
+            const approval = await createApproval({
+              agentId: ctx.agent.id,
+              conversationId: ctx.conversationId,
+              toolCallId,
+              action: 'shell.exec',
+              summary: `Exécuter : ${truncate(command, 200)}`,
+              input: { agentId: ctx.agent.id, command, timeoutSeconds: timeout_seconds },
+            });
+            return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE };
+          }
+          const r = await execShell(ctx.agent.id, command, { timeoutSeconds: timeout_seconds });
+          return shellForModel(r);
         }),
     });
   }

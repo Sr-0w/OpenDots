@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const STATUS: Record<ApprovalDTO["status"], { label: string; className: string }> = {
-  pending: { label: "En attente de ta validation", className: "text-amber-600 dark:text-amber-400" },
-  approved: { label: "Approuvé — exécution…", className: "text-sky-600" },
-  executed: { label: "Approuvé et exécuté", className: "text-emerald-600 dark:text-emerald-400" },
+  pending: { label: "En attente de ta validation", className: "text-foreground" },
+  approved: { label: "Approuvé — exécution…", className: "text-muted-foreground" },
+  executed: { label: "Approuvé et exécuté", className: "text-foreground" },
   failed: { label: "Approuvé, mais l’exécution a échoué", className: "text-destructive" },
   rejected: { label: "Refusé", className: "text-muted-foreground" },
   expired: { label: "Expiré", className: "text-muted-foreground" },
@@ -39,11 +39,11 @@ export function ApprovalCard({ approvalId, fallbackSummary }: { approvalId: stri
     <div
       className={cn(
         "not-prose w-full max-w-md rounded-2xl border bg-card p-4 shadow-xs",
-        status === "pending" && "border-amber-500/40 ring-4 ring-amber-500/5",
+        status === "pending" && "border-foreground/30 ring-4 ring-foreground/5",
       )}
     >
       <div className="flex items-start gap-3">
-        <ShieldQuestionIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
+        <ShieldQuestionIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1 space-y-1">
           <p className="font-medium text-sm leading-snug">{approval?.summary ?? fallbackSummary ?? "Action à valider"}</p>
           <p className={cn("text-xs", meta.className)}>{meta.label}</p>

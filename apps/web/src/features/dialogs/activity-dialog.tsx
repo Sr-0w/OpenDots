@@ -295,7 +295,7 @@ export function ActivityDialog({
 
           {d.kind === "mail" && (
             <div className="space-y-3 rounded-xl border p-3">
-              {accounts.length === 0 && <p className="text-amber-600 text-xs">Aucun compte mail connecté pour l’instant.</p>}
+              {accounts.length === 0 && <p className="text-foreground font-medium text-xs">Aucun compte mail connecté pour l’instant.</p>}
               <Field label="Compte">
                 <Select value={d.account} onValueChange={(v) => set({ account: v })}>
                   <SelectTrigger className="w-full">

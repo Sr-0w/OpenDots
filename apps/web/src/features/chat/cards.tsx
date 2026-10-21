@@ -72,9 +72,9 @@ export function AskUserCard({ requestId, title, questions }: { requestId: string
   }
 
   return (
-    <div className={cn(cardClass, status === "pending" && "border-brand/40 ring-4 ring-brand/5")}>
+    <div className={cn(cardClass, status === "pending" && "border-foreground/30 ring-4 ring-foreground/5")}>
       <div className="mb-3 flex items-start gap-2.5">
-        <ClipboardListIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+        <ClipboardListIcon className="mt-0.5 size-4 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm leading-snug">{title}</p>
           <p className="text-muted-foreground text-xs">{answered ? "Réponses envoyées" : status === "cancelled" ? "Remplacé par une nouvelle demande" : "Ta réponse est attendue"}</p>
@@ -213,7 +213,7 @@ export function ConnectionRequestCard({ kind, reason, agentId }: { kind: "mail" 
   return (
     <div className={cardClass}>
       <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
           <Icon className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -223,7 +223,7 @@ export function ConnectionRequestCard({ kind, reason, agentId }: { kind: "mail" 
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
         {connected.length > 0 && (
-          <span className="mr-auto flex min-w-0 items-center gap-1 text-emerald-600 text-xs dark:text-emerald-400">
+          <span className="mr-auto flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
             <CheckIcon className="size-3.5 shrink-0" /> <span className="truncate">Connecté : {connected.join(", ")}</span>
           </span>
         )}
@@ -275,15 +275,15 @@ export function MailDraftCard({ draftId, approvalId }: { draftId: string; approv
   if (!draft) return <div className={cn(cardClass, "h-32 animate-pulse")} />;
 
   return (
-    <div className={cn(cardClass, "p-0", status === "pending" && "border-amber-500/40")}>
+    <div className={cn(cardClass, "p-0", status === "pending" && "border-foreground/30")}>
       <div className="flex items-center gap-2 border-b px-4 py-2.5">
         <MailIcon className="size-4 text-muted-foreground" />
         <span className="font-medium text-sm">Nouvel e-mail</span>
         <span
           className={cn(
             "ml-auto rounded-full px-2 py-0.5 text-[11px]",
-            status === "sent" && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-            status === "pending" && "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+            status === "sent" && "bg-muted text-foreground",
+            status === "pending" && "bg-foreground text-background",
             (status === "failed" || status === "discarded") && "bg-muted text-muted-foreground",
           )}
         >
@@ -332,7 +332,7 @@ export function ActivityCreatedCard({ title, when, kind }: { title: string; when
       onClick={() => (window.location.hash = "/tasks")}
       className="not-prose flex w-full max-w-sm items-center gap-3 rounded-2xl border bg-card px-3.5 py-2.5 text-left transition-colors hover:bg-accent/60"
     >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
         <ClipboardListIcon className="size-4" />
       </div>
       <div className="min-w-0">
@@ -341,5 +341,71 @@ export function ActivityCreatedCard({ title, when, kind }: { title: string; when
         <p className="truncate text-muted-foreground text-xs">{when}</p>
       </div>
     </button>
+  );
+}
+
+// --- Terminal ------------------------------------------------------------------------------
+
+export function TerminalCard({
+  command,
+  output,
+}: {
+  command: string;
+  output: { exit_code: number | null; stdout: string; stderr: string; timed_out?: boolean; duration_ms?: number };
+}) {
+  const [open, setOpen] = useState(false);
+  const text = [output.stdout, output.stderr].filter((x) => x?.trim()).join("\n").trimEnd();
+  const lines = text.split("\n");
+  const long = lines.length > 12;
+  return (
+    <div className="not-prose w-full max-w-2xl overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-100">
+      <div className="flex items-center gap-2 border-white/10 border-b px-3 py-1.5 font-mono text-[11px] opacity-70">
+        <span className="truncate">$ {command.split("\n")[0]}</span>
+        <span className="ml-auto shrink-0">
+          {output.timed_out ? "délai dépassé" : `code ${output.exit_code}`}
+          {output.duration_ms !== undefined && ` · ${(output.duration_ms / 1000).toFixed(1)} s`}
+        </span>
+      </div>
+      {text && (
+        <pre className={cn("overflow-x-auto px-3 py-2 font-mono text-[11.5px] leading-relaxed", !open && long && "max-h-56 overflow-y-hidden")}>
+          {text}
+        </pre>
+      )}
+      {long && (
+        <button type="button" onClick={() => setOpen((v) => !v)} className="w-full border-white/10 border-t py-1 text-[11px] opacity-70 hover:opacity-100">
+          {open ? "Réduire" : `Afficher les ${lines.length} lignes`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// --- Résultats de recherche ---------------------------------------------------------------
+
+export function SearchResultsCard({ results }: { results: { title: string; url: string; snippet: string }[] }) {
+  if (!results.length) return null;
+  const host = (u: string) => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, "");
+    } catch {
+      return u;
+    }
+  };
+  return (
+    <div className="not-prose flex w-full max-w-2xl flex-wrap gap-1.5">
+      {results.slice(0, 6).map((r) => (
+        <a
+          key={r.url}
+          href={r.url}
+          target="_blank"
+          rel="noreferrer"
+          title={r.snippet}
+          className="flex max-w-[15rem] items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-colors hover:bg-accent"
+        >
+          <span className="truncate">{r.title}</span>
+          <span className="shrink-0 text-muted-foreground">{host(r.url)}</span>
+        </a>
+      ))}
+    </div>
   );
 }
