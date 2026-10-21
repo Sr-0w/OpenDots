@@ -1,0 +1,16 @@
+{
+  "name": "opendots",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @opendots/server dev\" \"pnpm --filter @opendots/web dev\"",
+    "build": "pnpm --filter @opendots/web build",
+    "start": "pnpm --filter @opendots/server start",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  },
+  "packageManager": "pnpm@10.28.0"
+}
