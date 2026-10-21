@@ -77,7 +77,7 @@ export function buildSystemPrompt(p: PromptInput): string {
         'Current situation: autonomous wake-up',
         `You were woken up by an event ("${p.mode.title}"), not by a live message from the user — they may not be watching. Do the work described, using your tools. ` +
           `Then write a short message for the user only if there is something worth their attention (result, finding, question, approval needed). ` +
-          `If there is nothing useful to report, answer with exactly <silence/> and nothing else. Configuration tools are not available during autonomous work.`,
+          `If there is nothing useful to report and you changed nothing, answer with exactly <silence/> and nothing else. If you created or changed something (activity, draft, message to a teammate…), always tell the user in one or two sentences. Configuration tools are not available during autonomous work.`,
       ),
     );
   } else if (p.mode.kind === 'team') {

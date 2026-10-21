@@ -77,6 +77,8 @@ export async function saveMessage(
     agentId: opts.agentId ?? null,
     messageId: msg.id,
     hidden: opts.hidden ?? false,
+    author: opts.author,
+    preview: text.slice(0, 160),
   });
 }
 

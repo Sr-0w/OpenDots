@@ -1,0 +1,17 @@
+{
+  "name": "Rédaction pro",
+  "version": "1.0.0",
+  "description": "Skills de rédaction pour les comptes rendus et les e-mails professionnels",
+  "skills": [
+    {
+      "name": "Compte rendu de réunion",
+      "description": "Quand l'utilisateur demande de résumer une réunion ou des notes",
+      "instructions": "Structure le compte rendu ainsi :\n1. Contexte (une phrase)\n2. Décisions prises\n3. Actions : qui, quoi, pour quand\n4. Questions ouvertes\nReste factuel, pas plus d'une page."
+    },
+    {
+      "name": "E-mail professionnel",
+      "description": "Quand il faut rédiger ou répondre à un e-mail de travail",
+      "instructions": "Vouvoiement sauf si l'interlocuteur tutoie. Objet explicite. Une idée par paragraphe, phrases courtes. Termine par une action attendue claire. Signe avec le prénom de l'utilisateur s'il est connu."
+    }
+  ]
+}

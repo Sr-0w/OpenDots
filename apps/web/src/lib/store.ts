@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { AgentDTO, ApprovalDTO, ServerEvent } from "@opendots/shared";
 import { api } from "./api";
+import { notifyFromEvent } from "./notify";
 
 /** État global minimal, alimenté par le flux SSE du backend. */
 interface State {
@@ -97,6 +98,11 @@ function handle(e: ServerEvent) {
       break;
   }
   for (const l of eventListeners) l(e);
+  try {
+    notifyFromEvent(e);
+  } catch {
+    // notifications indisponibles
+  }
 }
 
 let source: EventSource | null = null;

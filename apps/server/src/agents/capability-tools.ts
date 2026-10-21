@@ -91,6 +91,9 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       }),
       execute: async (args) =>
         guard(async () => {
+          if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(args.name.trim())) {
+            return fail('Choisis un nom lisible pour le skill (ex. « Réponse aux RH »), pas un nom d’outil.');
+          }
           const existing = await findSkill(args.name);
           const skill = existing
             ? await updateSkill(existing.id, { description: args.description, instructions: args.instructions })
@@ -107,7 +110,7 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       description: [
         "Pose à l'utilisateur une ou plusieurs questions sous forme de formulaire interactif (champs texte, choix unique, choix multiples, confirmation, nombre, date).",
         'À utiliser quand il te manque des informations précises ou pour lui proposer un choix entre plusieurs options, plutôt que de poser une longue question en texte.',
-        "Après l'appel, ton tour s'arrête : la réponse arrivera dans le prochain message de l'utilisateur. N'utilise jamais ce formulaire pour demander un mot de passe : propose plutôt connection_request_setup.",
+        "Après l'appel, ton tour s'arrête : la réponse arrivera dans le prochain message de l'utilisateur. N'utilise jamais ce formulaire pour demander un mot de passe (propose connection_request_setup) ni pour faire valider un e-mail (mail_prepare affiche déjà une carte d'envoi).",
       ].join(' '),
       inputSchema: z.object({
         title: z.string().min(1).max(200).describe('Intitulé du formulaire, ex. « Quelques précisions pour ta candidature »'),
@@ -115,7 +118,7 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
           .array(
             z.object({
               id: z.string().min(1).max(40),
-              label: z.string().min(1).max(300),
+              label: z.string().min(1).max(2000),
               type: z.enum(['text', 'textarea', 'single_choice', 'multi_choice', 'confirm', 'number', 'date']),
               options: z.array(z.string().min(1).max(200)).max(12).optional(),
               required: z.boolean().optional(),
@@ -140,7 +143,13 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
         kind: z.enum(['mail', 'mcp']),
         reason: z.string().min(1).max(400),
       }),
-      execute: async ({ kind, reason }) => ok({ status: 'setup_requested', kind, reason, requestedBy: ctx.agent.id }),
+      execute: async ({ kind, reason }) =>
+        ok({
+          status: 'setup_requested',
+          kind,
+          reason,
+          note: `Une carte avec un bouton « ${kind === 'mail' ? 'Connecter' : 'Configurer'} » est affichée à l'utilisateur. Tu seras réveillé quand la connexion sera établie.`,
+        }),
     });
   }
 
@@ -243,7 +252,13 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
             input: { draftId: draft.id },
           });
           await setDraftApproval(draft.id, approval.id);
-          return ok({ status: 'pending_approval', approvalId: approval.id, draftId: draft.id, summary: approval.summary, note: PENDING_NOTE });
+          return ok({
+            status: 'pending_approval',
+            approvalId: approval.id,
+            draftId: draft.id,
+            summary: approval.summary,
+            note: `${PENDING_NOTE} La carte affiche déjà l'e-mail complet avec les boutons Envoyer / Modifier / Abandonner : ne recopie pas le message, dis-le en une phrase. N'annonce aucune autre action (classement, archivage…) que tu n'as pas effectuée.`,
+          });
         }),
     });
   }

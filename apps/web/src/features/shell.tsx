@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  CalendarClockIcon,
   MenuIcon,
   MessagesSquareIcon,
+  PlugIcon,
+  SparklesIcon,
   MoonIcon,
   PanelRightIcon,
   PauseCircleIcon,
@@ -23,13 +26,23 @@ import { ApprovalCard } from "./chat/approval-card";
 import { AgentPanel } from "./panels/agent-panel";
 import { DotAvatar } from "./dot-avatar";
 import { SettingsDialog } from "./settings-dialog";
-import { TeamView } from "./team-view";
+import { lazy, Suspense } from "react";
 
-type Route = { view: "agent"; id: string | null } | { view: "team" };
+// Pages et modales secondaires chargées à la demande.
+const TeamView = lazy(() => import("./team-view").then((m) => ({ default: m.TeamView })));
+const TasksPage = lazy(() => import("./pages/tasks-page").then((m) => ({ default: m.TasksPage })));
+const SkillsPage = lazy(() => import("./pages/skills-page").then((m) => ({ default: m.SkillsPage })));
+const ConnectorsPage = lazy(() => import("./pages/connectors-page").then((m) => ({ default: m.ConnectorsPage })));
+const DialogHost = lazy(() => import("./dialogs/dialog-host").then((m) => ({ default: m.DialogHost })));
+
+type PageView = "team" | "tasks" | "skills" | "connectors";
+type Route = { view: "agent"; id: string | null } | { view: PageView };
+const PAGES: PageView[] = ["team", "tasks", "skills", "connectors"];
+const PAGE_TITLES: Record<PageView, string> = { team: "Équipe", tasks: "Tâches planifiées", skills: "Skills", connectors: "Connecteurs" };
 
 function parseHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
-  if (h === "team") return { view: "team" };
+  if ((PAGES as string[]).includes(h)) return { view: h as PageView };
   const m = /^agent\/(.+)$/.exec(h);
   return { view: "agent", id: m?.[1] ?? null };
 }
@@ -41,7 +54,7 @@ function useRoute(): [Route, (r: Route) => void] {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  return [route, (r) => (window.location.hash = r.view === "team" ? "/team" : `/agent/${r.id}`)];
+  return [route, (r) => (window.location.hash = r.view === "agent" ? `/agent/${r.id}` : `/${r.view}`)];
 }
 
 const BUSY = ["thinking", "working", "collaborating", "awake"];
@@ -121,6 +134,15 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
             <PauseCircleIcon className="size-3.5" /> Activités autonomes suspendues
           </div>
         )}
+        <SideButton active={route.view === "tasks"} onClick={() => go({ view: "tasks" })} icon={<CalendarClockIcon />}>
+          Tâches planifiées
+        </SideButton>
+        <SideButton active={route.view === "skills"} onClick={() => go({ view: "skills" })} icon={<SparklesIcon />}>
+          Skills
+        </SideButton>
+        <SideButton active={route.view === "connectors"} onClick={() => go({ view: "connectors" })} icon={<PlugIcon />}>
+          Connecteurs
+        </SideButton>
         <SideButton active={route.view === "team"} onClick={() => go({ view: "team" })} icon={<MessagesSquareIcon />}>
           Échanges de l’équipe
         </SideButton>
@@ -245,8 +267,8 @@ export function Shell() {
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setNavOpen(true)} aria-label="Menu">
             <MenuIcon />
           </Button>
-          {route.view === "team" ? (
-            <span className="font-medium">Équipe</span>
+          {route.view !== "agent" ? (
+            <span className="font-medium">{PAGE_TITLES[route.view]}</span>
           ) : current ? (
             <>
               <DotAvatar color={current.color} state={current.state} size={28} named={current.named} />
@@ -270,8 +292,15 @@ export function Shell() {
         </header>
 
         <div className="flex min-h-0 flex-1">
+          <Suspense fallback={<div className="flex-1" />}>
           {route.view === "team" ? (
             <TeamView />
+          ) : route.view === "tasks" ? (
+            <TasksPage />
+          ) : route.view === "skills" ? (
+            <SkillsPage />
+          ) : route.view === "connectors" ? (
+            <ConnectorsPage />
           ) : current ? (
             <>
               <ChatView agent={current} />
@@ -282,6 +311,7 @@ export function Shell() {
               )}
             </>
           ) : null}
+          </Suspense>
         </div>
       </main>
 
@@ -295,6 +325,9 @@ export function Shell() {
       )}
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <ApprovalsDialog open={approvalsOpen} onOpenChange={setApprovalsOpen} />
+      <Suspense fallback={null}>
+        <DialogHost />
+      </Suspense>
     </div>
   );
 }

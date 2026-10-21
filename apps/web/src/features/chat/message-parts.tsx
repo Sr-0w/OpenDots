@@ -4,6 +4,9 @@ import {
   BotIcon,
   BrainIcon,
   CalendarClockIcon,
+  ClipboardListIcon,
+  MailIcon,
+  PlugIcon,
   EyeIcon,
   GlobeIcon,
   KeyRoundIcon,
@@ -20,6 +23,7 @@ import type { ODMessage } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { cn, formatDateTime } from "@/lib/utils";
 import { ApprovalCard } from "./approval-card";
+import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard } from "./cards";
 import { DotAvatar } from "../dot-avatar";
 
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
@@ -73,9 +77,26 @@ function describeTool(name: string, input: any, output: any): { title: string; i
       return { title: "Supprime une activité", icon: <CalendarClockIcon className="size-3.5" /> };
     case "web_fetch":
       return { title: `Lit ${output?.title ? `« ${String(output.title).slice(0, 40)} »` : host(i.url)}`, icon: <GlobeIcon className="size-3.5" /> };
+    case "ask_user":
+      return { title: "Te pose des questions", icon: <ClipboardListIcon className="size-3.5" /> };
+    case "connection_request_setup":
+      return { title: i.kind === "mail" ? "Demande une connexion mail" : "Demande un connecteur", icon: <PlugIcon className="size-3.5" /> };
+    case "skill_use":
+      return { title: `Applique le skill « ${i.name ?? ""} »`, icon: <SparklesIcon className="size-3.5" /> };
+    case "skill_save":
+      return { title: `Enregistre le skill « ${i.name ?? ""} »`, icon: <SparklesIcon className="size-3.5" /> };
+    case "mail_list_accounts":
+      return { title: "Consulte les comptes mail", icon: <MailIcon className="size-3.5" /> };
+    case "mail_search":
+      return { title: i.from ? `Cherche les e-mails de ${i.from}` : "Cherche dans les e-mails", icon: <MailIcon className="size-3.5" /> };
+    case "mail_read":
+      return { title: output?.subject ? `Lit « ${String(output.subject).slice(0, 40)} »` : "Lit un e-mail", icon: <MailIcon className="size-3.5" /> };
+    case "mail_prepare":
+      return { title: "Prépare un e-mail", icon: <MailIcon className="size-3.5" /> };
     case "approval_respond":
       return { title: i.decision === "reject" ? "Transmet ton refus" : "Transmet ton accord", icon: <KeyRoundIcon className="size-3.5" /> };
     default:
+      if (name.startsWith("mcp_")) return { title: name.replace(/^mcp_/, "").replace(/_/g, " "), icon: <PlugIcon className="size-3.5" /> };
       return { title: name, icon: null };
   }
 }
@@ -124,6 +145,21 @@ function EventChip({ message }: { message: ODMessage }) {
   );
 }
 
+/** Rendu riche de certains outils, directement dans la conversation. */
+function ToolCard({ part, agentId }: { part: ToolUIPart; agentId?: string }) {
+  if (part.state !== "output-available") return null;
+  const name = part.type.slice(5);
+  const out = (part as any).output;
+  const input = (part as any).input ?? {};
+  if (!out || out.ok === false) return null;
+  if (name === "ask_user" && out.requestId) return <AskUserCard requestId={out.requestId} title={input.title} questions={input.questions ?? []} />;
+  if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} reason={input.reason} agentId={agentId} />;
+  if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
+  if (name === "activity_create" && out.activity) return <ActivityCreatedCard title={out.activity.title} when={out.activity.when} kind={out.activity.kind} />;
+  if (out.status === "pending_approval" && out.approvalId) return <ApprovalCard approvalId={out.approvalId} fallbackSummary={out.summary} />;
+  return null;
+}
+
 type Group =
   | { kind: "text"; index: number; text: string }
   | { kind: "file"; index: number; part: Extract<ODMessage["parts"][number], { type: "file" }> }
@@ -163,6 +199,7 @@ export function MessageView({ message, streaming }: { message: ODMessage; stream
         {groups.map((g) => {
           const key = `${message.id}-${g.index}`;
           if (g.kind === "text") {
+            if (message.role === "user" && message.metadata?.answer) return <AnswerBubble key={key} text={g.text} />;
             return message.role === "user" ? (
               <p key={key} className="whitespace-pre-wrap">{g.text}</p>
             ) : (
@@ -194,12 +231,9 @@ export function MessageView({ message, streaming }: { message: ODMessage; stream
                   ))}
                 </div>
               )}
-              {g.tools.map((t) => {
-                const out = (t as any).output;
-                return out?.status === "pending_approval" && out.approvalId ? (
-                  <ApprovalCard key={out.approvalId} approvalId={out.approvalId} fallbackSummary={out.summary} />
-                ) : null;
-              })}
+              {g.tools.map((t) => (
+                <ToolCard key={`card-${t.toolCallId}`} part={t} agentId={message.metadata?.agentId} />
+              ))}
             </div>
           );
         })}

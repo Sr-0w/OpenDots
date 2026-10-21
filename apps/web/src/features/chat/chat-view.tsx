@@ -15,6 +15,7 @@ import { useServerEvent } from "@/lib/store";
 import { DotAvatar } from "../dot-avatar";
 import { Composer } from "./composer";
 import { MessageView } from "./message-parts";
+import { ChatActionsContext } from "./cards";
 
 const FIRST_SUGGESTIONS = ["Salut !", "Comment devrais-je t’appeler ?", "Qu’est-ce que tu sais faire ?"];
 const SUGGESTIONS = [
@@ -84,11 +85,20 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
   }, [agent.id, status, messages.length]);
 
   const busy = status === "submitted" || status === "streaming";
+  const actions = useMemo(
+    () => ({
+      busy,
+      sendAnswer: (requestId: string, answers: Record<string, unknown>, summary: string) =>
+        void sendMessage({ text: summary, metadata: { kind: "chat", answer: { requestId, answers } } }),
+    }),
+    [busy, sendMessage],
+  );
   const last = messages[messages.length - 1];
   const waiting = status === "submitted" || (status === "streaming" && last?.role === "user");
   const empty = messages.length === 0;
 
   return (
+    <ChatActionsContext.Provider value={actions}>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <Conversation className="min-h-0 flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-4 pt-6 pb-10 sm:px-6">
@@ -137,6 +147,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
         />
       </div>
     </div>
+    </ChatActionsContext.Provider>
   );
 }
 

@@ -204,7 +204,15 @@ export type ServerEvent =
   | { type: 'agent.state'; agentId: string; state: AgentState; detail: string | null }
   | { type: 'turn.started'; agentId: string; conversationId: string; autonomous: boolean }
   | { type: 'turn.finished'; agentId: string; conversationId: string }
-  | { type: 'message.created'; conversationId: string; agentId: string | null; messageId: string; hidden: boolean }
+  | {
+      type: 'message.created';
+      conversationId: string;
+      agentId: string | null;
+      messageId: string;
+      hidden: boolean;
+      author: 'user' | 'agent' | 'event';
+      preview: string;
+    }
   | { type: 'activity.changed'; agentId: string }
   | { type: 'approval.changed'; approval: ApprovalDTO }
   | { type: 'memory.changed'; agentId: string | null }

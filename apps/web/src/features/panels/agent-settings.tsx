@@ -20,6 +20,8 @@ const PERMS: { key: Exclude<keyof AgentPermissions, "createAgents">; label: stri
   { key: "manageActivities", label: "Créer des planifications et surveillances" },
   { key: "messageAgents", label: "Échanger avec les autres compagnons" },
   { key: "manageMemory", label: "Gérer sa mémoire" },
+  { key: "mail", label: "Lire les e-mails (l’envoi demande ton accord)" },
+  { key: "connectors", label: "Utiliser les connecteurs MCP" },
 ];
 
 /**

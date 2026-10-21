@@ -13,17 +13,23 @@ import { AGENT_COLORS, newId } from '../util.ts';
 
 export type AgentRow = typeof schema.agents.$inferSelect;
 
+/** Les permissions ajoutées par une version plus récente prennent leur valeur par défaut. */
+function normalize(row: AgentRow): AgentRow {
+  return { ...row, permissions: { ...DEFAULT_PERMISSIONS, ...row.permissions } };
+}
+
 export async function getAgent(id: string): Promise<AgentRow | null> {
   const [row] = await db().select().from(schema.agents).where(eq(schema.agents.id, id));
-  return row ?? null;
+  return row ? normalize(row) : null;
 }
 
 export async function listAgentRows(): Promise<AgentRow[]> {
-  return db()
+  const rows = await db()
     .select()
     .from(schema.agents)
     .where(eq(schema.agents.archived, false))
     .orderBy(asc(schema.agents.sortOrder), asc(schema.agents.createdAt));
+  return rows.map(normalize);
 }
 
 export async function findAgentByName(name: string): Promise<AgentRow | null> {
@@ -31,7 +37,7 @@ export async function findAgentByName(name: string): Promise<AgentRow | null> {
     .select()
     .from(schema.agents)
     .where(and(sql`lower(${schema.agents.name}) = lower(${name.trim()})`, eq(schema.agents.archived, false)));
-  return row ?? null;
+  return row ? normalize(row) : null;
 }
 
 /** Résout un compagnon à partir d'un identifiant ou d'un nom. */

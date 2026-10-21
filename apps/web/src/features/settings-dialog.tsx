@@ -12,6 +12,7 @@ import { api, type SettingsDTO } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
 import { ModelPicker } from "./model-picker";
+import { notificationsEnabled, notificationsSupported, setNotifications } from "@/lib/notify";
 
 /** Paramètres globaux : volontairement peu nombreux (15.3). */
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
@@ -21,6 +22,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [providers, setProviders] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const { theme, setTheme } = useTheme();
+  const [notify, setNotify] = useState(notificationsEnabled);
 
   useEffect(() => {
     if (!open) return;
@@ -161,6 +163,15 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </div>
                 <Switch checked={settings.paused} onCheckedChange={(paused) => update({ paused }, paused ? "Activités suspendues" : "Activités reprises")} />
               </label>
+              {notificationsSupported() && (
+                <label className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-sm">Notifications</p>
+                    <p className="text-muted-foreground text-xs">Messages, validations et questions de tes compagnons quand OpenDots est en arrière-plan.</p>
+                  </div>
+                  <Switch checked={notify} onCheckedChange={async (v) => setNotify(await setNotifications(v))} />
+                </label>
+              )}
               <label className="flex items-center justify-between gap-4">
                 <p className="font-medium text-sm">Thème sombre</p>
                 <Switch checked={theme === "dark"} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} />

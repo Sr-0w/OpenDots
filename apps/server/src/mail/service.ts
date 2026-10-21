@@ -314,7 +314,7 @@ export async function pollAccount(row: ConnectorRow): Promise<number> {
     await withImap(row, 'INBOX', async (client) => {
       const mailbox = client.mailbox as { uidNext: number; uidValidity: bigint };
       const validity = String(mailbox.uidValidity);
-      if (uidValidity !== validity || !state.lastUid) {
+      if (uidValidity !== validity || state.lastUid === undefined) {
         // Première relève (ou boîte réinitialisée) : on ne traite pas l'historique.
         uidValidity = validity;
         lastUid = mailbox.uidNext - 1;

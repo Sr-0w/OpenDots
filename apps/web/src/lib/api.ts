@@ -1,5 +1,16 @@
 import type {
   ActivityDTO,
+  ActivityMailFilter,
+  ActivitySchedule,
+  ActivityWatch,
+  ConnectorDTO,
+  MailConfig,
+  MailDraftDTO,
+  McpConfig,
+  PluginDTO,
+  PluginManifest,
+  SkillDTO,
+  UserRequestDTO,
   AgentDTO,
   ApprovalDTO,
   BootstrapDTO,
@@ -29,6 +40,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) throw new ApiError(data?.error ?? `Erreur ${res.status}`, res.status);
   return data as T;
+}
+
+export interface ActivityInput {
+  title: string;
+  kind: ActivityDTO["kind"];
+  instructions: string;
+  schedule?: ActivitySchedule | null;
+  watch?: ActivityWatch | null;
+  filter?: ActivityMailFilter | null;
 }
 
 export interface ModelInfo {
@@ -84,7 +104,8 @@ export const api = {
   teamThreads: () => request<TeamThreadDTO[]>("GET", "/team/threads"),
 
   activities: (agentId?: string) => request<ActivityDTO[]>("GET", `/activities${agentId ? `?agentId=${agentId}` : ""}`),
-  updateActivity: (id: string, patch: { enabled?: boolean }) => request<ActivityDTO>("PATCH", `/activities/${id}`, patch),
+  createActivity: (input: ActivityInput & { agentId: string }) => request<ActivityDTO>("POST", "/activities", input),
+  updateActivity: (id: string, patch: Partial<ActivityInput> & { enabled?: boolean }) => request<ActivityDTO>("PATCH", `/activities/${id}`, patch),
   deleteActivity: (id: string) => request<{ ok: boolean }>("DELETE", `/activities/${id}`),
   runActivity: (id: string) => request<unknown>("POST", `/activities/${id}/run`),
 
@@ -95,6 +116,41 @@ export const api = {
   memories: (agentId: string) => request<MemoryDTO[]>("GET", `/agents/${agentId}/memories`),
   sharedMemories: () => request<MemoryDTO[]>("GET", "/memories/shared"),
   deleteMemory: (id: string) => request<{ ok: boolean }>("DELETE", `/memories/${id}`),
+
+  skills: () => request<SkillDTO[]>("GET", "/skills"),
+  createSkill: (input: { name: string; description: string; instructions: string }) => request<SkillDTO>("POST", "/skills", input),
+  updateSkill: (id: string, patch: Partial<{ name: string; description: string; instructions: string; enabled: boolean }>) =>
+    request<SkillDTO>("PATCH", `/skills/${id}`, patch),
+  deleteSkill: (id: string) => request<{ ok: boolean }>("DELETE", `/skills/${id}`),
+
+  connectors: () => request<ConnectorDTO[]>("GET", "/connectors"),
+  testMail: (config: MailConfig, password: string, connectorId?: string) =>
+    request<{ ok: boolean; imap: string; smtp: string }>("POST", "/connectors/mail/test", { config, password, connectorId }),
+  createConnector: (input: {
+    name: string;
+    kind: "mcp" | "mail";
+    config: McpConfig | MailConfig;
+    secrets?: Record<string, string>;
+    approval?: "ask" | "auto";
+    requestedBy?: string;
+  }) => request<ConnectorDTO>("POST", "/connectors", input),
+  updateConnector: (
+    id: string,
+    patch: Partial<{ name: string; enabled: boolean; approval: "ask" | "auto"; config: McpConfig | MailConfig; secrets: Record<string, string> }>,
+  ) => request<ConnectorDTO>("PATCH", `/connectors/${id}`, patch),
+  refreshConnector: (id: string) => request<ConnectorDTO & { newMessages?: number }>("POST", `/connectors/${id}/refresh`),
+  deleteConnector: (id: string) => request<{ ok: boolean }>("DELETE", `/connectors/${id}`),
+
+  plugins: () => request<PluginDTO[]>("GET", "/plugins"),
+  previewPlugin: (source: { manifest?: unknown; url?: string }) => request<PluginManifest>("POST", "/plugins/preview", source),
+  installPlugin: (source: { manifest?: unknown; url?: string; secrets?: Record<string, Record<string, string>> }) =>
+    request<{ ok: boolean; id: string }>("POST", "/plugins", source),
+  uninstallPlugin: (id: string) => request<{ ok: boolean }>("DELETE", `/plugins/${id}`),
+
+  draft: (id: string) => request<MailDraftDTO>("GET", `/mail/drafts/${id}`),
+  updateDraft: (id: string, patch: { to?: string[]; cc?: string[]; subject?: string; body?: string }) =>
+    request<MailDraftDTO>("PATCH", `/mail/drafts/${id}`, patch),
+  userRequest: (id: string) => request<UserRequestDTO>("GET", `/requests/${id}`),
 
   journal: (agentId?: string) => request<JournalEntryDTO[]>("GET", `/journal${agentId ? `?agentId=${agentId}` : ""}`),
 };

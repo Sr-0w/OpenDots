@@ -197,6 +197,8 @@ export function createApi() {
             manageActivities: z.boolean(),
             messageAgents: z.boolean(),
             manageMemory: z.boolean(),
+            mail: z.boolean(),
+            connectors: z.boolean(),
             createAgents: z.enum(['allow', 'ask', 'deny']),
           })
           .partial()
@@ -435,7 +437,7 @@ export function createApi() {
     if (!agentId || !(await getAgent(agentId))) return;
     await enqueue(
       'agent.wake',
-      { agentId, event: { type: 'system', title: 'Nouvelle connexion' }, text: `${text}\nReprends la tâche qui nécessitait cette connexion, si besoin.`, depth: 0 },
+      { agentId, event: { type: 'system', title: 'Nouvelle connexion' }, text: `${text}\nReprends la tâche qui nécessitait cette connexion et confirme en une ou deux phrases à l'utilisateur ce que tu vas faire.`, depth: 0 },
       { agentId },
     );
   }

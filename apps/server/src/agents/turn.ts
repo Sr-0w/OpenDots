@@ -1,4 +1,4 @@
-import { convertToModelMessages, hasToolCall, isStepCount, streamText, toUIMessageStream, type UIMessageChunk } from 'ai';
+import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
 import type { MessageMetadata } from '@opendots/shared';
 import { config } from '../config.ts';
@@ -33,6 +33,13 @@ const agentLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
+const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+)$/;
+
+/** Le tour s'arrête dès qu'un formulaire a été présenté à l'utilisateur. */
+const formShown: StopCondition<any> = ({ steps }) =>
+  (steps[steps.length - 1]?.toolResults ?? []).some(
+    (r: any) => r.toolName === 'ask_user' && (r.output as { status?: string } | undefined)?.status === 'awaiting_user',
+  );
 
 export function isAgentBusy(agentId: string) {
   return agentLocks.isLocked(agentId);
@@ -198,7 +205,7 @@ async function executeTurn(
       instructions: system,
       messages: await convertToModelMessages(history, { ignoreIncompleteToolCalls: true }),
       tools,
-      stopWhen: [isStepCount(config.maxStepsPerTurn), hasToolCall('ask_user')],
+      stopWhen: [isStepCount(config.maxStepsPerTurn), formShown],
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
       abortSignal: stream.abort.signal,
@@ -220,10 +227,9 @@ async function executeTurn(
       generateMessageId: () => responseId,
       sendReasoning: true,
       messageMetadata: ({ part }) => (part.type === 'start' ? { ...metadata, createdAt: new Date().toISOString() } : undefined),
-      onError: (error) => {
-        turnError = errorMessage(error);
-        return `Le modèle a rencontré une erreur : ${turnError}`;
-      },
+      // Erreurs d'outils incluses : elles sont renvoyées au modèle, qui peut corriger.
+      // Les erreurs fatales du flux sont capturées par onError de streamText.
+      onError: (error) => errorMessage(error).slice(0, 2000),
       onEnd: ({ responseMessage }) => {
         finalMessage = responseMessage;
       },
@@ -248,7 +254,9 @@ async function executeTurn(
   // 2. Persistance de la réponse
   const response = finalMessage as OpenDotsUIMessage | null;
   const text = response ? messageText(response) : '';
-  const silent = autonomous && !pair && (SILENCE.test(text) || (!text && !turnError));
+  // Un réveil n'est masqué que s'il n'a rien produit de visible pour l'utilisateur.
+  const acted = (response?.parts ?? []).some((p: any) => typeof p.type === 'string' && VISIBLE_EFFECT_TOOLS.test(p.type.slice(5)) && p.output?.ok !== false);
+  const silent = autonomous && !pair && !acted && (SILENCE.test(text) || (!text && !turnError));
   if (response && response.parts.length) {
     const parts = SILENCE.test(text) ? response.parts.filter((p) => p.type !== 'text') : response.parts;
     await saveMessage(

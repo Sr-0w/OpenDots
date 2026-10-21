@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  CalendarClockIcon,
-  CopyIcon,
-  EyeIcon,
-  RotateCwIcon,
-  Trash2Icon,
-  WebhookIcon,
-} from "lucide-react";
+import { CopyIcon, PencilIcon, PlusIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import type { ActivityDTO, AgentDTO, JournalEntryDTO, MemoryDTO } from "@opendots/shared";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -16,25 +9,18 @@ import { useServerEvent } from "@/lib/store";
 import { cn, formatDateTime, relativeTime } from "@/lib/utils";
 import { toast } from "sonner";
 import { AgentSettings } from "./agent-settings";
-
-function describeSchedule(a: ActivityDTO) {
-  const s = a.schedule;
-  if (a.kind === "webhook") return "À chaque appel du webhook";
-  if (!s) return "";
-  if (s.type === "once") return `Le ${formatDateTime(s.at)}`;
-  if (s.type === "interval") return s.minutes % 60 === 0 ? `Toutes les ${s.minutes / 60} h` : `Toutes les ${s.minutes} min`;
-  return `Cron ${s.expr}`;
-}
+import { ACTIVITY_ICONS, describeActivity, STATUS_LABELS } from "../pages/tasks-page";
+import { openDialog } from "@/lib/dialogs";
 
 function ActivityItem({ activity }: { activity: ActivityDTO }) {
-  const Icon = activity.kind === "watch" ? EyeIcon : activity.kind === "webhook" ? WebhookIcon : CalendarClockIcon;
+  const Icon = ACTIVITY_ICONS[activity.kind];
   return (
     <div className={cn("space-y-2 rounded-xl border bg-card/60 p-3", !activity.enabled && "opacity-60")}>
       <div className="flex items-start gap-2.5">
         <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm leading-snug">{activity.title}</p>
-          <p className="text-muted-foreground text-xs">{describeSchedule(activity)}</p>
+          <p className="text-muted-foreground text-xs">{describeActivity(activity)}</p>
         </div>
         <Switch
           checked={activity.enabled}
@@ -68,8 +54,11 @@ function ActivityItem({ activity }: { activity: ActivityDTO }) {
               : activity.schedule?.type === "once" && activity.runCount > 0
                 ? "Terminée"
                 : "Suspendue"}
-          {activity.lastRunAt && ` · Dernière : ${relativeTime(activity.lastRunAt)}${activity.lastStatus ? ` (${activity.lastStatus})` : ""}`}
+          {activity.lastRunAt && ` · Dernière : ${relativeTime(activity.lastRunAt)}${activity.lastStatus ? ` (${STATUS_LABELS[activity.lastStatus] ?? activity.lastStatus})` : ""}`}
         </span>
+        <Button size="icon" variant="ghost" className="size-6" title="Modifier" onClick={() => openDialog({ kind: "activity", activity })}>
+          <PencilIcon className="size-3" />
+        </Button>
         <Button size="icon" variant="ghost" className="size-6" title="Exécuter maintenant" onClick={() => api.runActivity(activity.id).then(() => toast.success("Exécution lancée")).catch((e) => toast.error(e.message))}>
           <RotateCwIcon className="size-3" />
         </Button>
@@ -126,6 +115,9 @@ export function AgentPanel({ agent }: { agent: AgentDTO }) {
           />
         )}
         {activities?.map((a) => <ActivityItem key={a.id} activity={a} />)}
+        <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => openDialog({ kind: "activity", agentId: agent.id })}>
+          <PlusIcon /> Ajouter manuellement
+        </Button>
       </TabsContent>
 
       <TabsContent value="memory" className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">

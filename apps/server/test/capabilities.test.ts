@@ -242,6 +242,26 @@ describe('mail', () => {
     expect((wakes[0].payload as any).text).toContain('non fiable');
   });
 
+  it('ne perd pas le premier e-mail quand la boîte était vide à la connexion', async () => {
+    const empty = hoodiecrow({ storage: { INBOX: { messages: [] } } });
+    await new Promise<void>((r) => empty.listen(0, '127.0.0.1', () => r()));
+    const port = empty.server?.address?.().port ?? empty.address?.().port;
+    const account = await createConnector({
+      name: 'Vide',
+      kind: 'mail',
+      config: { ...mailConfig(), email: 'vide@exemple.com', imap: { host: '127.0.0.1', port, secure: false } },
+      secrets: { password: 'testpass' },
+    });
+    expect(await pollAccount(account)).toBe(0);
+    expect(await pollAccount((await getConnector(account.id))!)).toBe(0);
+    const client = new ImapFlow({ host: '127.0.0.1', port, secure: false, auth: { user: 'testuser', pass: 'testpass' }, logger: false });
+    await client.connect();
+    await client.append('INBOX', 'From: a@b.com\r\nSubject: Premier\r\n\r\nBonjour');
+    await client.logout();
+    expect(await pollAccount((await getConnector(account.id))!)).toBe(1);
+    empty.close?.();
+  });
+
   it('les outils mail suivent la permission du compagnon', async () => {
     const ctx = await ctxFor('SansMail');
     ctx.agent.permissions = { ...ctx.agent.permissions, mail: false };

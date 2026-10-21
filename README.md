@@ -45,7 +45,13 @@ Aucune base de données à installer : OpenDots embarque PostgreSQL (PGlite) dan
 | **Mémoire** | Souvenirs privés ou partagés, recherche plein texte, sélection contextuelle, correction et oubli par conversation |
 | **Modèles** | OpenRouter (raisonnement, fournisseur préféré), Ollama local ou réseau, modèle par compagnon ou par défaut |
 | **Sécurité** | Secrets hors base et jamais envoyés au modèle ; outils de configuration indisponibles lors des réveils autonomes ; contenus externes marqués non fiables ; protection SSRF ; extension de permissions soumise à validation ; journal des opérations |
-| **Interface** | React, shadcn/ui, AI Elements, AI SDK ; liste des compagnons, panneau Activités / Mémoire / Journal / Profil, validations, paramètres minimaux, thème sombre, mobile |
+| **Mail** | Comptes IMAP/SMTP (préréglages Gmail, Outlook, iCloud…), relève périodique, règles « à la réception d'un e-mail » filtrées par expéditeur/objet, recherche et lecture, brouillons présentés dans une carte « Prêt à envoyer » (Envoyer / Modifier / Abandonner) |
+| **Skills** | Savoir-faire partagés par tous les compagnons, chargés à la demande ; créés depuis la page Skills ou en disant « enregistre ça comme skill » |
+| **Connecteurs MCP** | Serveurs HTTP, SSE ou locaux (stdio), secrets chiffrés, validation à chaque appel ou exécution directe, serveurs en panne isolés |
+| **Plugins** | Paquets de skills et de connecteurs décrits par un manifeste JSON (URL ou collé), aperçu avant installation — voir [`examples/plugin-redaction.json`](examples/plugin-redaction.json) |
+| **Interactions** | Formulaires dans la conversation (texte, choix unique, choix multiples, confirmation, nombre, date), demandes de connexion avec bouton vers une modale sécurisée, cartes « tâche créée » |
+| **Tâches planifiées** | Page dédiée : toutes les routines, surveillances, règles mail et webhooks, avec pause/reprise, édition manuelle (répétition, jours, heure, cron, conditions), exécution immédiate |
+| **Interface** | React, shadcn/ui, AI Elements, AI SDK ; liste des compagnons, panneau Activités / Mémoire / Journal / Profil, validations, notifications du navigateur, paramètres minimaux, thème sombre, mobile |
 
 ## Architecture
 
@@ -58,6 +64,10 @@ apps/
     src/team/         Messaging Service entre compagnons
     src/approvals/    Permission Engine : validations humaines
     src/memory/       Memory Service
+    src/mail/         Mail Service (IMAP, SMTP, brouillons, relève)
+    src/connectors/   Connecteurs MCP et plugins
+    src/skills/       Skills partagés
+    src/requests/     Formulaires adressés à l'utilisateur
     src/models/       Model Gateway (OpenRouter, Ollama)
     src/api/          API REST + SSE temps réel + webhooks
   web/      Interface React (Vite, Tailwind, shadcn/ui, AI Elements)
@@ -79,11 +89,16 @@ pnpm --filter @opendots/server db:generate   # après modification de src/db/sch
 
 Derrière un proxy HTTP(S), les variables `HTTPS_PROXY` / `NO_PROXY` sont respectées.
 
+Pour essayer les connecteurs sans service externe :
+
+- un serveur MCP de démonstration : commande `node`, arguments `--import <chemin>/apps/server/node_modules/tsx/dist/loader.mjs <chemin>/apps/server/test/fixtures/mcp-server.ts` ;
+- une boîte mail locale : `node apps/server/node_modules/hoodiecrow-imap/bin/hoodiecrow.js --port=1143 --smtpPort=1025` (identifiant `testuser`, mot de passe `testpass`, SSL désactivé), avec `OPENDOTS_MAIL_INSECURE_TLS=1` pour accepter son certificat de test.
+
 ## Feuille de route
 
 - [x] **Phase 1** — Fondations conversationnelles
 - [x] **Phase 2** — Mémoire, outils, permissions, Ollama (recherche sémantique à venir)
-- [~] **Phase 3** — Autonomie : planifications, surveillances, webhooks, approbations, reprise ✔ — service mail (IMAP/SMTP, Gmail, Graph) à venir
+- [x] **Phase 3** — Autonomie : planifications, surveillances, webhooks, service mail IMAP/SMTP, approbations, reprise (Gmail API / Microsoft Graph natifs à venir)
 - [x] **Phase 4** — Collaboration multi-agents (partage de fichiers à venir)
 - [ ] **Phase 5** — Ordinateur Linux partagé (VM, navigateur, computer use)
 - [ ] **Phase 6** — Distribution desktop Tauri, notifications natives, sauvegarde
