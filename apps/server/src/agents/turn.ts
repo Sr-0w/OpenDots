@@ -48,14 +48,30 @@ export function isAgentBusy(agentId: string) {
   return agentLocks.isLocked(`${accountKey()}:${agentId}`);
 }
 
-function compactToolOutput(output: unknown): unknown {
+const MESSAGE_CHAR_CAP = 12_000;
+
+function compactToolOutput(output: unknown, max = 3000): unknown {
   const json = JSON.stringify(output ?? null);
-  if (json.length <= 3000) return output;
-  return { truncated: true, preview: json.slice(0, 3000) };
+  if (json.length <= max) return output;
+  return { truncated: true, preview: json.slice(0, max) };
+}
+
+/**
+ * Compacte entrées et sorties d'outils d'un message assistant. Un seul tour
+ * très outillé (fichiers écrits via le shell, longues listes) ne doit pas
+ * consommer tout le budget et faire oublier le reste de la conversation.
+ */
+function compactAssistantParts(parts: any[]): any[] {
+  const pass = (max: number) => parts
+    .filter((p) => p.type !== 'reasoning')
+    .map((p: any) => (p.type?.startsWith('tool-') ? { ...p, ...('input' in p ? { input: compactToolOutput(p.input, max) } : {}), ...('output' in p ? { output: compactToolOutput(p.output, max) } : {}) } : p));
+  let out = pass(3000);
+  if (JSON.stringify(out).length > MESSAGE_CHAR_CAP) out = pass(400);
+  return out;
 }
 
 /** Prépare l'historique pour le modèle : rôles, événements, sorties d'outils compactées. */
-function historyForModel(
+export function historyForModel(
   messages: OpenDotsUIMessage[],
   self: AgentRow,
   names: Map<string, string>,
@@ -79,9 +95,7 @@ function historyForModel(
     if (msg.role === 'assistant') {
       msg = {
         ...msg,
-        parts: msg.parts
-          .filter((p) => p.type !== 'reasoning')
-          .map((p: any) => (p.type?.startsWith('tool-') && 'output' in p ? { ...p, output: compactToolOutput(p.output) } : p)),
+        parts: compactAssistantParts(msg.parts as any[]) as OpenDotsUIMessage['parts'],
       };
     }
     budget -= JSON.stringify(msg.parts).length;

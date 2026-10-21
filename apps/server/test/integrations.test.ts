@@ -300,6 +300,8 @@ describe('GitHub : dépôts, pull requests et git push', () => {
     expect(ops).toEqual(expect.arrayContaining(['github_repos', 'github_repo_create', 'github_pr_create', 'github_branch_create', 'github_pr_merge', 'github_push']));
     expect(OPERATIONS.filter((o) => o.permission === 'code').every((o) => o.write)).toBe(true);
     expect(availableOperations({ provider: 'github', permissions: ['read', 'write'] } as never).some((o) => o.permission === 'code')).toBe(false);
+    // repo (dépôts privés) couvre déjà ces opérations : pas besoin de reconnecter.
+    expect(availableOperations({ provider: 'github', permissions: ['read', 'private'] } as never).map((o) => o.id)).toEqual(expect.arrayContaining(['github_repo_create', 'github_pr_create', 'github_push']));
   });
   it('neutralise hooks, assistants et proxy du dépôt sans jamais placer le jeton dans les arguments', () => {
     const args = gitPushArgs({ path: '.', repo: 'owner/project', branch: 'main' });

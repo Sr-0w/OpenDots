@@ -47,7 +47,7 @@ export const OPERATIONS: Operation[] = [
   op('github', 'github_pr_merge', 'code', 'Fusionner une pull request GitHub', z.object({ repo, number: z.number().int().positive(), method: z.enum(['merge', 'squash', 'rebase']).default('merge'), commit_title: z.string().max(256).optional() }).strict(), true),
   op('github', 'github_push', 'code', 'Pousser (git push) une branche depuis l’ordinateur du compagnon', z.object({ repo, path: workspacePath, branch, set_upstream: z.boolean().default(true) }).strict(), true),
 ];
-export function availableOperations(config: IntegrationConfig) { return OPERATIONS.filter((o) => o.provider === config.provider && (config.permissions.includes(o.permission) || config.provider === 'github' && o.permission === 'read' && (config.permissions.includes('private') || config.permissions.includes('code')))); }
+export function availableOperations(config: IntegrationConfig) { return OPERATIONS.filter((o) => o.provider === config.provider && (config.permissions.includes(o.permission) || config.provider === 'github' && (o.permission === 'read' && (config.permissions.includes('private') || config.permissions.includes('code')) || o.permission === 'code' && config.permissions.includes('private')))); }
 export function operationFor(row: ConnectorRow, operation: string) {
   if (row.kind !== 'integration' || !row.enabled) throw new ConnectorError('Connexion indisponible.');
   const found = availableOperations(row.config as IntegrationConfig).find((o) => o.id === operation);

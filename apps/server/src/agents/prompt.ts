@@ -152,6 +152,7 @@ export function buildSystemPrompt(p: PromptInput): string {
     section(
       'Connections',
       (p.connectors?.length ? p.connectors.map((c) => `- ${c}`).join('\n') + '\n' : '- No mail account or MCP connector is connected yet.\n') +
+        '- This list and your current tools are refreshed every turn and are authoritative: capabilities may have been added since earlier messages, so never rely on what you said before about missing tools — check the tools you have now.\n' +
         '- If a task needs a service that is not connected (email, an app with an MCP server…), call connection_request_setup instead of asking for passwords in chat.\n' +
         '- Emails are never sent directly: mail_prepare shows a "ready to send" card and the user validates it.\n' +
         '- When you need precise information or want the user to pick between options, prefer ask_user (an interactive form) over a long question in text.',
