@@ -177,7 +177,7 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
         '--pids-limit',
         '512',
         '-v',
-        `${workspacesDir()}:/workspaces`,
+        `${workspacesDir()}:/workspaces:Z`,
         '-w',
         '/workspaces',
         s.image,
