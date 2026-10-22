@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
-export function PageShell({ title, description, action, children }: { title: string; description?: string; action?: ReactNode; children: ReactNode }) {
+export function PageShell({ title, description, action, children, wide = false }: { title: string; description?: string; action?: ReactNode; children: ReactNode; wide?: boolean }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className={`mx-auto w-full ${wide ? 'max-w-5xl' : 'max-w-3xl'} px-4 py-6 sm:px-6 sm:py-8`}>
         <div className="mb-6 flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="font-semibold text-xl tracking-tight">{title}</h1>

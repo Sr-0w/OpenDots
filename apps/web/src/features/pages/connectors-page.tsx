@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { MailIcon, MoreHorizontalIcon, PackageIcon, PencilIcon, PlugIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
-import type { ConnectorDTO, MailConfig, McpConfig, PluginDTO } from "@opendots/shared";
+import { MoreHorizontalIcon, PackageIcon, PencilIcon, PlugIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import type { ConnectorDTO, McpConfig, PluginDTO } from "@opendots/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -25,31 +25,16 @@ export function ConnectorsPage() {
   useEffect(reload, [reload]);
   useServerEvent((e) => (e.type === "connectors.changed" || e.type === "skills.changed") && reload(), [reload]);
 
-  const mail = connectors?.filter((c) => c.kind === "mail") ?? [];
   const mcp = connectors?.filter((c) => c.kind === "mcp") ?? [];
 
   return (
     <PageShell
-      title={t("Connecteurs")}
+      wide
+      title={t("Magasin de connecteurs")}
       description={t("Les services que tes compagnons peuvent utiliser. Partagés par toute l’équipe ; les actions sensibles demandent toujours ta validation.")}
     >
       <IntegrationCatalog connectors={connectors ?? []} />
-      <Section
-        icon={<MailIcon className="size-4" />}
-        title={t("Comptes mail")}
-        hint={t("Lecture, relève automatique et réponses préparées — l’envoi attend ton accord.")}
-        action={
-          <Button size="sm" variant="outline" onClick={() => openDialog({ kind: "mail" })}>
-            <PlusIcon /> {t("Ajouter")}
-          </Button>
-        }
-      >
-        {connectors && !mail.length && <Empty text={t("Aucune boîte mail connectée.")} />}
-        {mail.map((c) => (
-          <ConnectorRow key={c.id} connector={c} subtitle={(c.config as MailConfig).email} />
-        ))}
-      </Section>
-
+      <details className="rounded-2xl border p-5"><summary className="cursor-pointer text-sm font-medium">{t('Connexions personnalisées et plugins')}</summary><div className="pt-6">
       {account?.role === 'admin' && <Section
         icon={<PlugIcon className="size-4" />}
         title={t("Serveurs MCP")}
@@ -100,6 +85,7 @@ export function ConnectorsPage() {
           </div>
         ))}
       </Section>
+      </div></details>
     </PageShell>
   );
 }

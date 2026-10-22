@@ -206,6 +206,14 @@ export interface MessageMetadata {
   answer?: { requestId: string; answers: Record<string, unknown> };
 }
 
+export interface AccountProfileDTO {
+  name: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
+  source: 'gravatar' | null;
+}
+
 export interface BootstrapDTO {
   onboarded: boolean;
   openrouterConfigured: boolean;

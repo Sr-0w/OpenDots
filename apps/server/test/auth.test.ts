@@ -19,7 +19,7 @@ beforeAll(async () => { await authStore(true); });
 afterAll(async () => { await closeAllDatabases(); await closeAuthStore(); });
 describe('authentification et séparation des comptes', () => {
   it('refuse toutes les routes privées sans session, y compris les événements et clés', async () => {
-    for (const path of ['/bootstrap', '/agents', '/connectors', '/settings', '/events']) expect((await request(path)).status).toBe(401);
+    for (const path of ['/bootstrap', '/agents', '/connectors', '/settings', '/events', '/account/profile', '/account/avatar']) expect((await request(path)).status).toBe(401);
   });
   it('crée des comptes sans leur donner les droits administrateur et émet des cookies sûrs', async () => {
     for (const [email, assign] of [['alice@example.com', (v: string) => cookieA = v], ['bob@example.com', (v: string) => cookieB = v]] as const) {

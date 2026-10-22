@@ -1,65 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarClockIcon,
   MenuIcon,
-  MonitorIcon,
-  MessagesSquareIcon,
-  PlugIcon,
-  SparklesIcon,
-  MoonIcon,
   PanelRightIcon,
   PauseCircleIcon,
   SettingsIcon,
-  ShieldQuestionIcon,
-  SunIcon,
   WifiOffIcon,
 } from "lucide-react";
 import { AGENT_STATE_LABELS, type AgentDTO } from "@opendots/shared";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useStore } from "@/lib/store";
-import { useTheme } from "@/lib/theme";
 import { cn, plainPreview, relativeTime } from "@/lib/utils";
 import { ChatView } from "./chat/chat-view";
-import { ApprovalCard } from "./chat/approval-card";
 import { AgentPanel } from "./panels/agent-panel";
 import { DotAvatar } from "./dot-avatar";
-import { SettingsDialog } from "./settings-dialog";
+import { SettingsPage, SETTINGS_SECTIONS, type SettingsSection } from "./pages/settings-page";
+import { AccountAvatar } from "./account-avatar";
 import { lazy, Suspense } from "react";
 
 import { t } from "@/lib/i18n";
-import { api } from '@/lib/api';
 import { useAccount } from '@/lib/account';
 // Pages et modales secondaires chargées à la demande.
-const TeamView = lazy(() => import("./team-view").then((m) => ({ default: m.TeamView })));
-const TasksPage = lazy(() => import("./pages/tasks-page").then((m) => ({ default: m.TasksPage })));
-const SkillsPage = lazy(() => import("./pages/skills-page").then((m) => ({ default: m.SkillsPage })));
-const ComputerPage = lazy(() => import("./pages/computer-page").then((m) => ({ default: m.ComputerPage })));
-const ConnectorsPage = lazy(() => import("./pages/connectors-page").then((m) => ({ default: m.ConnectorsPage })));
 const DialogHost = lazy(() => import("./dialogs/dialog-host").then((m) => ({ default: m.DialogHost })));
 
-type PageView = "team" | "tasks" | "skills" | "connectors" | "computer";
-type Route = { view: "agent"; id: string | null } | { view: PageView };
-const PAGES: PageView[] = ["team", "tasks", "skills", "connectors", "computer"];
-const PAGE_TITLES: Record<PageView, string> = { computer: t("Ordinateur"), team: t("Équipe"), tasks: t("Tâches planifiées"), skills: t("Skills"), connectors: t("Connecteurs") };
-
+type Route = { view: "agent"; id: string | null } | { view: "settings"; section: SettingsSection };
+const LEGACY_PAGES = ['team', 'tasks', 'skills', 'connectors', 'computer', 'approvals'];
 function parseHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
-  if ((PAGES as string[]).includes(h)) return { view: h as PageView };
-  const m = /^agent\/(.+)$/.exec(h);
-  return { view: "agent", id: m?.[1] ?? null };
+  if (LEGACY_PAGES.includes(h)) return { view: 'settings', section: h as SettingsSection };
+  if (h === 'settings' || h.startsWith('settings/')) {
+    const section = h.split('/')[1];
+    return { view: 'settings', section: SETTINGS_SECTIONS.includes(section as SettingsSection) ? section as SettingsSection : 'general' };
+  }
+  const match = /^agent\/(.+)$/.exec(h);
+  return { view: 'agent', id: match?.[1] ?? null };
 }
-
-function useRoute(): [Route, (r: Route) => void] {
+function useRoute(): [Route, (route: Route) => void] {
   const [route, setRoute] = useState(parseHash);
-  useEffect(() => {
-    const on = () => setRoute(parseHash());
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
-  }, []);
-  return [route, (r) => (window.location.hash = r.view === "agent" ? `/agent/${r.id}` : `/${r.view}`)];
+  useEffect(() => { const on = () => setRoute(parseHash()); window.addEventListener('hashchange', on); return () => window.removeEventListener('hashchange', on); }, []);
+  return [route, next => { window.location.hash = next.view === 'agent' ? `/agent/${next.id}` : `/settings/${next.section}`; }];
 }
 
 const BUSY = ["thinking", "working", "collaborating", "awake"];
@@ -95,12 +75,11 @@ function AgentRow({ agent, active, onClick }: { agent: AgentDTO; active: boolean
   );
 }
 
-function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r: Route) => void; onSettings: () => void; onApprovals: () => void }) {
+function Sidebar({ route, go }: { route: Route; go: (r: Route) => void }) {
   const agents = useStore((s) => s.agents);
   const pending = useStore((s) => s.approvals.filter((a) => a.status === "pending").length);
   const paused = useStore((s) => s.paused);
   const connected = useStore((s) => s.connected);
-  const { theme, toggle } = useTheme();
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
@@ -126,52 +105,24 @@ function Sidebar({ route, go, onSettings, onApprovals }: { route: Route; go: (r:
         {agents.map((a) => (
           <AgentRow key={a.id} agent={a} active={route.view === "agent" && route.id === a.id} onClick={() => go({ view: "agent", id: a.id })} />
         ))}
-        {agents.length > 0 && agents.length < 3 && (
-          <p className="px-3 pt-3 text-[11px] text-muted-foreground leading-relaxed">
-            {t("Pour créer un compagnon, demande-le simplement : « crée un compagnon qui s’occupera de… »")}
-          </p>
-        )}
       </nav>
 
       <div className="space-y-0.5 border-t p-2">
-        <AccountFooter />
         {paused && (
           <div className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-foreground text-xs">
             <PauseCircleIcon className="size-3.5" /> {t("Activités autonomes suspendues")}
           </div>
         )}
-        <SideButton active={route.view === "tasks"} onClick={() => go({ view: "tasks" })} icon={<CalendarClockIcon />}>
-          {t("Tâches planifiées")}
-        </SideButton>
-        <SideButton active={route.view === "skills"} onClick={() => go({ view: "skills" })} icon={<SparklesIcon />}>
-          {t("Skills")}
-        </SideButton>
-        <SideButton active={route.view === "computer"} onClick={() => go({ view: "computer" })} icon={<MonitorIcon />}>{t("Ordinateur")}</SideButton>
-        <SideButton active={route.view === "connectors"} onClick={() => go({ view: "connectors" })} icon={<PlugIcon />}>
-          {t("Connecteurs")}
-        </SideButton>
-        <SideButton active={route.view === "team"} onClick={() => go({ view: "team" })} icon={<MessagesSquareIcon />}>
-          {t("Échanges de l’équipe")}
-        </SideButton>
-        <SideButton onClick={onApprovals} icon={<ShieldQuestionIcon />} badge={pending}>
-          {t("Validations")}
-        </SideButton>
-        <div className="flex items-center gap-1">
-          <SideButton onClick={onSettings} icon={<SettingsIcon />} className="flex-1">
-            {t("Paramètres")}
-          </SideButton>
-          <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={toggle} aria-label={t("Changer de thème")}>
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </Button>
-        </div>
+        <SideButton active={route.view === 'settings'} onClick={() => go({ view: 'settings', section: 'general' })} icon={<SettingsIcon />} badge={pending}>{t('Paramètres')}</SideButton>
+        <AccountFooter onClick={() => go({ view: 'settings', section: 'general' })} />
       </div>
     </div>
   );
 }
 
-function AccountFooter() {
+function AccountFooter({ onClick }: { onClick: () => void }) {
   const account = useAccount();
-  return account ? <div className="mb-2 flex items-center gap-2 px-2 text-xs"><span className="min-w-0 flex-1 truncate text-muted-foreground" title={account.email}>{account.email}</span><button className="shrink-0 underline" onClick={() => api.logout().then(() => location.reload())}>{t('Se déconnecter')}</button></div> : null;
+  return account ? <button onClick={onClick} aria-label={t('Mon compte')} className="mt-2 flex w-full min-w-0 items-center gap-2.5 rounded-xl border-t px-2 py-3 text-left hover:bg-accent"><AccountAvatar /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{account.profile?.name ?? account.email}</span><span className="block truncate text-[11px] text-muted-foreground">{account.profile?.name ? account.email : t('Compte personnel')}</span></span></button> : null;
 }
 
 function SideButton({
@@ -205,47 +156,12 @@ function SideButton({
   );
 }
 
-function ApprovalsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const approvals = useStore((s) => s.approvals);
-  const agents = useStore((s) => s.agents);
-  const pending = approvals.filter((a) => a.status === "pending");
-  const recent = approvals.filter((a) => a.status !== "pending").slice(0, 8);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{t("Validations")}</DialogTitle>
-        </DialogHeader>
-        {pending.length === 0 && <p className="text-muted-foreground text-sm">{t("Rien n’attend ta validation.")}</p>}
-        <div className="space-y-3">
-          {pending.map((a) => (
-            <div key={a.id} className="space-y-1.5">
-              <p className="text-muted-foreground text-xs">{agents.find((g) => g.id === a.agentId)?.name}</p>
-              <ApprovalCard approvalId={a.id} />
-            </div>
-          ))}
-        </div>
-        {recent.length > 0 && (
-          <div className="space-y-2 border-t pt-3">
-            <p className="font-medium text-muted-foreground text-xs">{t("Récemment")}</p>
-            {recent.map((a) => (
-              <ApprovalCard key={a.id} approvalId={a.id} />
-            ))}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function Shell() {
   const agents = useStore((s) => s.agents);
   const [route, go] = useRoute();
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
   const [mobilePanel, setMobilePanel] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [approvalsOpen, setApprovalsOpen] = useState(false);
 
   const current = useMemo(() => {
     if (route.view !== "agent") return null;
@@ -262,7 +178,7 @@ export function Shell() {
     setNavOpen(false);
   };
 
-  const sidebar = <Sidebar route={route} go={navigate} onSettings={() => setSettingsOpen(true)} onApprovals={() => setApprovalsOpen(true)} />;
+  const sidebar = <Sidebar route={route} go={navigate} />;
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -280,7 +196,7 @@ export function Shell() {
             <MenuIcon />
           </Button>
           {route.view !== "agent" ? (
-            <span className="font-medium">{PAGE_TITLES[route.view]}</span>
+            <span className="font-medium">{t("Paramètres")}</span>
           ) : current ? (
             <>
               <DotAvatar color={current.color} state={current.state} size={28} named={current.named} />
@@ -305,17 +221,8 @@ export function Shell() {
 
         <div className="flex min-h-0 flex-1">
           <Suspense fallback={<div className="flex-1" />}>
-          {route.view === "team" ? (
-            <TeamView />
-          ) : route.view === "tasks" ? (
-            <TasksPage />
-          ) : route.view === "skills" ? (
-            <SkillsPage />
-          ) : route.view === "computer" ? (
-            <ComputerPage />
-          ) : route.view === "connectors" ? (
-            <ConnectorsPage />
-          ) : current ? (
+          {route.view === 'settings' ? (
+            <SettingsPage section={route.section} onSectionChange={section => navigate({ view: 'settings', section })} />          ) : current ? (
             <>
               <ChatView agent={current} />
               {panelOpen && (
@@ -337,8 +244,6 @@ export function Shell() {
           </SheetContent>
         </Sheet>
       )}
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <ApprovalsDialog open={approvalsOpen} onOpenChange={setApprovalsOpen} />
       <Suspense fallback={null}>
         <DialogHost />
       </Suspense>

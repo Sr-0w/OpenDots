@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 import { t } from "@/lib/i18n";
+import { ServiceLogo } from '../service-logo';
 /** Actions de la conversation accessibles aux cartes (réponses aux formulaires). */
 export const ChatActionsContext = createContext<{
   sendAnswer: (requestId: string, answers: Record<string, unknown>, summary: string) => void;
@@ -222,9 +223,9 @@ export function ConnectionRequestCard({ kind, reason, agentId, provider, permiss
   return (
     <div className={cardClass}>
       <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+        {provider ? <ServiceLogo provider={provider} className="size-9 p-2" /> : <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
           <Icon className="size-4" />
-        </div>
+        </div>}
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm">{provider ? `${t('Connecter')} ${provider === 'gmail' ? 'Gmail' : provider === 'google-calendar' ? 'Google Calendar' : provider === 'google-drive' ? 'Google Drive' : provider === 'github' ? 'GitHub' : 'Outlook'}` : kind === "mail" ? t("Connecter une boîte mail") : t("Ajouter un connecteur")}</p>
           <p className="text-muted-foreground text-xs">{reason}</p>

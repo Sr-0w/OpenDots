@@ -6,6 +6,7 @@ import { useServerEvent } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import type { ConnectorDTO, IntegrationConfig } from '@opendots/shared';
 import { t } from '@/lib/i18n';
+import { ServiceLogo } from '../service-logo';
 
 const card = 'not-prose w-full max-w-lg space-y-3 rounded-2xl border bg-card p-4 shadow-xs';
 export function ComputerSetupCard({ agentId, reason }: { agentId: string; reason?: string }) {
@@ -44,7 +45,7 @@ export function WelcomeSetupCards({ agentId }: { agentId: string }) {
       {!catalog && !error && <LoaderIcon className="size-4 animate-spin" />}
       <div className="divide-y">{catalog?.entries.map(entry => {
         const existing = connections.find(c => c.enabled && c.status === 'ok' && (entry.id === 'imap-smtp' ? c.kind === 'mail' : c.kind === 'integration' && (c.config as IntegrationConfig).provider === entry.id));
-        return <div key={entry.id} className="flex items-center justify-between gap-3 py-2"><div className="min-w-0"><p className="text-sm font-medium">{entry.name}</p>{entry.oauth && !catalog.apps.find(a => a.provider === entry.oauth)?.configured && <p className="text-xs text-muted-foreground">{t('Activation par l’administrateur requise')}</p>}</div><Button size="sm" variant="outline" aria-label={`${existing ? t('Gérer') : t('Connecter')} ${entry.name}`} onClick={() => entry.id === 'imap-smtp' ? openDialog({ kind: 'mail', requestedBy: agentId, initialPreset: 'custom', connector: existing }) : openDialog({ kind: 'integration', provider: entry.id, requestedBy: agentId, connector: existing })}>{existing ? t('Gérer') : t('Connecter')}</Button></div>;
+        return <div key={entry.id} className="flex items-center justify-between gap-3 py-2"><ServiceLogo provider={entry.id} className="size-8 rounded-lg p-1.5" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{entry.name}</p>{entry.oauth && !catalog.apps.find(a => a.provider === entry.oauth)?.configured && <p className="text-xs text-muted-foreground">{t('Activation par l’administrateur requise')}</p>}</div><Button size="sm" variant="outline" aria-label={`${existing ? t('Gérer') : t('Connecter')} ${entry.name}`} onClick={() => entry.id === 'imap-smtp' ? openDialog({ kind: 'mail', requestedBy: agentId, initialPreset: 'custom', connector: existing }) : openDialog({ kind: 'integration', provider: entry.id, requestedBy: agentId, connector: existing })}>{existing ? t('Gérer') : t('Connecter')}</Button></div>;
       })}</div>
     </section>
     <ComputerSetupCard agentId={agentId} />

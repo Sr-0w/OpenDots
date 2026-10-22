@@ -48,6 +48,7 @@ import { answerRequest, getRequest, RequestError, toRequestDTO } from '../reques
 import { createActivity } from '../activities/repo.ts';
 import type { MailConfig } from '@opendots/shared';
 import { accountKey, currentAccount } from '../auth/context.ts';
+import { accountProfile } from '../auth/profile.ts';
 import { integrationRoutes } from '../integrations/routes.ts';
 import { computerStatus, resetContainer } from '../computer/shell.ts';
 import { getSearchSettings, getShellSettings, setSearchSettings } from '../settings.ts';
@@ -95,6 +96,17 @@ export function createApi() {
   });
 
   // --- Démarrage & onboarding ---------------------------------------------
+  api.get('/account/profile', async (c) => {
+    const account = currentAccount(); if (!account) return c.json({ error: 'Connexion requise.' }, 401);
+    return c.json((await accountProfile(account.email)).profile);
+  });
+  api.get('/account/avatar', async (c) => {
+    const account = currentAccount(); if (!account) return c.body(null, 401);
+    const result = await accountProfile(account.email);
+    if (!result.avatar) return c.body(null, 404);
+    c.header('Content-Type', result.mediaType);
+    return c.body(new Uint8Array(result.avatar));
+  });
   api.route('/integrations', integrationRoutes());
   api.route('/computer', desktopRoutes());
   api.route('/attachments', attachmentRoutes());

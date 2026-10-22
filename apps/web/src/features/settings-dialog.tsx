@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { LoaderIcon } from "lucide-react";
 import type { ReasoningEffort } from "@opendots/shared";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, type SettingsDTO } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
@@ -16,8 +14,10 @@ import { ToolsSettings } from "./tools-settings";
 import { notificationsEnabled, notificationsSupported, setNotifications } from "@/lib/notify";
 
 import { t } from "@/lib/i18n";
-/** Paramètres globaux : volontairement peu nombreux (15.3). */
-export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+/** Account and runtime controls embedded in the full settings screen. */
+export function SettingsPanel({ section }: { section: "general" | "models" | "tools" | "credentials" }) {
+  const [failure, setFailure] = useState("");
+  const [revision, setRevision] = useState(0);
   const [settings, setSettings] = useState<SettingsDTO | null>(null);
   const [key, setKey] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState("");
@@ -27,17 +27,16 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [notify, setNotify] = useState(notificationsEnabled);
 
   useEffect(() => {
-    if (!open) return;
     api.settings().then((s) => {
       setSettings(s);
       setOllamaUrl(s.ollamaUrl ?? "");
-    });
-  }, [open]);
+    }).catch(e => setFailure(e.message));
+  }, [revision]);
 
   const model = settings?.defaultModel;
   useEffect(() => {
-    if (model?.provider === "openrouter" && model.model) api.openrouterEndpoints(model.model).then(setProviders).catch(() => setProviders([]));
-  }, [model?.model, model?.provider]);
+    if (section === 'models' && model?.provider === "openrouter" && model.model) api.openrouterEndpoints(model.model).then(setProviders).catch(() => setProviders([]));
+  }, [section, model?.model, model?.provider]);
 
   async function update(patch: Parameters<typeof api.updateSettings>[0], message = t("Enregistré")) {
     setBusy(true);
@@ -52,29 +51,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-xl flex-col">
-        <DialogHeader>
-          <DialogTitle>{t("Paramètres")}</DialogTitle>
-          <DialogDescription>{t("Le reste se règle en parlant à tes compagnons.")}</DialogDescription>
-        </DialogHeader>
-        {!settings ? (
-          <LoaderIcon className="mx-auto animate-spin" />
-        ) : (
-          <Tabs defaultValue="models" className="min-h-0 flex-1">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="models">{t("Modèles")}</TabsTrigger>
-              <TabsTrigger value="tools">{t("Outils")}</TabsTrigger>
-              <TabsTrigger value="connections">{t("Connexions")}</TabsTrigger>
-              <TabsTrigger value="general">{t("Général")}</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="tools" className="space-y-6 overflow-y-auto pt-2">
+  return <div className="space-y-6">
+    {failure && <p role="alert" className="text-sm text-destructive">{failure} <Button variant="link" onClick={() => { setFailure(""); setRevision(v => v + 1); }}>{t("Réessayer")}</Button></p>}
+    {!settings && !failure && <LoaderIcon className="animate-spin" />}
+    {settings && <>
+{section === "tools" && <section className="space-y-6 overflow-y-auto pt-2">
               <ToolsSettings settings={settings} update={update} busy={busy} />
-            </TabsContent>
-
-            <TabsContent value="models" className="flex min-h-0 flex-col gap-3 overflow-y-auto pt-2">
+            </section>}
+{section === "models" && <section className="flex min-h-0 flex-col gap-3 overflow-y-auto pt-2">
               <div className="space-y-1">
                 <Label className="text-xs">{t("Modèle par défaut")}</Label>
                 <p className="font-mono text-sm">{model?.model}</p>
@@ -126,9 +110,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   </div>
                 )}
               </div>
-            </TabsContent>
-
-            <TabsContent value="connections" className="space-y-5 pt-2">
+            </section>}
+{section === "credentials" && <section className="space-y-5 pt-2">
               <div className="space-y-1.5">
                 <Label className="text-xs">{t("Clé OpenRouter")}</Label>
                 <p className="font-mono text-muted-foreground text-xs">{settings.openrouterKey ?? t("non configurée")}</p>
@@ -160,9 +143,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </div>
                 <p className="text-muted-foreground text-xs">{t("Ensuite, dis par exemple à un compagnon : « utilise le modèle local llama3.1 ».")}</p>
               </div>
-            </TabsContent>
-
-            <TabsContent value="general" className="space-y-4 pt-2">
+            </section>}
+{section === "general" && <section className="space-y-4 pt-2">
               <label className="flex items-center justify-between gap-4">
                 <div>
                   <p className="font-medium text-sm">{t("Suspendre les activités autonomes")}</p>
@@ -187,10 +169,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Label className="text-xs">{t("Fuseau horaire")}</Label>
                 <Input defaultValue={settings.timezone} onBlur={(e) => e.target.value !== settings.timezone && update({ timezone: e.target.value })} />
               </div>
-            </TabsContent>
-          </Tabs>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
+            </section>}
+    </>}
+  </div>;
 }

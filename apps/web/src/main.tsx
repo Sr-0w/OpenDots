@@ -18,6 +18,12 @@ function App() {
   const [account, setAccount] = useState<Account | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  useEffect(() => {
+    if (!account) return;
+    let active = true;
+    api.accountProfile().then(profile => { if (active) setAccount(current => current?.id === account.id ? { ...current, profile } : current); }).catch(() => {});
+    return () => { active = false; };
+  }, [account?.id]);
 
   const refresh = () =>
     api

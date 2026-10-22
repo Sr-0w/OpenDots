@@ -1,5 +1,6 @@
 import type {
   DesktopPermissions,
+  AccountProfileDTO,
   ActivityDTO,
   ActivityMailFilter,
   ActivitySchedule,
@@ -121,6 +122,7 @@ export const api = {
   testIntegration: (id: string) => request<{ ok: boolean; connector: ConnectorDTO }>('POST', `/integrations/${id}/test`),
   disconnectIntegration: (id: string, revoke = false) => request<{ ok: boolean; warning?: string }>('POST', `/integrations/${id}/disconnect`, { revoke }),
   me: () => request<{ account: Account | null; registrationOpen: boolean }>('GET', '/auth/me'),
+  accountProfile: () => request<AccountProfileDTO>('GET', '/account/profile'),
   login: (email: string, password: string) => request<{ account: Account }>('POST', '/auth/login', { email, password }),
   register: (email: string, password: string) => request<{ account: Account }>('POST', '/auth/register', { email, password }),
   logout: () => request<{ ok: boolean }>('POST', '/auth/logout'),

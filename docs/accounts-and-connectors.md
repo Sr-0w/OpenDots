@@ -6,6 +6,25 @@ least 12 characters. Each account then supplies its **own OpenRouter key** in th
 onboarding screen. The deployment's `OPENROUTER_API_KEY` is never inherited by
 signed-in users.
 
+The sidebar keeps conversations and a single Settings entry. Settings has grouped
+tabs for the account, models and keys, connector store, computer, search/tools,
+scheduled tasks, skills, team exchanges and approvals. Old `#connectors`,
+`#computer`, `#tasks`, `#skills` and `#team` links still open their matching tab.
+The store supports search, category filters, connected-account management and
+permission review. Advanced custom connections/plugins are grouped separately.
+Service logos are bundled locally; source/license notices are in
+`apps/web/public/brands/NOTICE.md`.
+
+After sign-in, OpenDots optionally obtains the account email's public Gravatar
+name and photo using a normalized email hash. This lookup never blocks login;
+missing/private profiles or network errors retain the local initials/email.
+Names and images are cached in server memory (bounded to 128 profiles). The
+browser receives its own authenticated `/api/account/avatar` URL, not a Gravatar
+URL or email hash. JSON/photo sizes, timeouts and image media types are bounded;
+external profile/avatar URLs returned in profile data are not followed. No key or
+Gravatar account creation is required. This is public profile lookup, not proof
+of the account owner's identity.
+
 The first companion greets the user and offers persistent chat cards for Gmail,
 Google Calendar, Google Drive, Outlook, GitHub, IMAP/SMTP and its private computer.
 Setup is optional. Service buttons open the secure connection dialog directly;
