@@ -9,7 +9,6 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import { api, type ODMessage } from "@/lib/api";
 import { useServerEvent } from "@/lib/store";
 import { DotAvatar } from "../dot-avatar";
@@ -18,12 +17,6 @@ import { MessageView } from "./message-parts";
 import { ChatActionsContext } from "./cards";
 
 import { t } from "@/lib/i18n";
-const FIRST_SUGGESTIONS = [t("Salut !"), t("Comment devrais-je t’appeler ?"), t("Qu’est-ce que tu sais faire ?")];
-const SUGGESTIONS = [
-  t("Tous les matins à 8 h, fais-moi un point sur ma journée"),
-  t("Souviens-toi que je préfère des réponses courtes"),
-  t("Crée un compagnon pour m’aider avec mes projets"),
-];
 
 export function ChatView({ agent }: { agent: AgentDTO }) {
   const [initial, setInitial] = useState<ODMessage[] | null>(null);
@@ -65,6 +58,8 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
     if (statusRef.current === "ready" || statusRef.current === "error") setMessages(res.messages);
     return res;
   }, [agent.id, setMessages]);
+  // Cover a welcome finishing between the initial history fetch and mounting.
+  useEffect(() => { void resync().catch(() => {}); }, [resync]);
 
   useServerEvent(
     (e) => {
@@ -104,7 +99,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <Conversation className="min-h-0 flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-4 pt-6 pb-10 sm:px-6">
-          {empty && <EmptyState agent={agent} onPick={(t) => sendMessage({ text: t })} />}
+          {empty && <EmptyState agent={agent} />}
           {messages.map((m, i) => (
             <MessageView key={m.id} message={m} agentId={agent.id} streaming={busy && i === messages.length - 1 && m.role === "assistant"} />
           ))}
@@ -130,17 +125,10 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
         <ConversationScrollButton />
       </Conversation>
       <div className="mx-auto w-full max-w-3xl px-3 pb-3 sm:px-6 sm:pb-5">
-        {!empty && messages.length < 6 && !busy && (
-          <Suggestions className="mb-2 px-1">
-            {SUGGESTIONS.map((s) => (
-              <Suggestion key={s} suggestion={s} onClick={(t) => sendMessage({ text: t })} className="h-7 text-xs" />
-            ))}
-          </Suggestions>
-        )}
         <Composer
           busy={busy}
           autoFocus
-          placeholder={agent.named ? t("Écrire à {v0}…", { v0: agent.name }) : t("Dis bonjour à ton compagnon…")}
+          placeholder={agent.named ? t("Écrire à {v0}…", { v0: agent.name }) : t("Écrire à ton compagnon…")}
           onSubmit={async (text, images) => {
             const files = [];
             for (const image of images) {
@@ -161,7 +149,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
   );
 }
 
-function EmptyState({ agent, onPick }: { agent: AgentDTO; onPick: (text: string) => void }) {
+function EmptyState({ agent }: { agent: AgentDTO }) {
   return (
     <div className="flex flex-col items-center gap-5 py-16 text-center">
       <DotAvatar color={agent.color} size={72} state={agent.state} named={agent.named} />
@@ -175,11 +163,6 @@ function EmptyState({ agent, onPick }: { agent: AgentDTO; onPick: (text: string)
             : t("Il n’a pas encore de nom ni de personnalité. Fais connaissance avec lui : tout se configure en discutant.")}
         </p>
       </div>
-      <Suggestions className="justify-center">
-        {(agent.named ? SUGGESTIONS : FIRST_SUGGESTIONS).map((s) => (
-          <Suggestion key={s} suggestion={s} onClick={onPick} className="h-8 text-xs" />
-        ))}
-      </Suggestions>
     </div>
   );
 }

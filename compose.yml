@@ -30,7 +30,7 @@ services:
       start_period: 30s
 
   computer-image:
-    image: opendots/computer:4
+    image: opendots/computer:5
     build:
       context: apps/server/computer
       secrets: [opendots_ca]

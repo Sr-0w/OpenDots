@@ -24,6 +24,7 @@ import { ActiveStream, beginStream, finishStream } from './streams.ts';
 import { errorMessage, KeyedMutex, newId } from '../util.ts';
 
 export type TurnTrigger =
+  | { kind: 'onboarding' }
   | { kind: 'user'; message: OpenDotsUIMessage }
   | { kind: 'event'; event: NonNullable<MessageMetadata['event']>; text: string; depth: number }
   | { kind: 'team'; teamMessageId: string; fromAgentId: string; expectsReply: boolean; depth: number; nudge?: boolean };
@@ -148,6 +149,12 @@ async function executeTurn(
     finishStream(stream);
     return { messageId: null, text: '', silent: true, error: 'Compagnon ou conversation introuvable' };
   }
+  // Also checked under the agent lock: a queued/retried greeting must never
+  // interrupt an existing conversation or introduce a second welcome.
+  if (trigger.kind === 'onboarding' && (await loadMessages(conversationId, { limit: 1 })).messages.length) {
+    finishStream(stream);
+    return { messageId: null, text: '', silent: true, error: null };
+  }
   const pair = conversation.kind === 'pair';
   const autonomous = trigger.kind !== 'user';
   const team = await listAgentRows();
@@ -158,7 +165,10 @@ async function executeTurn(
   let triggerMessageId: string | null = null;
   let mode: TurnMode;
   let hint = '';
-  if (trigger.kind === 'user') {
+  if (trigger.kind === 'onboarding') {
+    mode = { kind: 'onboarding' };
+    hint = 'Première rencontre';
+  } else if (trigger.kind === 'user') {
     const msg: OpenDotsUIMessage = {
       ...trigger.message,
       metadata: { ...(trigger.message.metadata ?? {}), kind: 'chat', createdAt: new Date().toISOString() },
@@ -186,7 +196,7 @@ async function executeTurn(
     mode = { kind: 'team', peerName: names.get(trigger.fromAgentId) ?? 'un compagnon', expectsReply: trigger.expectsReply, nudge: trigger.nudge };
   }
 
-  const depth = trigger.kind === 'user' ? 0 : trigger.depth;
+  const depth = trigger.kind === 'user' || trigger.kind === 'onboarding' ? 0 : trigger.depth;
   const toolCtx = {
     agent,
     conversationId,
@@ -197,8 +207,10 @@ async function executeTurn(
     abortSignal: stream.abort.signal,
     peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
   };
-  const capabilities = await buildCapabilityTools(toolCtx);
-  const tools = { ...capabilities.tools, ...buildTools(toolCtx) };
+  const capabilities = trigger.kind === 'onboarding'
+    ? { tools: {}, info: { connectors: [] as string[], skills: [] }, lazy: { loaded: new Set<string>(), names: new Set<string>(), groups: [] } }
+    : await buildCapabilityTools(toolCtx);
+  const tools = trigger.kind === 'onboarding' ? {} : { ...capabilities.tools, ...buildTools(toolCtx) };
   const modelCfg = await effectiveModel(agent);
   if (tools.computer_screenshot) {
     try { await requireDesktopVision(modelCfg); }
@@ -211,6 +223,7 @@ async function executeTurn(
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
   const history = historyForModel(stored, agent, names, pair);
+  if (trigger.kind === 'onboarding') history.push({ id: newId('msg'), role: 'user', parts: [{ type: 'text', text: 'L’utilisateur vient de terminer la configuration et de te rencontrer. Engage maintenant la conversation avec un bref accueil et une seule question pour faire connaissance.' }] });
   if (trigger.kind === 'team' && trigger.nudge) {
     history.push({
       id: newId('msg'),
@@ -339,7 +352,7 @@ async function executeTurn(
     await setAgentState(agentId, 'error', turnError.slice(0, 200));
     await log(agentId, 'turn.error', `Erreur pendant un tour : ${turnError.slice(0, 200)}`, { conversationId, trigger: trigger.kind });
   } else {
-    await setAgentState(agentId, autonomous && !pair ? 'sleeping' : 'available', null);
+    await setAgentState(agentId, autonomous && trigger.kind !== 'onboarding' && !pair ? 'sleeping' : 'available', null);
     if (autonomous) {
       await log(agentId, silent ? 'turn.silent' : 'turn.autonomous', silent ? 'Réveil traité sans message' : 'Message autonome envoyé', {
         conversationId,

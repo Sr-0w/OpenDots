@@ -38,7 +38,7 @@ import { enqueue } from '../jobs/queue.ts';
 import { ApprovalError, listApprovals, resolveApproval } from '../approvals/service.ts';
 import { forget, listMemories, listSharedMemories, remember, updateMemory } from '../memory/repo.ts';
 import { listJournal, log } from '../journal.ts';
-import { errorMessage } from '../util.ts';
+import { errorMessage, KeyedMutex } from '../util.ts';
 import { createSkill, deleteSkill, listSkills, SkillError, toSkillDTO, updateSkill } from '../skills/repo.ts';
 import { ConnectorError, createConnector, deleteConnector, getConnector, listConnectors, toConnectorDTO, updateConnector } from '../connectors/repo.ts';
 import { closeMcpClient, refreshMcpConnector } from '../connectors/mcp.ts';
@@ -47,7 +47,7 @@ import { getDraft, MailError, pollAccount, testMailAccount, toDraftDTO, updateDr
 import { answerRequest, getRequest, RequestError, toRequestDTO } from '../requests/service.ts';
 import { createActivity } from '../activities/repo.ts';
 import type { MailConfig } from '@opendots/shared';
-import { currentAccount } from '../auth/context.ts';
+import { accountKey, currentAccount } from '../auth/context.ts';
 import { integrationRoutes } from '../integrations/routes.ts';
 import { computerStatus, resetContainer } from '../computer/shell.ts';
 import { getSearchSettings, getShellSettings, setSearchSettings } from '../settings.ts';
@@ -58,6 +58,7 @@ const modelSchema = z.object({
   reasoning: z.enum(['low', 'medium', 'high']).nullable().optional(),
   providerOrder: z.array(z.string()).nullable().optional(),
 });
+const onboardingLock = new KeyedMutex();
 
 export function createApi() {
   const api = new Hono();
@@ -117,20 +118,23 @@ export function createApi() {
     return c.json({ ok: true });
   });
 
-  api.post('/onboarding/complete', async (c) => {
+  api.post('/onboarding/complete', async (c) => onboardingLock.run(accountKey(), async () => {
     const body = z.object({ model: modelSchema, timezone: z.string().optional() }).parse(await c.req.json());
+    if (await getSetting('onboarding.done')) return c.json({ ok: true });
     if (!(await getOpenRouterKey())) return c.json({ error: "La clé OpenRouter n'est pas configurée." }, 400);
     const check = await checkModel(body.model as ModelConfig);
     if (!check.ok) return c.json({ error: check.error }, 400);
     await setSetting('models.default', body.model as ModelConfig);
     if (body.timezone) await setSetting('user.timezone', body.timezone);
-    if ((await listAgentRows()).length === 0) {
-      const agent = await createAgent({ named: false, permissions: { createAgents: 'ask' } });
+    let [agent] = await listAgentRows();
+    if (!agent) {
+      agent = await createAgent({ named: false, permissions: { createAgents: 'ask' } });
       await log(agent.id, 'agent.created', 'Premier compagnon prêt');
     }
+    await enqueue('agent.onboard', { agentId: agent.id }, { agentId: agent.id, dedupeKey: 'onboarding:first-greeting' });
     await setSetting('onboarding.done', true);
     return c.json({ ok: true, warning: check.warning });
-  });
+  }));
 
   // --- Modèles -------------------------------------------------------------
 

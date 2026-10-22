@@ -16,7 +16,8 @@
     "test:ui": "pnpm --filter @opendots/server exec tsx scripts/ui-smoke.ts",
     "desktop:build": "pnpm --filter @opendots/server exec tsx scripts/desktop-build.ts",
     "test:computer:live": "pnpm --filter @opendots/server exec tsx scripts/desktop-smoke.ts",
-    "test:images:ui": "pnpm --filter @opendots/server exec tsx scripts/images-smoke.ts"
+    "test:images:ui": "pnpm --filter @opendots/server exec tsx scripts/images-smoke.ts",
+    "test:onboarding:ui": "pnpm --filter @opendots/server exec tsx scripts/onboarding-smoke.ts"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",

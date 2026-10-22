@@ -31,6 +31,12 @@ interface WakePayload {
 
 
 export function registerLifeHandlers() {
+  registerJobHandler('agent.onboard', async ({ agentId }: { agentId: string }) => {
+    const agent = await getAgent(agentId);
+    if (!agent || agent.archived) throw new PermanentJobError('Compagnon introuvable');
+    const result = await runTurn(agentId, await mainConversationId(agentId), { kind: 'onboarding' }).done;
+    if (result.error) throw new Error(result.error);
+  });
   registerJobHandler('agent.wake', async (p: WakePayload) => {
     const agent = await getAgent(p.agentId);
     if (!agent || agent.archived) throw new PermanentJobError('Compagnon introuvable');

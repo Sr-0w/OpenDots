@@ -15,7 +15,7 @@ The Docker socket, account databases and OAuth tokens are never mounted inside.
 
 These are containers sharing the host kernel, not full virtual machines. The
 components are free/open-source; model providers still charge their usual token
-usage. Install Docker and prepare `opendots/computer:4` using `pnpm desktop:build`
+usage. Install Docker and prepare `opendots/computer:5` using `pnpm desktop:build`
 or `docker compose build computer-image` before accepting users. Compose does this
 automatically. A missing image can also build at first use, taking minutes; this
 is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
@@ -160,14 +160,24 @@ recognition with one provider and no fallback.
 
 ### Browser launchers and upgrades
 
-The built-in computer image is `opendots/computer:4`. Pull the application changes
+The built-in computer image is `opendots/computer:5`. Pull the application changes
 and run `pnpm desktop:build -- --rebuild` on the Docker host (or rebuild using the
 Compose instructions). The old built-in image setting migrates automatically;
 custom image names remain unchanged and must include the equivalent launcher
 configuration. Account containers are recreated on next use when the image changes;
 bot home folders persist.
 
-Chromium startup, terminal launches, Xfce's Web Browser launcher, and `xdg-open`
+Neither the account container nor the XFCE desktop automatically opens Chromium.
+The desktop becomes ready when XFCE is visible, independently of any browser.
+Use the terminal, file manager or another application as needed. To browse, open
+Xfce's Web Browser launcher or run
+`chromium about:blank >"$HOME/chromium.log" 2>&1 &` through `shell_exec`, after
+opening the desktop. Redirect output and launch graphical applications in the
+background so the shell tool returns without waiting for their window to close.
+Closing/restarting the desktop does not
+require a browser window; Chromium profiles remain persistent.
+
+Terminal launches, Xfce's Web Browser launcher, and `xdg-open`
 share `/etc/chromium.d/opendots`. It applies the existing `--no-sandbox` choice,
 shared-memory flags, maximization and the environment's HTTPS proxy consistently.
 The Xfce default browser is configured as Chromium. No extra Docker capabilities,
@@ -180,6 +190,7 @@ pnpm typecheck
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:computer:live
+pnpm test:onboarding:ui
 ```
 
 If Chromium is installed system-wide:
@@ -188,6 +199,8 @@ If Chromium is installed system-wide:
 The separate live smoke builds/starts actual Docker desktops, drives Chromium,
 verifies Unicode typing and click/scroll events, private PNGs, direct/custom/ask permissions,
 account filesystem separation, the actual noVNC canvas and WebSocket logout.
+It first verifies that shell and desktop startup launch no Chromium process,
+opens a real graphical terminal, then explicitly starts the browser for its checks.
 `OPENDOTS_DESKTOP_LIVE_WEB=1` additionally verifies a real HTTPS page. Tests do not
 make a paid model call: a separate provider serialization test checks that the
 OpenRouter request actually contains image content rather than base64 text.

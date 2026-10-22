@@ -78,7 +78,7 @@ export async function startDesktop(): Promise<number> {
       for (let attempt = 0; attempt < 100; attempt++) {
         if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
         try {
-          await desktopExec(launched ? ['sh', '-c', 'xdotool getdisplaygeometry && window=$(xdotool search --onlyvisible --class chromium | head -n 1) && test -n "$window" && xdotool windowactivate --sync "$window"'] : ['xdotool', 'getdisplaygeometry']);
+          await desktopExec(launched ? ['sh', '-c', 'xdotool getdisplaygeometry && xdotool search --onlyvisible --class xfdesktop'] : ['xdotool', 'getdisplaygeometry']);
           if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
           const state = await computerState();
           const current = await getSetting(settingKey());

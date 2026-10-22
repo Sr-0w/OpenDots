@@ -61,8 +61,15 @@ try {
   assert.equal(await rejectedSocket(), 401); assert.equal(await rejectedSocket(cookieA, 'https://evil.example'), 403);
   assert.equal(await rejectedSocket(cookieB), 404);
   console.log('PASS API et WebSocket privés, origine tierce et bureau désactivé refusés.');
+  await asA(() => execShell(botA.id, 'printf shell-only'));
+  assert.equal((await asA(() => execShell(botA.id, 'pgrep -x chromium || true'))).stdout.trim(), '');
   await asA(async () => { await startDesktop(); });
   assert.equal((await asA(desktopStatus)).running, true);
+  assert.equal((await asA(() => desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true']))).toString().trim(), '');
+  await asA(() => desktopExec(['sh', '-c', 'xterm -title OpenDots-terminal >/tmp/xterm-launch.log 2>&1 &']));
+  await until(() => asA(async () => (await desktopExec(['sh', '-c', 'xdotool search --onlyvisible --name OpenDots-terminal || true'])).toString()), value => value.trim().length > 0);
+  await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x xterm']));
+  console.log('PASS démarrage shell puis XFCE sans Chromium, terminal graphique utilisable.');
   await until(
     () => asA(async () => (await desktopExec(['sh', '-c', 'cat "$HOME/.vnc/wallpaper.log" 2>/dev/null || true'])).toString()),
     (value) => value.includes('Wallpaper ready:'),
@@ -94,6 +101,8 @@ print(json.dumps({'phases':6, 'targets':len(targets), 'files':2}))
 PY`]))).toString());
   assert.equal(wallpaper.phases, 6); assert(wallpaper.targets >= 1); assert.equal(wallpaper.files, 2);
   console.log('PASS fond dynamique : six étapes jour/nuit, transition à minuit, images originales, application XFCE réelle et cache borné.');
+  assert.equal((await asA(() => execShell(botA.id, 'chromium about:blank >"$HOME/.vnc/chromium.log" 2>&1 &'))).exitCode, 0);
+  await until(() => asA(async () => (await desktopExec(['sh', '-c', 'window=$(xdotool search --onlyvisible --class chromium | head -n 1); test -n "$window" && xdotool windowactivate --sync "$window" && echo ready || true'])).toString()), value => value.includes('ready'));
   // Load a controlled offline page. Its title records real browser events.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
 Path('/workspaces/${botA.id}/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));
@@ -225,6 +234,7 @@ import os
   await run('docker', ['restart', '--time', '2', nameA]);
   assert.equal((await asA(desktopStatus)).running, false);
   await asC(startDesktop); await asA(startDesktop);
+  for (const context of [asA, asC]) assert.equal((await context(() => desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true']))).toString().trim(), '');
   assert.equal((await asA(() => desktopExec(['id', '-u']))).toString().trim(), uidA);
   assert.equal((await asC(() => desktopExec(['id', '-u']))).toString().trim(), uidC);
   assert.equal((await asA(() => desktopExec(['cat', `/workspaces/${botA.id}/shell-note.txt`]))).toString(), 'from-shell');
@@ -232,9 +242,7 @@ import os
 
 
   if (process.env.OPENDOTS_DESKTOP_LIVE_WEB === '1') {
-    await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
-    await asA(() => desktopAction({ action: 'type', text: 'https://example.com' }));
-    await asA(() => desktopAction({ action: 'key', key: 'Return' }));
+    await asA(() => desktopExec(['sh', '-c', 'chromium https://example.com >"$HOME/.vnc/chromium.log" 2>&1 &']));
     await until(title, (value) => value.includes('Example Domain'));
     console.log('PASS Chromium : page HTTPS réelle via le proxy et les certificats, sans désactiver TLS.');
   }

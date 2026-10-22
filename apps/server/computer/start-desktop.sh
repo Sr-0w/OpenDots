@@ -25,7 +25,7 @@ cookie=$(mcookie)
 xauth -f "$XAUTHORITY" add "$DISPLAY" MIT-MAGIC-COOKIE-1 "$cookie"
 Xvfb "$DISPLAY" -screen 0 1280x800x24 -nolisten tcp -auth "$XAUTHORITY" &
 xvfb_pid=$!
-trap 'kill "$xvfb_pid" ${session_pid:-} ${vnc_pid:-} ${browser_pid:-} 2>/dev/null || true' EXIT INT TERM
+trap 'kill "$xvfb_pid" ${session_pid:-} ${vnc_pid:-} 2>/dev/null || true' EXIT INT TERM
 while ! xdotool getdisplaygeometry >/dev/null 2>&1; do sleep 0.05; done
 dbus-run-session -- /usr/local/bin/opendots-session &
 session_pid=$!
@@ -39,6 +39,4 @@ printf '[Configuration]\nWebBrowser=opendots-chromium\n' > "$HOME/.config/xfce4/
 if [ ! -f "$HOME/.config/mimeapps.list" ]; then
   printf '[Default Applications]\nx-scheme-handler/http=chromium.desktop\nx-scheme-handler/https=chromium.desktop\ntext/html=chromium.desktop\n' > "$HOME/.config/mimeapps.list"
 fi
-chromium about:blank >"$HOME/.vnc/chromium.log" 2>&1 &
-browser_pid=$!
 wait "$vnc_pid"

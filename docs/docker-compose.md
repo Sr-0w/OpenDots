@@ -22,12 +22,17 @@ Le premier build télécharge Node, Debian, Chromium/XFCE et les dépendances ; 
 peut prendre plusieurs minutes. Les prochains builds utilisent le cache Docker.
 
 L’interface nécessite inscription/connexion puis une clé OpenRouter personnelle.
+Après le choix du modèle, le premier compagnon engage lui-même la conversation.
+Son accueil est une tâche persistante, reprise après redémarrage et protégée
+contre les doublons ; aucun message utilisateur ni prompt suggéré n’est nécessaire.
 Ouvrir **Ordinateur → Démarrer le bureau**, activer l’accès au bureau pour le
 compagnon voulu et choisir un modèle avec images et outils. Les actions sont
 autorisées directement par défaut ; le panneau permet de demander une validation
 pour tout ou pour certains types d’actions, par compagnon.
 **Prendre la main** suspend captures et actions
 des modèles pour saisir soi-même les identifiants dans le navigateur distant.
+Le bureau s’ouvre sur XFCE, sans lancer Chromium. L’agent ou l’utilisateur ouvre
+le navigateur ou une autre application quand il en a besoin.
 
 Pour promouvoir un compte déjà inscrit, arrêter l’application pendant l’accès
 hors ligne au registre PGlite (ne pas ouvrir la même base depuis deux processus) :
@@ -49,7 +54,7 @@ fournisseur. Voir [les instructions OAuth](accounts-and-connectors.md).
 | `app` | Serveur Node, interface, authentification, bases par compte, courtier Git | HTTP sur `127.0.0.1:3000`, données dans le bind mount |
 | `search-init` | Génère la configuration et un secret aléatoire, puis termine | Volume `search-config`, secret réutilisé aux redémarrages |
 | `searxng` | Moteur OSS local, interroge DuckDuckGo/Brave/Wikipedia | JSON sur `127.0.0.1:18080`, jamais public |
-| `computer-image` | Construit `opendots/computer:4`, puis termine avec succès | Prépare ensemble shell et bureaux |
+| `computer-image` | Construit `opendots/computer:5`, puis termine avec succès | Prépare ensemble shell et bureaux |
 | `*-computer-*` | Un conteneur **par compte**, créé à la demande, mis en pause après inactivité | Un UID, écran, presse-papiers, home et profil Chromium par bot ; aucun port VNC publié |
 | `caddy` (profil `https`) | Reverse proxy et certificats automatiques | Ports 80/443 ; volumes de certificats persistants |
 

@@ -215,6 +215,7 @@ export const EN: Record<string, string> = {
   "Deux réglages et ton premier compagnon est prêt. Le reste, tu le lui diras simplement.": "Two settings and your first companion is ready. Everything else, you just tell it.",
   "Dis bonjour !": "Say hello!",
   "Dis bonjour à ton compagnon…": "Say hello to your companion…",
+  "Écrire à ton compagnon…": "Write to your companion…",
   "Dis par exemple à un compagnon : « Tous les matins à 8 h, fais-moi un point sur mes e-mails importants ».": "For example, tell a companion: “Every morning at 8, give me a rundown of my important emails”.",
   "Dis « Souviens-toi que… » et {v0} le retiendra.": "Say “Remember that…” and {v0} will keep it in mind.",
   "Disponible": "Available",
