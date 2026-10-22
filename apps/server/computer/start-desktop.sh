@@ -34,10 +34,11 @@ port=$((5900 + ${DISPLAY#:}))
 x11vnc -display "$DISPLAY" -rfbport "$port" -localhost -rfbauth "$HOME/.vnc/passwd" -forever -shared -quiet >"$HOME/.vnc/vnc.log" 2>&1 &
 vnc_pid=$!
 rm -f "$HOME/.config/chromium/SingletonLock" "$HOME/.config/chromium/SingletonCookie" "$HOME/.config/chromium/SingletonSocket"
-if [ -n "${HTTPS_PROXY:-${https_proxy:-}}" ]; then
-  chromium --no-sandbox --disable-dev-shm-usage --no-first-run --proxy-server="${HTTPS_PROXY:-$https_proxy}" about:blank >"$HOME/.vnc/chromium.log" 2>&1 &
-else
-  chromium --no-sandbox --disable-dev-shm-usage --no-first-run about:blank >"$HOME/.vnc/chromium.log" 2>&1 &
+mkdir -p "$HOME/.config/xfce4"
+printf '[Configuration]\nWebBrowser=opendots-chromium\n' > "$HOME/.config/xfce4/helpers.rc"
+if [ ! -f "$HOME/.config/mimeapps.list" ]; then
+  printf '[Default Applications]\nx-scheme-handler/http=chromium.desktop\nx-scheme-handler/https=chromium.desktop\ntext/html=chromium.desktop\n' > "$HOME/.config/mimeapps.list"
 fi
+chromium about:blank >"$HOME/.vnc/chromium.log" 2>&1 &
 browser_pid=$!
 wait "$vnc_pid"

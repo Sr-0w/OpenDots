@@ -15,7 +15,7 @@ The Docker socket, account databases and OAuth tokens are never mounted inside.
 
 These are containers sharing the host kernel, not full virtual machines. The
 components are free/open-source; model providers still charge their usual token
-usage. Install Docker and prepare `opendots/computer:3` using `pnpm desktop:build`
+usage. Install Docker and prepare `opendots/computer:4` using `pnpm desktop:build`
 or `docker compose build computer-image` before accepting users. Compose does this
 automatically. A missing image can also build at first use, taking minutes; this
 is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
@@ -138,6 +138,42 @@ disabling browser TLS verification.
 
 ## Verification
 
+### Typing and visual feedback
+
+`computer_action` pastes text without pressing Enter by default. Keep `submit: false`
+(or omit it) to fill individual form fields. Set `submit: true` only when the
+paste must also validate, for example after `ctrl+l` to navigate to a URL. A
+separate `key: Return` also remains available.
+
+The first automatic action in each turn returns a fresh observation without
+executing if the agent has not yet captured its desktop. Executed actions wait
+450 ms and attach a screenshot. If capture fails, the result still reports that
+the action ran, and requires another observation. The third identical automatic
+action in a turn is blocked. Pending approvals do not execute or capture.
+
+Only the last two desktop images are replayed. They are sent as standard user
+image parts after the tool result, rather than images inside tool messages.
+Desktop tools require image input advertised by OpenRouter's model catalogue or
+Ollama's `/api/show`. This metadata check cannot guarantee that every routed
+provider interprets images correctly; the optional probe below checks actual
+recognition with one provider and no fallback.
+
+### Browser launchers and upgrades
+
+The built-in computer image is `opendots/computer:4`. Pull the application changes
+and run `pnpm desktop:build -- --rebuild` on the Docker host (or rebuild using the
+Compose instructions). The old built-in image setting migrates automatically;
+custom image names remain unchanged and must include the equivalent launcher
+configuration. Account containers are recreated on next use when the image changes;
+bot home folders persist.
+
+Chromium startup, terminal launches, Xfce's Web Browser launcher, and `xdg-open`
+share `/etc/chromium.d/opendots`. It applies the existing `--no-sandbox` choice,
+shared-memory flags, maximization and the environment's HTTPS proxy consistently.
+The Xfce default browser is configured as Chromium. No extra Docker capabilities,
+privileged mode, or seccomp relaxation are required. Closing Chromium leaves the
+desktop usable so it can be reopened normally.
+
 ```sh
 pnpm test
 pnpm typecheck
@@ -155,3 +191,17 @@ account filesystem separation, the actual noVNC canvas and WebSocket logout.
 `OPENDOTS_DESKTOP_LIVE_WEB=1` additionally verifies a real HTTPS page. Tests do not
 make a paid model call: a separate provider serialization test checks that the
 OpenRouter request actually contains image content rather than base64 text.
+
+Optional **paid** recognition probe (not part of CI): supply a dedicated test key
+through the environment, then run:
+
+```sh
+pnpm --filter @opendots/server exec tsx scripts/vision-probe.ts --paid
+```
+
+It requires `OPENROUTER_VISION_TEST_KEY`, defaults to `qwen/qwen3.8-27b` and
+`Cerebras`, and makes exactly two requests: image in a tool result, then image in
+a user message. Set `OPENDOTS_VISION_TEST_MODEL` / `OPENDOTS_VISION_TEST_PROVIDER`
+to compare another endpoint. It prints HTTP status, reported provider and whether
+a random code was read correctly; no key or image data is printed. The default
+local tests do not establish Cerebras recognition or the Amazon scenario on SRV03.

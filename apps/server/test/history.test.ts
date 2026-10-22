@@ -5,6 +5,14 @@ const agent = { id: 'ag_self', name: 'Ari' } as any;
 const user = (id: string, text: string) => ({ id, role: 'user', parts: [{ type: 'text', text }], metadata: { kind: 'chat' } }) as any;
 
 describe('historique envoyé au modèle', () => {
+  it('rejoue seulement deux captures récentes sans modifier l’historique stocké', () => {
+    const messages = [user('u', 'Regarde'), ...[1, 2, 3, 4].map(n => ({ id: `s${n}`, role: 'assistant', parts: [{ type: 'tool-computer_action', state: 'output-available', toolCallId: `t${n}`, input: {}, output: { ok: true, screenshotId: `shot${n}`, url: `/screens/${n}` } }] } as any))];
+    const out = historyForModel(messages, agent, new Map(), false);
+    const parts = out.flatMap(m => m.parts) as any[];
+    expect(parts.filter(p => p.output?.screenshotId).map(p => p.output.screenshotId)).toEqual(['shot3', 'shot4']);
+    expect(parts.filter(p => p.output?.screenshot === 'omitted_from_history')).toHaveLength(2);
+    expect((messages[1] as any).parts[0].output.screenshotId).toBe('shot1');
+  });
   it('garde le contexte ancien malgré un tour très outillé', () => {
     const heavy = { id: 'a2', role: 'assistant', metadata: {}, parts: [
       { type: 'reasoning', text: 'r'.repeat(50_000) },

@@ -98,9 +98,8 @@ PY`]))).toString());
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
 Path('/workspaces/${botA.id}/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));
   await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
-  await asA(() => desktopAction({ action: 'type', text: `file:///workspaces/${botA.id}/fixture.html` }));
-  await asA(() => desktopAction({ action: 'key', key: 'Return' }));
-  const title = async () => asA(async () => (await desktopExec(['sh', '-c', 'xdotool getactivewindow getwindowname'])).toString());
+  await asA(() => desktopAction({ action: 'type', text: `file:///workspaces/${botA.id}/fixture.html`, submit: true }));
+  const title = async () => asA(async () => (await desktopExec(['sh', '-c', 'xdotool getactivewindow getwindowname 2>/dev/null || true'])).toString());
   await until(title, (value) => value.includes('OpenDots GUI fixture'));
   await asA(() => desktopAction({ action: 'type', text: 'Bonjour énergie ✓' }));
   await until(title, (value) => value.includes('Typed:Bonjour énergie ✓'));
@@ -116,6 +115,26 @@ print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len
   await asA(() => desktopAction({ action: 'scroll', direction: 'down', amount: 4, x: 700, y: 600 }));
   await until(title, (value) => /Scrolled:[1-9]/.test(value));
   console.log('PASS Chromium réel : saisie Unicode, touches, cible identifiée dans les pixels, clic et défilement.');
+  await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
+import os
+(Path.home()/'form.html').write_text("""<title>Form test</title><form onsubmit='document.title="Submitted";return false'><input id=a autofocus oninput='document.title="First:"+this.value'><input id=b><button>Submit</button></form>""")`]));
+  const formUrl = `file:///workspaces/${botA.id}/form.html`;
+  await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
+  await asA(() => desktopAction({ action: 'type', text: formUrl, submit: true }));
+  await until(title, (value) => value.includes('Form test'));
+  await asA(() => desktopAction({ action: 'type', text: 'Champ non envoyé' }));
+  await until(title, (value) => value.includes('First:Champ non envoyé'));
+  assert(!(await title()).includes('Submitted'));
+  await asA(() => desktopAction({ action: 'key', key: 'Return' }));
+  await until(title, (value) => value.includes('Submitted'));
+  for (const launch of [['chromium', formUrl], ['exo-open', '--launch', 'WebBrowser', formUrl], ['xdg-open', formUrl]]) {
+    await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x chromium || true']));
+    await asA(screenshot); // A closed browser must not prevent screenshot/actions.
+    await asA(() => desktopExec(['sh', '-c', '"$@" >/tmp/browser-launch.log 2>&1 &', 'launch', ...launch]));
+    await until(title, (value) => value.includes('Form test'));
+  }
+  console.log('PASS saisie sans Entrée par défaut, submit:true explicite, formulaire non envoyé, relance terminal/Exo/xdg-open après fermeture.');
+
   const shot = await asA(screenshot), bytes = (await asA(() => readScreenshot(shot.screenshotId)))!;
   assert.equal(bytes.readUInt32BE(16), 1280); assert.equal(bytes.readUInt32BE(20), 800);
   assert.equal((await request(shot.url.replace('/api', ''))).status, 200);

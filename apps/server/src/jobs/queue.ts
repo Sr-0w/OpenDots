@@ -96,7 +96,7 @@ async function pump() {
       void execute(job).finally(() => {
         state().running.delete(job.id);
         kick();
-      });
+      }).catch((error) => console.error('[jobs] tâche interrompue', error));
     }
   } catch (err) {
     console.error('[jobs] erreur de la file', err);

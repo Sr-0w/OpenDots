@@ -38,6 +38,7 @@ if operation == 'stop':
     raise SystemExit(0)
 config = json.load(sys.stdin)
 if alive:
+    print('existing')
     raise SystemExit(0)
 environment = dict(os.environ, HOME=account.pw_dir, USER=user, LOGNAME=user,
                    DISPLAY=f':{int(display)}', XAUTHORITY=f'{account.pw_dir}/.Xauthority',
@@ -49,3 +50,5 @@ child = subprocess.Popen(['/usr/sbin/runuser', '-u', user, '--', '/usr/local/bin
                          stdin=subprocess.DEVNULL, stdout=log,
                          stderr=subprocess.STDOUT, env=environment, start_new_session=True)
 record.write_text(json.dumps({'pid': child.pid, 'start': process_start(child.pid)}))
+
+print('started')

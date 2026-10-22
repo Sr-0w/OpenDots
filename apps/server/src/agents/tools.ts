@@ -38,6 +38,7 @@ import { resolveAccount } from '../mail/service.ts';
 import { errorMessage, truncate } from '../util.ts';
 
 export interface ToolContext {
+  abortSignal?: AbortSignal;
   agent: AgentRow;
   conversationId: string;
   /** Conversation principale avec l'utilisateur (et non un fil entre compagnons). */

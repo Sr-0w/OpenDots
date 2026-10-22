@@ -65,8 +65,10 @@ export async function startDesktop(): Promise<number> {
       const bot = await session();
       const { user } = await ensureComputerUser(desktopAgentId(), settings.sudo);
       const payload = JSON.stringify({ password: bot.password, timezone: await getTimezone(), wallpaper: process.env.OPENDOTS_DESKTOP_WALLPAPER === 'off' ? 'off' : 'dynamic' });
+      let launched = false;
       await new Promise<void>((resolve, reject) => {
-        const child = spawn('docker', ['exec', '-i', computerName(), 'python3', '/usr/local/bin/opendots-bot-session', 'start', user, String(bot.slot)], { stdio: ['pipe', 'ignore', 'pipe'] });
+        const child = spawn('docker', ['exec', '-i', computerName(), 'python3', '/usr/local/bin/opendots-bot-session', 'start', user, String(bot.slot)], { stdio: ['pipe', 'pipe', 'pipe'] });
+        child.stdout.on('data', (data) => { if (data.toString().includes('started')) launched = true; });
         let error = ''; child.stderr.on('data', (data) => { error = (error + data).slice(-500); });
         const timer = setTimeout(() => child.kill('SIGKILL'), 15_000);
         child.on('error', (e) => { clearTimeout(timer); reject(e); });
@@ -76,7 +78,7 @@ export async function startDesktop(): Promise<number> {
       for (let attempt = 0; attempt < 100; attempt++) {
         if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
         try {
-          await desktopExec(['sh', '-c', 'xdotool getdisplaygeometry && xdotool search --onlyvisible --class chromium']);
+          await desktopExec(launched ? ['sh', '-c', 'xdotool getdisplaygeometry && window=$(xdotool search --onlyvisible --class chromium | head -n 1) && test -n "$window" && xdotool windowactivate --sync "$window"'] : ['xdotool', 'getdisplaygeometry']);
           if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
           const state = await computerState();
           const current = await getSetting(settingKey());
@@ -127,7 +129,7 @@ export function desktopVncStream(port: number) {
 const point = { x: z.number().int().min(0).max(WIDTH - 1), y: z.number().int().min(0).max(HEIGHT - 1) };
 export const desktopActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('click'), ...point, button: z.enum(['left', 'middle', 'right']).default('left'), double: z.boolean().default(false) }).strict(),
-  z.object({ action: z.literal('type'), text: z.string().min(1).max(20_000) }).strict(),
+  z.object({ action: z.literal('type'), text: z.string().min(1).max(20_000), submit: z.boolean().default(false) }).strict(),
   z.object({ action: z.literal('key'), key: z.enum(['Return', 'Tab', 'Escape', 'BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down', 'Home', 'End', 'Page_Up', 'Page_Down', 'ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+l', 'ctrl+t', 'ctrl+w', 'ctrl+s', 'alt+Left', 'alt+F4', 'shift+Tab']) }).strict(),
   z.object({ action: z.literal('scroll'), direction: z.enum(['up', 'down', 'left', 'right']), amount: z.number().int().min(1).max(20).default(3), ...point }).strict(),
   z.object({ action: z.literal('move'), ...point }).strict(),
@@ -142,7 +144,7 @@ export async function desktopAction(input: unknown) {
     switch (action.action) {
       case 'click': await desktopExec(['xdotool', 'mousemove', '--sync', String(action.x), String(action.y), 'click', '--clearmodifiers', '--repeat', action.double ? '2' : '1', String({ left: 1, middle: 2, right: 3 }[action.button])]); break;
       case 'move': await desktopExec(['xdotool', 'mousemove', '--sync', String(action.x), String(action.y)]); break;
-      case 'type': await desktopExec(['sh', '-c', 'xclip -selection clipboard -i >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v'], action.text); break;
+      case 'type': await desktopExec(['sh', '-c', 'xclip -selection clipboard -i >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v'], action.text); if (action.submit) await desktopExec(['xdotool', 'key', '--clearmodifiers', 'Return']); break;
       case 'key': await desktopExec(['xdotool', 'key', '--clearmodifiers', action.key]); break;
       case 'scroll': await desktopExec(['xdotool', 'mousemove', '--sync', String(action.x), String(action.y), 'click', '--clearmodifiers', '--repeat', String(action.amount), String({ up: 4, down: 5, left: 6, right: 7 }[action.direction])]); break;
     }

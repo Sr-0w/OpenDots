@@ -1,3 +1,4 @@
+import { reportUnhandledRejection } from './agents/interruption.ts';
 import { attachDesktopWebSocket } from './computer/websocket.ts';
 import { serve } from '@hono/node-server';
 import { config } from './config.ts';
@@ -10,6 +11,7 @@ import { createApplication } from './app.ts';
 import { authStore, closeAuthStore, listAccounts } from './auth/store.ts';
 import { activateAccount, stopAccountRuntimes } from './auth/runtime.ts';
 
+process.on('unhandledRejection', reportUnhandledRejection);
 setupNetwork();
 registerLifeHandlers();
 await authStore();

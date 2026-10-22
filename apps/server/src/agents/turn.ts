@@ -1,3 +1,6 @@
+import { desktopVisionMessages } from '../computer/vision.ts';
+import { abortableChunks } from './abortable.ts';
+import { interruptedMessage, INTERRUPTED } from './interruption.ts';
 import { hydrateMessageImages } from '../attachments/service.ts';
 import { accountKey } from '../auth/context.ts';
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
@@ -7,7 +10,7 @@ import { config } from '../config.ts';
 import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { log } from '../journal.ts';
-import { resolveModel } from '../models/gateway.ts';
+import { resolveModel, requireDesktopVision } from '../models/gateway.ts';
 import { getTimezone } from '../settings.ts';
 import { contextMemories } from '../memory/repo.ts';
 import { listActivities } from '../activities/repo.ts';
@@ -105,6 +108,13 @@ export function historyForModel(
     out.push(msg);
   }
   out.reverse();
+  let screenshots = 2;
+  for (const msg of [...out].reverse()) for (const part of [...msg.parts].reverse() as any[]) {
+    if (['tool-computer_screenshot', 'tool-computer_action'].includes(part.type) && part.output?.screenshotId && --screenshots < 0) {
+      const { screenshotId, url, ...rest } = part.output;
+      part.output = { ...rest, screenshot: 'omitted_from_history' };
+    }
+  }
   // L'historique doit commencer par un message utilisateur.
   while (out.length && out[0].role !== 'user') out.shift();
   return out;
@@ -184,10 +194,19 @@ async function executeTurn(
     userTurn: trigger.kind === 'user',
     depth,
     tz,
+    abortSignal: stream.abort.signal,
     peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
   };
   const capabilities = await buildCapabilityTools(toolCtx);
   const tools = { ...capabilities.tools, ...buildTools(toolCtx) };
+  const modelCfg = await effectiveModel(agent);
+  if (tools.computer_screenshot) {
+    try { await requireDesktopVision(modelCfg); }
+    catch (error) {
+      delete tools.computer_screenshot; delete tools.computer_action;
+      capabilities.info.connectors.push(`Bureau indisponible : ${errorMessage(error)} Explique cette limite si l’utilisateur demande de piloter le bureau et propose un modèle vision.`);
+    }
+  }
 
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
@@ -223,7 +242,6 @@ async function executeTurn(
     toolNames: activeToolNames(tools, capabilities.lazy),
   });
 
-  const modelCfg = await effectiveModel(agent);
   const responseId = newId('msg');
   let turnError: string | null = null;
   let finalMessage: OpenDotsUIMessage | null = null;
@@ -241,7 +259,7 @@ async function executeTurn(
       tools,
       // Outils de services chargés à la demande : load_tools les active dès l'étape suivante.
       activeTools: activeToolNames(tools, capabilities.lazy) as any,
-      prepareStep: () => ({ activeTools: activeToolNames(tools, capabilities.lazy) as any }),
+      prepareStep: ({ messages }) => ({ activeTools: activeToolNames(tools, capabilities.lazy) as any, messages: desktopVisionMessages(messages) }),
       stopWhen: [isStepCount(config.maxStepsPerTurn), formShown],
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
@@ -272,21 +290,25 @@ async function executeTurn(
       },
     });
 
-    for await (const chunk of uiStream as unknown as AsyncIterable<UIMessageChunk>) {
+    for await (const chunk of abortableChunks(uiStream, stream.abort.signal)) {
       stream.push(chunk);
       if (chunk.type === 'tool-input-start') {
         const label = toolActivityLabel(chunk.toolName);
-        void setAgentState(agentId, chunk.toolName === 'team_send_message' ? 'collaborating' : 'working', label);
+        void setAgentState(agentId, chunk.toolName === 'team_send_message' ? 'collaborating' : 'working', label).catch((error) => console.error('[agent state]', error));
       } else if (chunk.type === 'text-start') {
-        void setAgentState(agentId, pair ? 'collaborating' : 'thinking', null);
+        void setAgentState(agentId, pair ? 'collaborating' : 'thinking', null).catch((error) => console.error('[agent state]', error));
       }
     }
   } catch (err) {
     turnError = errorMessage(err);
-    stream.push({ type: 'error', errorText: `Le modèle a rencontré une erreur : ${turnError}` });
+    if (!stream.abort.signal.aborted) stream.push({ type: 'error', errorText: `Le modèle a rencontré une erreur : ${turnError}` });
   }
 
-  if (stream.abort.signal.aborted) turnError = null;
+  if (stream.abort.signal.aborted) {
+    turnError = null;
+    finalMessage = interruptedMessage(finalMessage, stream.chunks, responseId);
+    for (const part of finalMessage.parts as any[]) if (part.state === 'output-error' && part.errorText === INTERRUPTED) stream.push({ type: 'tool-output-error', toolCallId: part.toolCallId, errorText: INTERRUPTED });
+  }
 
   // 2. Persistance de la réponse
   const response = finalMessage as OpenDotsUIMessage | null;

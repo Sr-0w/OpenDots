@@ -142,3 +142,15 @@ export async function checkModel(cfg: ModelConfig): Promise<{ ok: boolean; warni
     return { ok: true, warning: `Vérification impossible : ${(err as Error).message}` };
   }
 }
+
+/** Desktop tools require advertised image input, including on local Ollama. */
+export async function requireDesktopVision(cfg: ModelConfig): Promise<void> {
+  if (cfg.provider === 'openrouter') {
+    const model = (await listOpenRouterModels()).find((model) => model.id === cfg.model);
+    if (!model?.vision) throw new ModelUnavailableError(`Le bureau nécessite un modèle vision avec entrée image : ${cfg.model}.`);
+    return;
+  }
+  const base = (await getSetting('ollama.url')) ?? 'http://127.0.0.1:11434';
+  const response = await fetch(`${base.replace(/\/$/, '')}/api/show`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: cfg.model }), signal: AbortSignal.timeout(5000) });
+  if (!response.ok || !((await response.json()) as { capabilities?: string[] }).capabilities?.includes('vision')) throw new ModelUnavailableError(`Le bureau nécessite un modèle Ollama vision : ${cfg.model}.`);
+}
