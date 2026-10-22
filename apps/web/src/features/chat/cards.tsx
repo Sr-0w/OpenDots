@@ -199,18 +199,26 @@ export function AnswerBubble({ text }: { text: string }) {
 
 // --- Demande de connexion ------------------------------------------------------------
 
-export function ConnectionRequestCard({ kind, reason, agentId, provider }: { kind: "mail" | "mcp" | 'integration'; reason: string; agentId?: string; provider?: import('@opendots/shared').IntegrationProvider }) {
+export function ConnectionRequestCard({ kind, reason, agentId, provider, permissions }: { kind: "mail" | "mcp" | 'integration'; reason: string; agentId?: string; provider?: import('@opendots/shared').IntegrationProvider; permissions?: string[] }) {
   const Icon = kind === "mail" ? MailIcon : PlugIcon;
   const [connected, setConnected] = useState<string[]>([]);
-  const reload = () =>
-    api
+  const [existing, setExisting] = useState<import('@opendots/shared').ConnectorDTO>();
+  const [loading, setLoading] = useState(true), [lookupError, setLookupError] = useState('');
+  const reload = () => {
+    setLoading(true); setLookupError('');
+    return api
       .connectors()
-      .then((list) => setConnected(list.filter((c) => c.kind === kind && c.enabled && c.status !== "error" && (!provider || 'provider' in c.config && c.config.provider === provider)).map((c) => c.name)))
-      .catch(() => {});
+      .then((list) => {
+        const matches = list.filter(c => c.kind === kind && (!provider || 'provider' in c.config && c.config.provider === provider));
+        setExisting(provider ? matches[0] : undefined);
+        setConnected(matches.filter(c => c.enabled && c.status === 'ok' && (!permissions || permissions.every(p => (c.config as import('@opendots/shared').IntegrationConfig).permissions?.includes(p)))).map(c => c.name));
+      })
+      .catch(e => setLookupError(e.message)).finally(() => setLoading(false));
+  };
   useEffect(() => {
     void reload();
-  }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
-  useServerEvent((e) => e.type === "connectors.changed" && void reload(), [kind]);
+  }, [kind, provider, permissions?.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  useServerEvent((e) => e.type === "connectors.changed" && void reload(), [kind, provider, permissions?.join(',')]);
   return (
     <div className={cardClass}>
       <div className="flex items-start gap-3">
@@ -218,18 +226,19 @@ export function ConnectionRequestCard({ kind, reason, agentId, provider }: { kin
           <Icon className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm">{kind === "mail" ? t("Connecter une boîte mail") : t("Ajouter un connecteur")}</p>
+          <p className="font-medium text-sm">{provider ? `${t('Connecter')} ${provider === 'gmail' ? 'Gmail' : provider === 'google-calendar' ? 'Google Calendar' : provider === 'google-drive' ? 'Google Drive' : provider === 'github' ? 'GitHub' : 'Outlook'}` : kind === "mail" ? t("Connecter une boîte mail") : t("Ajouter un connecteur")}</p>
           <p className="text-muted-foreground text-xs">{reason}</p>
         </div>
       </div>
+      {lookupError && <p role="alert" className="mt-3 text-sm text-destructive">{lookupError} <button className="underline" onClick={() => void reload()}>{t('Réessayer')}</button></p>}
       <div className="mt-3 flex items-center justify-end gap-2">
         {connected.length > 0 && (
           <span className="mr-auto flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
             <CheckIcon className="size-3.5 shrink-0" /> <span className="truncate">{t("Connecté :")} {connected.join(", ")}</span>
           </span>
         )}
-        <Button size="sm" variant={connected.length ? "outline" : "default"} onClick={() => kind === 'integration' ? openDialog({ kind, provider, requestedBy: agentId }) : openDialog({ kind, requestedBy: agentId })}>
-          {connected.length ? t("Ajouter un autre") : kind === "mail" ? t("Connecter") : t("Configurer")}
+        <Button size="sm" disabled={loading || Boolean(lookupError)} variant={connected.length ? "outline" : "default"} onClick={() => kind === 'integration' ? openDialog({ kind, provider, requestedBy: agentId, connector: permissions?.length && !connected.length ? existing : undefined, initialPermissions: permissions }) : openDialog({ kind, requestedBy: agentId })}>
+          {connected.length ? t("Ajouter un autre") : existing && permissions?.length ? t('Autoriser les accès') : kind === "mail" ? t("Connecter") : t("Configurer")}
         </Button>
       </div>
     </div>

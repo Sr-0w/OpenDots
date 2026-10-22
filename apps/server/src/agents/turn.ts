@@ -42,7 +42,7 @@ const agentLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const SILENCE = /^\s*<(silence|no[_-]?reply)\s*\/?>\s*$/i;
-const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+|computer_action)$/;
+const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|computer_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+|computer_action)$/;
 
 /** Le tour s'arrête dès qu'un formulaire a été présenté à l'utilisateur. */
 const formShown: StopCondition<any> = ({ steps }) =>
@@ -284,6 +284,7 @@ async function executeTurn(
     });
 
     const metadata: MessageMetadata = {
+      ...(trigger.kind === 'onboarding' ? { setup: true } : {}),
       kind: pair ? 'team' : 'chat',
       agentId,
       model: resolved.label,

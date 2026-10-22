@@ -48,6 +48,7 @@ it('engage la conversation sans message utilisateur, une seule fois même après
   for (let i = 0; i < 200; i++) { if ((await db().select().from(schema.jobs))[0]?.status === 'done') break; await new Promise(r => setTimeout(r, 20)); }
   const messages = (await loadMessages(conversation)).messages;
   expect(messages).toHaveLength(1); expect(messages[0].role).toBe('assistant');
+  expect(messages[0].metadata?.setup).toBe(true);
   expect(messages[0].parts.filter(part => part.type === 'text')).toEqual([{ type: 'text', text: greeting, state: 'done' }]);
   expect((await getAgent(agents[0].id))?.state).toBe('available');
   expect((await complete()).status).toBe(200);

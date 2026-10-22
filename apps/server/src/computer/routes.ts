@@ -1,14 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config } from '../config.ts';
-import { withDesktopAgent, desktopAgentId } from './session.ts';
+import { withDesktopAgent, desktopAgentId, desktopKey } from './session.ts';
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { DesktopError, desktopStatus, readScreenshot, screenshot, startDesktop, stopDesktop, setHumanControl } from './desktop.ts';
 import { getSetting, setSetting } from '../settings.ts';
-import { getAgent, listAgentRows } from '../agents/repo.ts';
+import { getAgent, listAgentRows, updateAgent } from '../agents/repo.ts';
+import { enqueue } from '../jobs/queue.ts';
+import { KeyedMutex } from '../util.ts';
 import { desktopPermissionsSchema, getDesktopPermissions, setDesktopPermissions } from './permissions.ts';
 
+const starts = new KeyedMutex();
 export function desktopRoutes() {
   const app = new Hono();
   app.onError((error, c) => c.json({ error: error instanceof DesktopError ? error.message : 'Le bureau graphique est indisponible.' }, 400));
@@ -33,11 +36,16 @@ export function desktopRoutes() {
     if (!parsed.success) return c.json({ error: 'Permissions du bureau invalides.' }, 400);
     return c.json(await setDesktopPermissions(agent.id, parsed.data));
   });
-  app.post('/desktop/start', async (c) => {
+  app.post('/desktop/start', async (c) => starts.run(desktopKey(), async () => {
+    const body = z.object({ notify: z.boolean().default(false) }).strict().parse(await c.req.json().catch(() => ({})));
+    const previous = await desktopStatus();
+    const agent = (await getAgent(desktopAgentId()))!;
+    if (!agent.permissions.computer) await updateAgent(agent.id, { permissions: { ...agent.permissions, computer: true } });
     await setSetting(`desktop.bot.${desktopAgentId()}`, { ...await getSetting(`desktop.bot.${desktopAgentId()}`), enabled: true });
     await startDesktop();
+    if (body.notify && (!previous.running || previous.suspended)) await enqueue('agent.wake', { agentId: agent.id, event: { type: 'system', title: 'Ordinateur prêt' }, text: 'L’utilisateur a activé ton accès au bureau et démarré ton ordinateur depuis la carte du chat. Reprends la tâche qui le nécessitait. Le bureau XFCE est prêt, sans navigateur ouvert automatiquement. Observe-le avant d’agir.', depth: 0 }, { agentId: agent.id });
     return c.json(await desktopStatus());
-  });
+  }));
   app.post('/desktop/stop', async (c) => { await stopDesktop(); return c.json(await desktopStatus()); });
   app.post('/desktop/control', async (c) => {
     const body = z.object({ enabled: z.boolean() }).strict().parse(await c.req.json());

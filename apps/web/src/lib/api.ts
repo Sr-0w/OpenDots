@@ -112,7 +112,7 @@ export const api = {
   desktop: (agentId: string) => request<DesktopStatus>('GET', `/computer/desktop?agentId=${agentId}`),
   desktopPermissions: () => request<Record<string, DesktopPermissions>>('GET', '/computer/desktop/permissions'),
   setDesktopPermissions: (agentId: string, permissions: DesktopPermissions) => request<DesktopPermissions>('PUT', `/computer/desktop/permissions/${agentId}`, permissions),
-  startDesktop: (agentId: string) => request<DesktopStatus>('POST', `/computer/desktop/start?agentId=${agentId}`),
+  startDesktop: (agentId: string, notify = false) => request<DesktopStatus>('POST', `/computer/desktop/start?agentId=${agentId}`, { notify }),
   stopDesktop: (agentId: string) => request<DesktopStatus>('POST', `/computer/desktop/stop?agentId=${agentId}`),
   desktopControl: (agentId: string, enabled: boolean) => request<{ok: boolean}>('POST', `/computer/desktop/control?agentId=${agentId}`, { enabled }),
   integrationCatalog: () => request<{ entries: IntegrationCatalogEntry[]; apps: OAuthAppDTO[] }>('GET', '/integrations/catalog'),

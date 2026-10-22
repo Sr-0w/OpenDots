@@ -1,5 +1,16 @@
 /** Dictionnaire anglais : clé = texte français. */
 export const EN: Record<string, string> = {
+  'Configurer l’ordinateur': 'Set up the computer',
+  'L’ordinateur de ton compagnon': 'Your companion’s computer',
+  'Active son bureau privé pour travailler avec des applications et des fichiers. Le navigateur s’ouvre seulement à la demande.': 'Enable its private desktop to work with applications and files. The browser opens only when needed.',
+  'Ce bouton autorise ce compagnon à utiliser son bureau. Tu peux passer cette étape.': 'This button grants this companion desktop access. You can skip this step.',
+  'Ordinateur démarré': 'Computer started',
+  'Activer et démarrer l’ordinateur': 'Enable and start the computer',
+  'Connecter tes services': 'Connect your services',
+  'Choisis les services utiles et leurs accès. Tu peux aussi le faire plus tard, en discutant avec ton compagnon.': 'Choose useful services and their permissions. You can also do this later by talking to your companion.',
+  'Activation par l’administrateur requise': 'Administrator activation required',
+  'Autoriser les accès': 'Authorize permissions',
+  'Propose de démarrer son ordinateur': 'Offers to start its computer',
   "Tu peux joindre jusqu’à 6 images par message.": "You can attach up to 6 images per message.",
   "Choisis une image JPEG, PNG, WebP ou GIF.": "Choose a JPEG, PNG, WebP or GIF image.",
   "Chaque image doit faire moins de 10 Mo.": "Each image must be smaller than 10 MB.",

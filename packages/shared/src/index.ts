@@ -185,6 +185,8 @@ export interface TeamThreadDTO {
 
 /** Métadonnées attachées à chaque UIMessage. */
 export interface MessageMetadata {
+  /** Persistent, actionable setup cards attached to the first welcome. */
+  setup?: boolean;
   kind?: 'chat' | 'event' | 'team';
   /** Compagnon auteur (messages d'agent ou messages inter-agents). */
   agentId?: string;

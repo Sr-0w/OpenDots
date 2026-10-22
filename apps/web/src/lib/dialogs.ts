@@ -5,7 +5,7 @@ import type { ActivityDTO, ConnectorDTO, IntegrationProvider, SkillDTO } from "@
 export type DialogState =
   | { kind: "mail"; initialPreset?: "custom"; requestedBy?: string; connector?: ConnectorDTO }
   | { kind: "mcp"; requestedBy?: string; connector?: ConnectorDTO }
-  | { kind: 'integration'; requestedBy?: string; provider?: IntegrationProvider; connector?: ConnectorDTO }
+  | { kind: 'integration'; requestedBy?: string; provider?: IntegrationProvider; connector?: ConnectorDTO; initialPermissions?: string[] }
   | { kind: "plugin" }
   | { kind: "skill"; skill?: SkillDTO }
   | { kind: "activity"; activity?: ActivityDTO; agentId?: string }

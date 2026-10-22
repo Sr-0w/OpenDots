@@ -29,6 +29,7 @@ import { ApprovalCard } from "./approval-card";
 import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard, SearchResultsCard, TerminalCard } from "./cards";
 import { DotAvatar } from "../dot-avatar";
 import { openDialog } from "@/lib/dialogs";
+import { ComputerSetupCard, WelcomeSetupCards } from './setup-cards';
 
 import { t } from "@/lib/i18n";
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
@@ -85,6 +86,7 @@ function describeTool(name: string, input: any, output: any): { title: string; i
     case "datetime":
       return { title: t("Consulte la date et l’heure"), icon: <ClockIcon className="size-3.5" /> };
     case "computer_screenshot": return { title: t("Observe le bureau graphique"), icon: <EyeIcon className="size-3.5" /> };
+    case 'computer_request_setup': return { title: t('Propose de démarrer son ordinateur'), icon: <TerminalIcon className="size-3.5" /> };
     case "computer_action": return { title: t("Prépare une action sur le bureau"), icon: <TerminalIcon className="size-3.5" /> };
     case "shell_exec":
       return { title: `$ ${String(i.command ?? "").split("\n")[0].slice(0, 60)}`, icon: <TerminalIcon className="size-3.5" /> };
@@ -231,7 +233,8 @@ function ToolCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string;
   if (!out || out.ok === false) return null;
   if (isSentTeam(part)) return <SentTeamCard part={part} agentId={agentId} date={date} />;
   if (name === "ask_user" && out.requestId) return <AskUserCard requestId={out.requestId} title={input.title} questions={input.questions ?? []} />;
-  if (name === "connection_request_setup") return <ConnectionRequestCard kind={input.kind} provider={input.provider} reason={input.reason} agentId={agentId} />;
+  if (name === "connection_request_setup") return <ConnectionRequestCard kind={out.kind} provider={out.provider} permissions={out.permissions} reason={out.reason} agentId={agentId} />;
+  if (name === 'computer_request_setup' && agentId) return <ComputerSetupCard agentId={agentId} reason={out.reason} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
   if (name === "computer_screenshot" && out.screenshotId) return <a href={out.url} target="_blank" rel="noreferrer" className="block max-w-xl"><img src={out.url} alt={t("Capture du bureau privé")} className="rounded-xl border" loading="lazy" /></a>;
   if (name === "shell_exec" && "exit_code" in out) return <TerminalCard command={input.command} output={out} />;
@@ -318,6 +321,7 @@ export function MessageView({ message, streaming, agentId }: { message: ODMessag
             </div>
           );
         })}
+        {message.role === 'assistant' && message.metadata?.setup && (message.metadata.agentId ?? agentId) && <WelcomeSetupCards agentId={(message.metadata.agentId ?? agentId)!} />}
       </MessageContent>
     </Message>
   );

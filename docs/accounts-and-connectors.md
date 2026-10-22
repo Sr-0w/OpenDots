@@ -6,6 +6,28 @@ least 12 characters. Each account then supplies its **own OpenRouter key** in th
 onboarding screen. The deployment's `OPENROUTER_API_KEY` is never inherited by
 signed-in users.
 
+The first companion greets the user and offers persistent chat cards for Gmail,
+Google Calendar, Google Drive, Outlook, GitHub, IMAP/SMTP and its private computer.
+Setup is optional. Service buttons open the secure connection dialog directly;
+the computer button explicitly grants desktop access, starts XFCE without a
+browser, and wakes the companion to continue. Rendering a card never connects an
+account, starts a computer or grants permissions.
+
+Every main conversation exposes the integration catalogue to the model alongside
+the actual connection status and granted permission IDs. For an unconnected Gmail
+send request, it calls `connection_request_setup` with `provider: gmail` and
+`permissions: [send]`. The chat card opens OAuth with that permission selected for
+the user to review. An existing read-only account is reauthorized with its prior
+permissions plus the requested ones, rather than silently gaining access or
+creating a duplicate. OAuth completion wakes the requesting companion so it can
+resume the task; sending still requires the normal approval card. A provider's
+OAuth application must first be configured by the deployment administrator; the
+chat dialogs show this prerequisite. Never enter credentials in conversation text.
+
+`pnpm test:onboarding:ui` exercises these cards in desktop/mobile Chromium with a
+real local API, queue and Docker desktop. The model and external OAuth pages are
+fixtures: it does not perform a real Google login or send an email.
+
 Passwords use salted scrypt. Session cookies are HttpOnly, SameSite=Lax and Secure
 on HTTPS; only session hashes are persisted. Logout revokes the session and closes
 its event and conversation streams. Mutations require a same-origin client header. There is no email

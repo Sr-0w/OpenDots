@@ -1,4 +1,5 @@
 import { desktopTools } from '../computer/tools.ts';
+import { CATALOG } from '../integrations/catalog.ts';
 import { currentAccount } from '../auth/context.ts';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
@@ -130,6 +131,14 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
 
   // --- Interactions structurées ------------------------------------------------
   if (ctx.isMain) {
+    info.connectors.push('Catalogue prêt à connecter (ne signifie PAS connecté) : ' + CATALOG.map(entry => `${entry.name} [${entry.id}] : ${entry.description} Accès : ${entry.permissions.map(p => p.id).join(', ') || 'IMAP/SMTP'}`).join('\n'));
+    info.connectors.push('Pour un service absent ou des accès insuffisants, appelle connection_request_setup avec le provider et les permissions nécessaires. Pour Gmail/envoi : kind=integration, provider=gmail, permissions=[send]. Ne demande jamais de secrets ni de passage dans les menus. OAuth nécessite une application configurée par l’administrateur ; la carte indique son état.');
+    for (const row of await listConnectors()) if (row.kind === 'integration') info.connectors.push(`Connexion ${row.name} [${row.id}] : provider=${row.config.provider}, enabled=${row.enabled}, status=${row.status}, accès=${(row.config as IntegrationConfig).permissions.join(',')}.`);
+    tools.computer_request_setup = tool({
+      description: 'Affiche dans le chat une carte pour activer et démarrer l’ordinateur de ce compagnon. Aucun démarrage ni changement de permission avant le clic explicite de l’utilisateur. Utilise-la si le bureau n’est pas accessible ou si l’utilisateur veut le démarrer, sans l’envoyer dans les menus.',
+      inputSchema: z.object({ reason: z.string().min(1).max(400) }).strict(),
+      execute: async ({ reason }) => ok({ status: 'setup_requested', reason, note: 'Carte de démarrage affichée. Cet appel ne démarre rien ; la carte affiche l’état actuel et attend un clic si nécessaire.' }),
+    });
     tools.ask_user = tool({
       description: [
         "Pose à l'utilisateur une ou plusieurs questions sous forme de formulaire interactif (champs texte, choix unique, choix multiples, confirmation, nombre, date).",
@@ -166,13 +175,17 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       inputSchema: z.object({
         kind: currentAccount()?.role === 'user' ? z.enum(['mail', 'integration']) : z.enum(['mail', 'mcp', 'integration']),
         provider: z.enum(['google-drive', 'google-calendar', 'gmail', 'outlook', 'github']).optional(),
+        permissions: z.array(z.string().min(1)).min(1).max(12).optional().describe('Accès nécessaires du catalogue, par exemple [send] pour envoyer avec Gmail. L’utilisateur les vérifie dans la fenêtre OAuth.'),
         reason: z.string().min(1).max(400),
+      }).superRefine((input, ctx) => {
+        if (input.permissions && (input.kind !== 'integration' || !input.provider || input.permissions.some(p => !CATALOG.find(e => e.id === input.provider)?.permissions.some(v => v.id === p)))) ctx.addIssue({ code: 'custom', message: 'Permissions inconnues pour ce service.', path: ['permissions'] });
       }),
-      execute: async ({ kind, provider, reason }) =>
+      execute: async ({ kind, provider, permissions, reason }) =>
         ok({
           status: 'setup_requested',
           kind,
           provider,
+          permissions,
           reason,
           note: `Une carte avec un bouton « ${kind === 'mail' ? 'Connecter' : 'Configurer'} » est affichée à l'utilisateur. Tu seras réveillé quand la connexion sera établie.`,
         }),

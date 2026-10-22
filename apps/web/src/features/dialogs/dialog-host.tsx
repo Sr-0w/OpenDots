@@ -19,7 +19,7 @@ export function DialogHost() {
   const d = useDialog();
   if (!d) return null;
   switch (d.kind) {
-    case 'integration': return <IntegrationConnectDialog requestedBy={d.requestedBy} provider={d.provider} connector={d.connector} onClose={closeDialog} />;
+    case 'integration': return <IntegrationConnectDialog requestedBy={d.requestedBy} provider={d.provider} connector={d.connector} initialPermissions={d.initialPermissions} onClose={closeDialog} />;
     case "mail":
       return <MailDialog initialPreset={d.initialPreset} connector={d.connector} requestedBy={d.requestedBy} onClose={closeDialog} />;
     case "mcp":
