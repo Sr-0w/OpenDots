@@ -23,6 +23,15 @@ describe('historique envoyé au modèle', () => {
     expect(JSON.stringify(out[1].parts)).toContain('command is required');
     expect(parts[0].input).toEqual({ preview: 'partial command', truncated: 'true' });
   });
+  it('conserve les deux images récentes même si le tour dépasse le seuil de compaction', () => {
+    const parts = Array.from({ length: 12 }, (_, i) => ({ type: 'tool-computer_action', state: 'output-available', toolCallId: `desktop${i+1}`, input: { action: 'type', text: 'a'.repeat(800), reason: 'Remplir un champ', submit: false }, output: { ok: true, status: 'executed', screenshotId: `shot${i+1}`, url: `/screens/${i+1}`, width: 1280, height: 800, cursor: { x: 1039, y: 110, source: 'xfixes' }, note: 'd'.repeat(900) } }));
+    const out = historyForModel([user('u', 'Vérifie le bureau'), { id: 'many-actions', role: 'assistant', parts } as any], agent, new Map(), false);
+    const screenshots = out.flatMap(m => m.parts).filter((p: any) => p.output?.screenshotId) as any[];
+    expect(screenshots.map(p => p.output.screenshotId)).toEqual(['shot11', 'shot12']);
+    expect(screenshots[1].output.cursor).toEqual({ x: 1039, y: 110, source: 'xfixes' });
+    expect(screenshots[1].input).toEqual(parts[11].input);
+    expect(JSON.stringify(out.find(m => m.id === 'many-actions')!.parts).length).toBeLessThan(12_000);
+  });
   it('garde le contexte ancien malgré un tour très outillé', () => {
     const heavy = { id: 'a2', role: 'assistant', metadata: {}, parts: [
       { type: 'reasoning', text: 'r'.repeat(50_000) },

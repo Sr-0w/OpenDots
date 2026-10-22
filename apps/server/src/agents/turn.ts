@@ -67,11 +67,17 @@ function compactToolOutput(output: unknown, max = 3000): unknown {
  * très outillé (fichiers écrits via le shell, longues listes) ne doit pas
  * consommer tout le budget et faire oublier le reste de la conversation.
  */
-function compactAssistantParts(parts: any[]): any[] {
+function compactAssistantParts(parts: any[], preserveScreenshots: Set<string>): any[] {
   const pass = (max: number) => parts
     .filter((p) => p.type !== 'reasoning')
     .map((p: any) => {
       if (!p.type?.startsWith('tool-')) return p;
+      if (['tool-computer_screenshot', 'tool-computer_action'].includes(p.type) && preserveScreenshots.has(p.output?.screenshotId)) {
+        // Keep image identity and valid original arguments even in a busy turn.
+        // A generic preview would silently prevent toModelOutput loading the PNG.
+        const o = p.output;
+        return { ...p, output: { ok: o.ok, status: o.status, actionExecuted: o.actionExecuted, screenshotId: o.screenshotId, url: o.url, width: o.width, height: o.height, capturedAt: o.capturedAt, cursor: o.cursor, focusedWindow: o.focusedWindow ? { ...o.focusedWindow, title: o.focusedWindow.title?.slice(0, 80), wmClass: o.focusedWindow.wmClass?.slice(0, 80) } : o.focusedWindow, note: o.note?.slice(0, 300) } };
+      }
       // Never replay {preview,truncated} as tool arguments: the model may copy
       // that invalid shape into its next call (or run a truncated command).
       if ((p.type === 'tool-shell_exec' && typeof p.input?.command !== 'string') || ('input' in p && JSON.stringify(p.input ?? null).length > max)) return { type: 'text', text: `[Historical ${p.type.slice(5)} call (${p.state}): invalid or oversized arguments omitted. This is a summary, not an executable tool call. Result: ${JSON.stringify(compactToolOutput(p.output ?? p.errorText, max))}]` };
@@ -90,6 +96,14 @@ export function historyForModel(
   pair: boolean,
 ): OpenDotsUIMessage[] {
   const out: OpenDotsUIMessage[] = [];
+  const preserveScreenshots = new Set<string>();
+  for (const message of [...messages].reverse()) {
+    if (message.role !== 'assistant' || message.metadata?.kind === 'event' || (pair && message.metadata?.agentId !== self.id)) continue;
+    for (const part of [...message.parts].reverse() as any[]) {
+      if (preserveScreenshots.size < 2 && ['tool-computer_screenshot', 'tool-computer_action'].includes(part.type) && part.output?.screenshotId) preserveScreenshots.add(part.output.screenshotId);
+    }
+    if (preserveScreenshots.size >= 2) break;
+  }
   let budget = HISTORY_CHAR_BUDGET;
   for (const m of [...messages].reverse()) {
     const meta = m.metadata ?? {};
@@ -107,7 +121,7 @@ export function historyForModel(
     if (msg.role === 'assistant') {
       msg = {
         ...msg,
-        parts: compactAssistantParts(msg.parts as any[]) as OpenDotsUIMessage['parts'],
+        parts: compactAssistantParts(msg.parts as any[], preserveScreenshots) as OpenDotsUIMessage['parts'],
       };
     }
     budget -= JSON.stringify(msg.parts).length;

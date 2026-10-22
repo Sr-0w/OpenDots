@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve } from '@hono/node-server';
@@ -119,6 +119,24 @@ try {
       await writeFile('/tmp/opendots-native-cursor.png', png);
     }
   }
+  // Reproduce the reported point with an independently defined native cursor.
+  // Move outside computer_action so a cached "last requested point" would fail.
+  await asA(() => desktopAction({ action: 'move', x: 715, y: 52 }));
+  await asA(() => desktopExec(['xdotool', 'mousemove', '1039', '110']));
+  const cursorFixture = await readFile(new URL('./fixtures/native-cursor.py', import.meta.url), 'utf8');
+  const cursorWindow = JSON.parse((await asA(() => desktopExec(['python3', '-c', cursorFixture, 'set']))).toString()).window;
+  try {
+    const actual = await asA(screenshot), cursor = actual.cursor as any;
+    assert.deepEqual([cursor.x, cursor.y, cursor.hotspotX, cursor.hotspotY], [1039, 110, 4, 6]);
+    const png = (await asA(() => readScreenshot(actual.screenshotId)))!;
+    const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x: number, y: number) => [...data.subarray((y*info.width+x)*info.channels, (y*info.width+x)*info.channels+3)];
+    for (let y = 104; y < 113; y++) for (let x = 1035; x < 1044; x++) assert.deepEqual(pixel(x, y), [255, 0, 255]);
+    assert.notDeepEqual(pixel(1034, 104), [255, 0, 255]);
+    assert.notDeepEqual(pixel(1044, 112), [255, 0, 255]);
+    await writeFile('/tmp/opendots-cursor-1039-110.png', png);
+  } finally { await asA(() => desktopExec(['python3', '-c', cursorFixture, 'restore', String(cursorWindow)])); }
+  console.log('PASS point (1039,110) : curseur natif indépendant 9×9, hotspot (4,6), pixels exacts et position différente du dernier appel computer_action.');
   await asA(() => desktopAction({ action: 'move', x: 444, y: 333 }));
   const repeatStart = Date.now();
   await asA(() => desktopAction({ action: 'move', x: 444, y: 333 }));
@@ -365,8 +383,8 @@ import os
   // Real post-action image must also be visible in chat, not only screenshot tools.
   const imageTools = await asA(async () => desktopTools({ agent: (await getAgent(botA.id))!, conversationId: await mainConversationId(botA.id) } as any));
   await asA(() => imageTools.computer_screenshot.execute!({}, { toolCallId: 'before', messages: [] } as any));
-  const actionShot: any = await asA(() => imageTools.computer_action.execute!({ action: 'move', x: 640, y: 400, reason: 'Observer le pointeur réel' }, { toolCallId: 'real-action', messages: [] } as any));
-  assert.equal(actionShot.status, 'executed'); assert.equal(actionShot.cursor.x, 640); assert.equal(actionShot.cursor.y, 400);
+  const actionShot: any = await asA(() => imageTools.computer_action.execute!({ action: 'move', x: 1039, y: 110, reason: 'Observer le pointeur réel' }, { toolCallId: 'real-action', messages: [] } as any));
+  assert.equal(actionShot.status, 'executed'); assert.equal(actionShot.cursor.x, 1039); assert.equal(actionShot.cursor.y, 110);
   await asA(async () => saveMessage(await mainConversationId(botA.id), { id: 'real-post-action', role: 'assistant', parts: [{ type: 'tool-computer_action', toolCallId: 'real-action', state: 'output-available', input: { action: 'move', x: actionShot.cursor?.x ?? 0, y: actionShot.cursor?.y ?? 0, reason: 'Observer le pointeur réel' }, output: actionShot }], metadata: { agentId: botA.id } } as any, { author: 'agent', agentId: botA.id }));
   await page.goto(`${origin}/#/agent/${botA.id}`);
   const chatShot = page.getByRole('img', { name: 'Capture du bureau privé', exact: true });
@@ -376,6 +394,25 @@ import os
   if (actionShot.visualChange === 'unchanged') await page.getByText('Écran inchangé', { exact: false }).waitFor();
   await page.screenshot({ path: '/tmp/opendots-post-action-chat.png', fullPage: true });
   console.log('PASS capture après computer_action visible dans le chat avec curseur réel et retour visuel de l’outil.');
+  for (const viewport of [{ width: 1440, height: 1080 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole('button', { name: 'Vérifier les coordonnées', exact: true }).click();
+    const inspector = page.getByRole('dialog');
+    const area = inspector.getByRole('button', { name: 'Inspecter un point de la capture', exact: true });
+    await page.waitForFunction(() => { const img = document.querySelector('[role=dialog] img') as HTMLImageElement; return img?.complete && img.naturalWidth === 1280; });
+    await inspector.evaluate(async element => { await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))); });
+    const rect = (await area.boundingBox())!;
+    await area.click({ position: { x: 1039.5/1280*rect.width, y: 110.5/800*rect.height } });
+    const selected = /\((\d+), (\d+)\)/.exec((await inspector.getByRole('status').textContent())!)!;
+    const inspectedX = Number(selected[1]), inspectedY = Number(selected[2]);
+    assert(Math.abs(inspectedX-1039) <= Math.ceil(1280/rect.width) && Math.abs(inspectedY-110) <= Math.ceil(800/rect.height), 'Pointer precision must account for CSS pixel rounding in a reduced preview');
+    assert(await inspector.evaluate(element => element.getBoundingClientRect().width <= innerWidth));
+    await area.press('ArrowRight');
+    await inspector.getByRole('status').filter({ hasText: `Point inspecté : (${inspectedX+1}, ${inspectedY})` }).waitFor();
+    await page.screenshot({ path: `/tmp/opendots-coordinate-inspector-${viewport.width}.png`, fullPage: true });
+    await page.keyboard.press('Escape');
+  }
+  console.log('PASS inspecteur desktop/mobile : la miniature renvoie les coordonnées natives (1039,110), sans modifier le bureau.');
   assert.deepEqual(errors, []);
   // An established websocket must be revoked immediately on logout.
   const ws = new WebSocket(origin.replace('http:', 'ws:') + `/api/computer/vnc?agentId=${botA.id}`, { headers: { cookie: cookieA, origin } });

@@ -1,5 +1,14 @@
 /** Dictionnaire anglais : clé = texte français. */
 export const EN: Record<string, string> = {
+  "Origine en haut à gauche": "Top-left origin",
+  "Pointeur X11": "X11 pointer",
+  "Vérifier les coordonnées": "Check coordinates",
+  "Coordonnées de la capture": "Screenshot coordinates",
+  "Touchez ou cliquez sur l’image pour lire un point en pixels d’origine.": "Tap or click the image to read a point in original pixels.",
+  "Inspecter un point de la capture": "Inspect a screenshot point",
+  "Capture en coordonnées natives": "Screenshot in native coordinates",
+  "Point inspecté": "Inspected point",
+  "Ouvrir l’original": "Open original",
   "Avant action — action non exécutée": "Before action — action not executed",
   "Après action — vérifie le résultat visible": "After action — verify the visible result",
   "Écran inchangé": "Screen unchanged",

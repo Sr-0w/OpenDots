@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { asSchema, convertToModelMessages, generateText } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-const state = vi.hoisted(() => ({ ask: false, action: vi.fn(async () => ({ ok: true, action: 'type' })), shot: vi.fn(async () => ({ ok: true, screenshotId: 'a'.repeat(32), frameHash: 'stable-desktop-pixels', width: 1280, height: 800 })), approval: vi.fn(async () => ({ id: 'approval' })) }));
-vi.mock('../src/computer/desktop.ts', async (original) => ({ ...await original<any>(), desktopEnabled: async () => true, humanControl: async () => false, desktopAction: state.action, screenshot: state.shot, readScreenshot: async () => Buffer.from('png-fixture') }));
+const state = vi.hoisted(() => ({ ask: false, read: vi.fn(async (): Promise<Buffer | null> => Buffer.from('png-fixture')), action: vi.fn(async () => ({ ok: true, action: 'type' })), shot: vi.fn(async () => ({ ok: true, screenshotId: 'a'.repeat(32), frameHash: 'stable-desktop-pixels', width: 1280, height: 800 })), approval: vi.fn(async () => ({ id: 'approval' })) }));
+vi.mock('../src/computer/desktop.ts', async (original) => ({ ...await original<any>(), desktopEnabled: async () => true, humanControl: async () => false, desktopAction: state.action, screenshot: state.shot, readScreenshot: state.read }));
 vi.mock('../src/agents/repo.ts', () => ({ getAgent: async () => ({ id: 'ag_test', archived: false, permissions: { computer: true } }) }));
 vi.mock('../src/computer/permissions.ts', () => ({ desktopActionNeedsApproval: async () => state.ask }));
 vi.mock('../src/approvals/service.ts', () => ({ registerApprovalAction: () => {}, createApproval: state.approval }));
@@ -63,13 +63,17 @@ it('une capture indisponible ne prétend pas annuler une action déjà exécuté
 });
 it('envoie les images au format user OpenRouter et conserve seulement les deux dernières', async () => {
  const tools = await desktopTools(ctx);
- const parts = [1,2,3].flatMap((n) => [{ type: 'tool-computer_screenshot', toolCallId: `screen${n}`, state: 'output-available', input: {}, output: { ok: true, screenshotId: 'a'.repeat(32), width: 1280, height: 800 } }]);
+ const parts = [1,2,3].flatMap((n) => [{ type: 'tool-computer_screenshot', toolCallId: `screen${n}`, state: 'output-available', input: {}, output: { ok: true, screenshotId: String(n).repeat(32), width: 1280, height: 800, cursor: { x: n*100, y: 110, source: 'xfixes' } } }]);
  const messages = await convertToModelMessages([{ role: 'assistant', parts } as any], { tools });
  const converted = desktopVisionMessages(messages);
  expect(desktopVisionMessages(converted)).toEqual(converted);
  const next = desktopVisionMessages([...converted, ...messages]);
  expect(next.filter(m => m.role === 'user')).toHaveLength(2);
  expect(converted.filter((m) => m.role === 'user')).toHaveLength(2);
+ const captions = converted.filter(m => m.role === 'user').map(m => JSON.stringify(m.content));
+ expect(captions[0]).toContain('screen2'); expect(captions[0]).toContain('2'.repeat(32));
+ expect(captions[1]).toContain('screen3'); expect(captions[1]).toContain('3'.repeat(32));
+ expect(captions[1]).toContain('XFixes'); expect(captions[1]).not.toContain('2'.repeat(32));
  expect(JSON.stringify(converted.filter((m) => m.role === 'tool'))).not.toContain('"type":"file"');
  let sent: any;
  const model = createOpenRouter({ apiKey: 'fixture', fetch: async (_url, init) => {
@@ -78,4 +82,13 @@ it('envoie les images au format user OpenRouter et conserve seulement les deux d
  await generateText({model,messages:converted});
  expect(sent.messages.filter((m: any) => m.role === 'user').flatMap((m:any) => m.content).filter((p:any) => p.type === 'image_url')).toHaveLength(2);
  expect(JSON.stringify(sent.messages.filter((m:any) => m.role === 'tool'))).not.toContain('image_url');
+});
+
+it('signale explicitement une image historique absente au lieu de prétendre la joindre', async () => {
+ const tools = await desktopTools(ctx);
+ state.read.mockResolvedValueOnce(null);
+ const result: any = await tools.computer_screenshot.toModelOutput!({ output: { ok: true, screenshotId: 'a'.repeat(32), cursor: { x: 1039, y: 110 } } } as any);
+ expect(result.type).toBe('text');
+ expect(JSON.parse(result.value)).toMatchObject({ screenshot: 'unavailable' });
+ expect(result.value).toContain('aucune image jointe');
 });

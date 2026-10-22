@@ -30,6 +30,7 @@ import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, 
 import { DotAvatar } from "../dot-avatar";
 import { openDialog } from "@/lib/dialogs";
 import { ComputerSetupCard, WelcomeSetupCards } from './setup-cards';
+import { DesktopScreenshot } from './desktop-screenshot';
 
 import { t } from "@/lib/i18n";
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
@@ -236,7 +237,7 @@ function ToolCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string;
   if (name === "connection_request_setup") return <ConnectionRequestCard kind={out.kind} provider={out.provider} permissions={out.permissions} reason={out.reason} agentId={agentId} />;
   if (name === 'computer_request_setup' && agentId) return <ComputerSetupCard agentId={agentId} reason={out.reason} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
-  if ((name === "computer_screenshot" || name === "computer_action") && out.screenshotId && out.url) return <figure className="max-w-xl space-y-1"><a href={out.url} target="_blank" rel="noreferrer" className="block"><img src={out.url} alt={t("Capture du bureau privé")} className="max-w-full rounded-xl border" loading="lazy" /></a><figcaption className="text-xs text-muted-foreground">{t(out.status === 'observe_first' ? 'Avant action — action non exécutée' : name === 'computer_action' ? 'Après action — vérifie le résultat visible' : 'Capture du bureau privé')}{out.cursor && <> · {t('Pointeur')} {out.cursor.x}, {out.cursor.y}</>}{out.visualChange === 'unchanged' && <> · {t('Écran inchangé')}</>}</figcaption></figure>;
+  if ((name === "computer_screenshot" || name === "computer_action") && out.screenshotId && out.url) return <DesktopScreenshot output={out} afterAction={name === 'computer_action'} />;
   if (name === "shell_exec" && "exit_code" in out) return <TerminalCard command={input.command} output={out} />;
   if (name === "web_search" && Array.isArray(out.results)) return <SearchResultsCard results={out.results} />;
   if (name === "activity_create" && out.activity) return <ActivityCreatedCard title={out.activity.title} when={out.activity.when} kind={out.activity.kind} />;

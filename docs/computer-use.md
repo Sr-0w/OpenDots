@@ -164,6 +164,21 @@ inventing a position. No overlay window intercepts input. Moving or clicking at 
 position does not wait for a motion event: X11 queues motion and click commands
 on the same connection without `xdotool mousemove --sync`.
 
+Coordinates always refer to original 1280×800 pixels, not a thumbnail. The chat
+caption shows native dimensions and origin; **Check coordinates** opens an
+inspector that converts a click/tap in the displayed image to native pixels.
+Arrow keys fine-tune one pixel (Shift: ten). On reduced images a CSS/touch pixel
+can span several native pixels, so small differences from visual measurement
+are expected. The inspector does not send actions to the desktop.
+
+Each image sent to the model is labelled with its screenshot ID, tool call ID,
+capture time, dimensions, pointer and focus. This keeps the last two observations
+distinguishable. Their IDs and original tool arguments survive history compaction
+even after a busy turn. If a retained PNG has expired from storage, the model is
+explicitly told no image is attached and must request a fresh screenshot.
+A visual estimate in a resized preview is not evidence of an
+X11 coordinate bug; verify the matching original image before diagnosing one.
+
 Each observation also includes `focusedWindow`: actual focused X11 window ID,
 title, WM_CLASS and native x/y/width/height, or null when unavailable. The model
 can check whether keyboard focus belongs to a terminal, browser or desktop without
