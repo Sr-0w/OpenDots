@@ -19,6 +19,12 @@ const { resolveApproval } = await import('../src/approvals/service.ts');
 const { createApplication } = await import('../src/app.ts');
 const { attachDesktopWebSocket } = await import('../src/computer/websocket.ts');
 const { startDesktop, screenshot, readScreenshot, desktopAction, desktopExec, removeDesktop, setHumanControl, desktopStatus } = await import('../src/computer/desktop.ts');
+const { withDesktopAgent } = await import('../src/computer/session.ts');
+const { computerName, computerState, execShell } = await import('../src/computer/shell.ts');
+const { execFile } = await import('node:child_process');
+const { promisify } = await import('node:util');
+const run = promisify(execFile);
+process.env.OPENDOTS_COMPUTER_IDLE_SECONDS = '2';
 const { setDesktopPermissions } = await import('../src/computer/permissions.ts');
 await authStore(true);
 const a = await registerUser('alice@example.com', 'desktop smoke password');
@@ -31,7 +37,12 @@ const closeSockets = attachDesktopWebSocket(server as import('node:http').Server
 await new Promise<void>((resolve) => server.listening ? resolve() : server.once('listening', resolve));
 const origin = `http://127.0.0.1:${(server.address() as {port: number}).port}`;
 const request = (path: string, cookie = cookieA, method = 'GET', body?: unknown) => fetch(`${origin}/api${path}`, { method, headers: { cookie, origin, 'x-opendots-client': '1', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-const asA = <T>(fn: () => T) => withAccount(a, fn);
+const botA = await withAccount(a, () => createAgent({ name: 'Vision', permissions: { computer: true } }));
+const botC = await withAccount(a, () => createAgent({ name: 'Second', permissions: { computer: true } }));
+const botB = await withAccount(b, () => createAgent({ name: 'Other', permissions: { computer: true } }));
+const asA = <T>(fn: () => T) => withAccount(a, () => withDesktopAgent(botA.id, fn));
+const asC = <T>(fn: () => T) => withAccount(a, () => withDesktopAgent(botC.id, fn));
+const asB = <T>(fn: () => T) => withAccount(b, () => withDesktopAgent(botB.id, fn));
 const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
 async function until<T>(read: () => Promise<T>, test: (value: T) => boolean): Promise<T> {
   let last: T | undefined;
@@ -39,7 +50,7 @@ async function until<T>(read: () => Promise<T>, test: (value: T) => boolean): Pr
   throw new Error(`État attendu non atteint : ${String(last).slice(0, 200)}`);
 }
 async function rejectedSocket(cookie?: string, from = origin) {
-  const ws = new WebSocket(origin.replace('http:', 'ws:') + '/api/computer/vnc', { headers: { ...(cookie ? { cookie } : {}), origin: from } });
+  const ws = new WebSocket(origin.replace('http:', 'ws:') + `/api/computer/vnc?agentId=${botA.id}`, { headers: { ...(cookie ? { cookie } : {}), origin: from } });
   ws.on('error', () => {});
   const result = await new Promise<number>((resolve, reject) => { ws.once('unexpected-response', (_req, response) => { response.resume(); resolve(response.statusCode!); }); ws.once('open', () => { ws.close(); reject(new Error('WebSocket accepté à tort')); }); });
   ws.terminate(); return result;
@@ -48,15 +59,15 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
   assert.equal((await request('/computer/desktop', '')).status, 401);
   assert.equal(await rejectedSocket(), 401); assert.equal(await rejectedSocket(cookieA, 'https://evil.example'), 403);
-  assert.equal(await rejectedSocket(cookieB), 409);
+  assert.equal(await rejectedSocket(cookieB), 404);
   console.log('PASS API et WebSocket privés, origine tierce et bureau désactivé refusés.');
-  await asA(async () => { await setSetting('desktop.config', { enabled: true }); await startDesktop(); });
+  await asA(async () => { await startDesktop(); });
   assert.equal((await asA(desktopStatus)).running, true);
   await until(
-    () => asA(async () => (await desktopExec(['sh', '-c', 'cat /tmp/wallpaper.log 2>/dev/null || true'])).toString()),
+    () => asA(async () => (await desktopExec(['sh', '-c', 'cat "$HOME/.vnc/wallpaper.log" 2>/dev/null || true'])).toString()),
     (value) => value.includes('Wallpaper ready:'),
   );
-  const wallpaper = JSON.parse((await asA(() => desktopExec(['sh', '-c', `export DBUS_SESSION_BUS_ADDRESS="$(cat /tmp/runtime-opendots/session-bus)"
+  const wallpaper = JSON.parse((await asA(() => desktopExec(['sh', '-c', `export DBUS_SESSION_BUS_ADDRESS="$(cat $XDG_RUNTIME_DIR/session-bus)"
 python3 - <<'PY'
 import runpy, tempfile, json
 from pathlib import Path
@@ -85,9 +96,9 @@ PY`]))).toString());
   console.log('PASS fond dynamique : six étapes jour/nuit, transition à minuit, images originales, application XFCE réelle et cache borné.');
   // Load a controlled offline page. Its title records real browser events.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
-Path('/home/opendots/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));
+Path('/workspaces/${botA.id}/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));
   await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
-  await asA(() => desktopAction({ action: 'type', text: 'file:///home/opendots/fixture.html' }));
+  await asA(() => desktopAction({ action: 'type', text: `file:///workspaces/${botA.id}/fixture.html` }));
   await asA(() => desktopAction({ action: 'key', key: 'Return' }));
   const title = async () => asA(async () => (await desktopExec(['sh', '-c', 'xdotool getactivewindow getwindowname'])).toString());
   await until(title, (value) => value.includes('OpenDots GUI fixture'));
@@ -96,7 +107,7 @@ Path('/home/opendots/fixture.html').write_text('''<!doctype html><meta charset="
   // Identify a target by its actual pixels, then click in desktop coordinates.
   const position = JSON.parse((await asA(() => desktopExec(['python3', '-c', `from PIL import ImageGrab
 import json
-im=ImageGrab.grab(xdisplay=':99').convert('RGB')
+im=ImageGrab.grab(xdisplay=__import__('os').environ['DISPLAY']).convert('RGB')
 p=[(x,y) for y in range(im.height) for x in range(im.width) if im.getpixel((x,y))==(11,203,79)]
 assert p, 'Bouton non visible'
 print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len(p)}))`]))).toString());
@@ -111,7 +122,7 @@ print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len
   assert.equal((await request(shot.url.replace('/api', ''), cookieB)).status, 404);
   await writeFile('/tmp/opendots-desktop-capture.png', bytes);
   await asA(async () => {
-    const created = await createAgent({ name: 'Vision', permissions: { computer: true } });
+    const created = botA;
     const policyUrl = `/computer/desktop/permissions/${created.id}`;
     assert.equal((await request(policyUrl, '', 'PUT', { mode: 'auto', actions: [] })).status, 401);
     assert.equal((await request(policyUrl, cookieB, 'PUT', { mode: 'auto', actions: [] })).status, 404);
@@ -150,12 +161,57 @@ print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len
   });
   console.log('PASS PNG réel, actions directes par défaut, permissions personnalisées à chaud, validation sur demande, refus, anti-rejeu, retrait de permission, isolation API et reprise manuelle.');
   // A second real container gets a separate profile and filesystem.
-  await asA(() => desktopExec(['sh', '-c', 'printf alice > /home/opendots/private-alice.txt']));
-  await withAccount(b, async () => {
-    await setSetting('desktop.config', { enabled: true }); await startDesktop();
-    assert.equal((await desktopExec(['sh', '-c', 'test ! -e /home/opendots/private-alice.txt && echo isolated'])).toString().trim(), 'isolated');
+  await asA(() => desktopExec(['sh', '-c', `printf alice > /workspaces/${botA.id}/private-alice.txt`]));
+  await asB(async () => {
+    await startDesktop();
+    assert.equal((await desktopExec(['sh', '-c', `test ! -e /workspaces/${botA.id}/private-alice.txt && echo isolated`])).toString().trim(), 'isolated');
   });
   console.log('PASS deux conteneurs réels : fichiers et profils isolés entre comptes.');
+  // Two bots of the same account share one kernel/container, never their screen/profile.
+  const nameA = await asA(computerName);
+  await asC(startDesktop);
+  assert.equal(await asC(computerName), nameA);
+  const uidA = (await asA(() => desktopExec(['id', '-u']))).toString().trim();
+  const uidC = (await asC(() => desktopExec(['id', '-u']))).toString().trim();
+  assert.notEqual(uidA, uidC);
+  const shell = await asA(() => execShell(botA.id, 'id -u && printf from-shell > shell-note.txt'));
+  assert(shell.stdout.includes(uidA));
+  assert.equal((await asA(() => desktopExec(['cat', `/workspaces/${botA.id}/shell-note.txt`]))).toString(), 'from-shell');
+  await assert.rejects(() => asC(() => desktopExec(['cat', `/workspaces/${botA.id}/.Xauthority`])));
+  await assert.rejects(() => asC(() => desktopExec(['cat', `/workspaces/${botA.id}/.vnc/passwd`])));
+  const slotA = await asA(async () => (await import('../src/settings.ts')).getSetting(`desktop.bot.${botA.id}`));
+  await assert.rejects(() => asC(() => desktopExec(['sh', '-c', `DISPLAY=:${slotA!.slot} xdotool getdisplaygeometry`])));
+  await asC(() => desktopExec(['sh', '-c', 'test ! -e "$HOME/private-alice.txt" && echo private']));
+  const shotC = await asC(screenshot);
+  assert.equal(await asA(() => readScreenshot(shotC.screenshotId)), null);
+  await asA(() => setHumanControl(true));
+  await asC(screenshot); await assert.rejects(() => asA(screenshot), /pris la main/);
+  await asA(() => setHumanControl(false));
+  console.log('PASS deux bots, un seul conteneur : UID, écran X11 authentifié, profil, captures et contrôle manuel séparés ; shell et bureau du même bot cohérents.');
+  const longJob = asA(() => execShell(botA.id, 'sleep 3; echo active-job'));
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  assert.equal((await asA(computerState))?.paused, false);
+  assert((await longJob).stdout.includes('active-job'));
+  assert((await asA(() => execShell(botA.id, 'sleep 30', { timeoutSeconds: 1 }))).timedOut);
+  await asA(screenshot);
+  const browserPid = () => asA(async () => (await desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -o chromium'])).toString());
+  const preservedPid = await browserPid();
+  await until(() => asA(computerState), (state) => state?.paused === true);
+  const resumedAt = performance.now();
+  await asA(startDesktop);
+  const resumeMs = Math.round(performance.now() - resumedAt);
+  assert(resumeMs < 5000, `Reprise trop lente : ${resumeMs} ms`);
+  console.log(`PASS pause automatique et reprise mesurée : ${resumeMs} ms (sessions conservées).`);
+  assert.equal(await browserPid(), preservedPid);
+  await run('docker', ['restart', '--time', '2', nameA]);
+  assert.equal((await asA(desktopStatus)).running, false);
+  await asC(startDesktop); await asA(startDesktop);
+  assert.equal((await asA(() => desktopExec(['id', '-u']))).toString().trim(), uidA);
+  assert.equal((await asC(() => desktopExec(['id', '-u']))).toString().trim(), uidC);
+  assert.equal((await asA(() => desktopExec(['cat', `/workspaces/${botA.id}/shell-note.txt`]))).toString(), 'from-shell');
+  console.log('PASS redémarrage complet, ordre inversé des bots, UID stables et fichiers persistants.');
+
+
   if (process.env.OPENDOTS_DESKTOP_LIVE_WEB === '1') {
     await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
     await asA(() => desktopAction({ action: 'type', text: 'https://example.com' }));
@@ -194,26 +250,41 @@ print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len
   await selector.click(); await page.getByRole('option', { name: 'Toujours autoriser', exact: true }).click();
   await until(async () => Object.values(await (await request('/computer/desktop/permissions')).json()) as any[], (policies) => policies.some((p) => p.mode === 'auto'));
   console.log('PASS panneau permissions dans Chromium : trois modes, réglage détaillé, sauvegarde et rechargement.');
+  const botPicker = page.getByRole('combobox', { name: 'Bureau du compagnon', exact: true });
+  await botPicker.click(); await page.getByRole('option', { name: 'Second', exact: true }).click();
+  await canvas.waitFor();
+  await page.getByRole('button', { name: 'Prendre la main', exact: true }).click();
+  assert.equal(await asC(async () => (await desktopStatus()).manualControl), true);
+  assert.equal(await asA(async () => (await desktopStatus()).manualControl), false);
+  await page.getByRole('button', { name: 'Rendre la main aux modèles', exact: true }).click();
+  await botPicker.click(); await page.getByRole('option', { name: 'Vision', exact: true }).click();
+  await canvas.waitFor();
+  console.log('PASS sélecteur de bureau par bot et reprise en main indépendante dans Chromium.');
+
   await asA(screenshot);
   await page.screenshot({ path: '/tmp/opendots-desktop-ui.png', fullPage: true });
   assert.deepEqual(errors, []);
   // An established websocket must be revoked immediately on logout.
-  const ws = new WebSocket(origin.replace('http:', 'ws:') + '/api/computer/vnc', { headers: { cookie: cookieA, origin } });
+  const ws = new WebSocket(origin.replace('http:', 'ws:') + `/api/computer/vnc?agentId=${botA.id}`, { headers: { cookie: cookieA, origin } });
   await once(ws, 'open'); const closed = once(ws, 'close');
   assert.equal((await request('/auth/logout', cookieA, 'POST', {})).status, 200); await closed;
   assert.equal(await rejectedSocket(cookieA), 401);
   cookieA = `opendots_session=${await createSession(a.id)}`;
   assert.equal((await request('/settings', cookieA, 'PUT', { shell: { network: false } })).status, 200);
   assert.equal((await asA(desktopStatus)).running, false);
-  console.log('PASS arrêt du conteneur quand le réseau de l’ordinateur est désactivé.');
+  console.log('PASS arrêt des bureaux quand le réseau de l’ordinateur est désactivé.');
   console.log('PASS noVNC dans Chromium : canvas 1280×800, reprise manuelle et WebSocket révoqué à la déconnexion.');
 } catch (error) {
+  const failedPage = browser?.contexts()[0]?.pages()[0];
+  if (failedPage) { console.error('Browser:', await failedPage.getByRole('alert').allTextContents()); await failedPage.screenshot({ path: '/tmp/opendots-bot-ui-failure.png', fullPage: true }).catch(() => {}); }
+  const diagnostics = await asA(() => run('docker', ['exec', computerName(), 'sh', '-c', 'for log in /run/opendots-sessions/*.log /workspaces/ag_*/.vnc/session.log /workspaces/ag_*/.vnc/chromium.log; do if [ -f "$log" ]; then tail -12 "$log"; fi; done'])).catch(() => null);
+  if (diagnostics) console.error(diagnostics.stdout);
   try {
-    await writeFile('/tmp/opendots-desktop-failure.png', await asA(() => desktopExec(['python3', '-c', 'from PIL import ImageGrab; import sys; ImageGrab.grab(xdisplay=":99").save(sys.stdout.buffer,"PNG")'])));
+    await writeFile('/tmp/opendots-desktop-failure.png', await asA(() => desktopExec(['python3', '-c', `from PIL import ImageGrab; import sys, os; ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(sys.stdout.buffer,"PNG")`])));
   } catch { /* The container may have failed before X11 was available. */ }
   console.error(error); process.exitCode = 1;
 } finally {
   await browser?.close(); closeSockets(); await new Promise<void>((resolve) => server.close(() => resolve()));
-  for (const account of [a, b]) await withAccount(account, removeDesktop).catch(() => {});
-  await closeAllDatabases(); await closeAuthStore(); await rm(dir, { recursive: true, force: true });
+  for (const account of [a, b]) await withAccount(account, () => run('docker', ['rm', '-f', computerName()])).catch(() => {});
+  await closeAllDatabases(); await closeAuthStore(); await rm(dir, { recursive: true, force: true }).catch(() => {});
 }

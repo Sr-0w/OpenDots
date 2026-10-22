@@ -80,16 +80,22 @@ mkdir -p .git/hooks; printf '#!/bin/sh\necho SOURCE_HOOK_MUST_NOT_RUN >&2\nexit 
 }, 120_000);
 
 it('recreates a legacy shell container to apply SELinux labels while retaining workspace files', async () => {
+  const agent = await createAgent({ name: 'Upgrade' });
+  const original = await execShell(agent.id, 'echo retained > migration.txt; id -u');
   const before = await computerStatus();
   const name = before.container!.name;
   const image = before.settings.image;
   await exec('docker', ['rm', '-f', name]);
   await exec('docker', ['run', '-d', '--name', name, '--label', `opendots.image=${image}`, '--label', 'opendots.network=on', '--label', `opendots.workspaces=${config.dataDir}/workspaces`, '-v', `${config.dataDir}/workspaces:/workspaces`, image, 'sleep', 'infinity']);
+  // Simulate the old allocator's UID while keeping the same bot's private home.
+  await exec('docker', ['exec', name, 'chown', '-hR', '1000', `/workspaces/${agent.id}`]);
   const oldId = (await exec('docker', ['inspect', '-f', '{{.Id}}', name])).stdout.trim();
-  const agent = await createAgent({ name: 'Upgrade' });
-  expect((await execShell(agent.id, 'find /workspaces -name file.txt')).stdout).toContain('project/file.txt');
-  const inspected = (await exec('docker', ['inspect', '-f', '{{.Id}}|{{index .Config.Labels "opendots.revision"}}|{{index .HostConfig.Binds 0}}', name])).stdout.trim();
+  const restored = await execShell(agent.id, 'cat migration.txt; id -u');
+  expect(restored.exitCode, restored.stderr).toBe(0);
+  expect(restored.stdout).toContain('retained');
+  expect(restored.stdout).toContain(original.stdout.trim());
+  const inspected = (await exec('docker', ['inspect', '-f', '{{.Id}}|{{index .Config.Labels "opendots.revision"}}|{{json .HostConfig.Binds}}', name])).stdout.trim();
   expect(inspected.split('|')[0]).not.toBe(oldId);
-  expect(inspected).toContain('2-selinux');
+  expect(inspected).toContain('3-bot-sessions');
   expect(inspected).toContain('/workspaces:Z');
 }, 120_000);

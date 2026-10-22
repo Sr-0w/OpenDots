@@ -7,6 +7,7 @@ import { currentAccount } from './auth/context.ts';
 
 interface SettingsShape {
   [key: `desktop.permissions.${string}`]: DesktopPermissions;
+  [key: `desktop.bot.${string}`]: { enabled: boolean; manualControl?: boolean; slot?: number; password?: string; runtimeId?: string };
   'openrouter.key': string; // chiffré
   'models.default': ModelConfig;
   'ollama.url': string;
@@ -15,6 +16,7 @@ interface SettingsShape {
   'user.timezone': string;
   'search.config': { provider: string; apiKey?: string | null; url?: string | null }; // clés historiques ignorées
   'shell.config': ShellSettings;
+  'computer.sessions': Record<string, number>;
   'desktop.config': { enabled: boolean; manualControl?: boolean };
 }
 
@@ -31,7 +33,7 @@ export interface ShellSettings {
   sudo: boolean;
 }
 
-export const BUILTIN_COMPUTER_IMAGE = 'opendots/computer:1';
+export const BUILTIN_COMPUTER_IMAGE = 'opendots/computer:3';
 
 export const DEFAULT_SHELL: ShellSettings = { mode: 'auto', approval: 'default', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: false };
 
@@ -92,5 +94,7 @@ export async function setSearchSettings(input: { provider: SearchProvider; url?:
 }
 
 export async function getShellSettings(): Promise<ShellSettings> {
-  return { ...DEFAULT_SHELL, ...((await getSetting('shell.config')) ?? {}) };
+  const settings = { ...DEFAULT_SHELL, ...((await getSetting('shell.config')) ?? {}) };
+  if (settings.image === 'opendots/computer:1') settings.image = BUILTIN_COMPUTER_IMAGE;
+  return settings;
 }

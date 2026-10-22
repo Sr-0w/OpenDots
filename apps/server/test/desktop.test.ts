@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
@@ -9,7 +9,8 @@ import { config } from '../src/config.ts';
 import { setSetting } from '../src/settings.ts';
 import { createAgent, getAgent, mainConversationId } from '../src/agents/repo.ts';
 import { desktopTools } from '../src/computer/tools.ts';
-import { desktopActionSchema, desktopRunArgs, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
+import { desktopActionSchema, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
+import { withDesktopAgent, desktopAgentId, computerSlot } from '../src/computer/session.ts';
 import { COMPUTER_ACTION_TYPES } from '@opendots/shared';
 import { desktopActionNeedsApproval, getDesktopPermissions, setDesktopPermissions } from '../src/computer/permissions.ts';
 const account: AccountContext = { id: 'desktop-unit', email: 'desktop@example.com', role: 'user', dataDir: `${config.dataDir}/desktop-unit` };
@@ -35,31 +36,40 @@ it('applique immédiatement les permissions par compagnon et isole les comptes',
   await expect(setDesktopPermissions(first, { mode: 'custom', actions: ['exec'] } as any)).rejects.toThrow();
   expect((await getDesktopPermissions(first)).mode).toBe('custom');
 }));
-it('n’expose aucun outil graphique sans accord du compte et du compagnon', async () => withAccount(account, async () => {
-  expect(await desktopTools(await ctx(true))).toEqual({});
-  await setSetting('desktop.config', { enabled: true });
+it('démarre à la demande pour le bon compagnon et respecte sa désactivation', async () => withAccount(account, async () => {
+  const bot = await ctx(true);
+  expect(Object.keys(await desktopTools(bot)).sort()).toEqual(['computer_action', 'computer_screenshot']);
+  await setSetting(`desktop.bot.${bot.agent.id}`, { enabled: false });
+  expect(await desktopTools(bot)).toEqual({});
   expect(await desktopTools(await ctx(false))).toEqual({});
-  expect(Object.keys(await desktopTools(await ctx(true))).sort()).toEqual(['computer_action', 'computer_screenshot']);
 }));
 it('valide coordonnées et touches sans accepter de commandes arbitraires', () => {
   for (const input of [{ action: 'click', x: -1, y: 1 }, { action: 'click', x: 1280, y: 1 }, { action: 'key', key: 'Return; id' }, { action: 'scroll', x: 1, y: 1, direction: 'down', amount: 1000 }, { action: 'type', text: '', command: 'sh' }]) expect(desktopActionSchema.safeParse(input).success).toBe(false);
   expect(desktopActionSchema.parse({ action: 'click', x: 1279, y: 799 })).toMatchObject({ button: 'left', double: false });
 });
-it('suspend les captures des modèles quand l’utilisateur prend la main', async () => withAccount(account, async () => {
-  await setHumanControl(true);
-  await expect(screenshot()).rejects.toThrow('pris la main');
-  await setHumanControl(false);
+it('suspend uniquement le bureau sélectionné quand l’utilisateur prend la main', async () => withAccount(account, async () => {
+  const a = await ctx(true), b = await ctx(true);
+  await withDesktopAgent(a.agent.id, async () => {
+    await setHumanControl(true);
+    await expect(screenshot()).rejects.toThrow('pris la main');
+    expect(await withDesktopAgent(b.agent.id, async () => desktopAgentId())).toBe(b.agent.id);
+    expect(desktopAgentId()).toBe(a.agent.id);
+    await setHumanControl(false);
+  });
 }));
 it('isole les captures et refuse la traversée de répertoires', async () => withAccount(account, async () => {
-  const id = 'a'.repeat(32), dir = join(account.dataDir, 'screenshots'); await mkdir(dir, { recursive: true }); await writeFile(join(dir, `${id}.png`), 'private');
-  expect((await readScreenshot(id))!.toString()).toBe('private');
-  expect(await readScreenshot('../secret.key')).toBeNull();
-  expect(await withAccount({ ...account, id: 'other', dataDir: `${config.dataDir}/desktop-other` }, () => readScreenshot(id))).toBeNull();
+  const agent = (await ctx(true)).agent;
+  const id = 'a'.repeat(32), dir = join(account.dataDir, 'desktops', agent.id, 'screenshots'); await mkdir(dir, { recursive: true }); await writeFile(join(dir, `${id}.png`), 'private');
+  expect((await withDesktopAgent(agent.id, () => readScreenshot(id)))!.toString()).toBe('private');
+  expect(await withDesktopAgent(agent.id, () => readScreenshot('../secret.key'))).toBeNull();
+  expect(await withAccount({ ...account, id: 'other', dataDir: `${config.dataDir}/desktop-other` }, () => withDesktopAgent(agent.id, () => readScreenshot(id)))).toBeNull();
 }));
 it('sérialise la capture en image OpenRouter réelle, jamais en texte base64', async () => withAccount(account, async () => {
+  const context = await ctx(true);
+  const directory = join(account.dataDir, 'desktops', context.agent.id, 'screenshots'); await mkdir(directory, { recursive: true });
   const id = 'b'.repeat(32), bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=', 'base64');
-  await writeFile(join(account.dataDir, 'screenshots', `${id}.png`), bytes);
-  const tools = await desktopTools(await ctx(true));
+  await writeFile(join(directory, `${id}.png`), bytes);
+  const tools = await desktopTools(context);
   const messages = await convertToModelMessages([{ role: 'assistant', parts: [{ type: 'tool-computer_screenshot', toolCallId: 'screen', state: 'output-available', input: {}, output: { ok: true, screenshotId: id, width: 1, height: 1 } }] }], { tools });
   let sent: any;
   const model = createOpenRouter({ apiKey: 'fixture-not-a-real-key', fetch: async (_url, init) => {
@@ -71,11 +81,17 @@ it('sérialise la capture en image OpenRouter réelle, jamais en texte base64', 
   expect(result.content).toContainEqual({ type: 'image_url', image_url: { url: `data:image/png;base64,${bytes.toString('base64')}` } });
 }));
 
-describe('lancement du conteneur du bureau', () => {
-  it('monte le dossier et le certificat avec des étiquettes SELinux', () => {
-    const args = desktopRunArgs({ name: 'd', owner: 'o', home: '/data/desktop', extra: [], proxy: 'http://p:1', proxyCa: '/data/ca.pem', memory: '1g', cpus: '1.5', revision: 'test-config', timezone: 'Europe/Brussels', wallpaper: 'dynamic' });
-    expect(args).toEqual(expect.arrayContaining(['-v', '/data/desktop:/home/opendots:Z', '/data/ca.pem:/usr/local/share/ca-certificates/opendots-proxy.crt:ro,z', '--memory', '1g', '--cpus', '1.5', 'opendots.desktop.config=test-config', 'TZ=Europe/Brussels', 'OPENDOTS_DESKTOP_WALLPAPER=dynamic']));
-    expect(args).not.toContain('--mount');
-    expect(() => desktopRunArgs({ name: 'd', owner: 'o', home: '/data/a:b', extra: [] })).toThrow('invalide');
-  });
+it('exige un compagnon explicite et conserve les contextes concurrents', async () => {
+  expect(() => desktopAgentId()).toThrow('Sélectionne');
+  expect(() => withDesktopAgent('../escape', () => {})).toThrow('invalide');
+  const values = await Promise.all(['ag_one', 'ag_two'].map((id) => withDesktopAgent(id, async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5)); return desktopAgentId();
+  })));
+  expect(values).toEqual(['ag_one', 'ag_two']);
 });
+it('alloue des numéros persistants et distincts même avec des démarrages simultanés', async () => withAccount(account, async () => {
+  const slots = await Promise.all(['ag_slot_one', 'ag_slot_two', 'ag_slot_one'].map(computerSlot));
+  expect(slots[0]).not.toBe(slots[1]);
+  expect(slots[0]).toBe(slots[2]);
+  expect(await computerSlot('ag_slot_two')).toBe(slots[1]);
+}));

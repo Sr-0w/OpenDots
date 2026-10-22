@@ -24,7 +24,7 @@ services:
       SSL_CERT_FILE: /run/opendots-ca.pem
     volumes:
       - ${OPENDOTS_CA_FILE:?Set OPENDOTS_CA_FILE}:/run/opendots-ca.pem:ro,z
-  desktop-image:
+  computer-image:
     build:
       args:
         http_proxy: ${HTTP_PROXY:-}
@@ -34,8 +34,3 @@ services:
       SSL_CERT_FILE: /etc/searxng/opendots-ca.pem
       CURL_CA_BUNDLE: /etc/searxng/opendots-ca.pem
       REQUESTS_CA_BUNDLE: /etc/searxng/opendots-ca.pem
-  shell-image:
-    build:
-      args:
-        http_proxy: ${HTTP_PROXY:-}
-        https_proxy: ${HTTPS_PROXY:-}

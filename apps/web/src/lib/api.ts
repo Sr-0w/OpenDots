@@ -99,7 +99,7 @@ export interface ComputerStatus {
   workspaces: string;
 }
 
-export interface DesktopStatus { enabled: boolean; manualControl: boolean; available: boolean; running: boolean; width: number; height: number }
+export interface DesktopStatus { agentId: string; suspended: boolean; vncPassword?: string; enabled: boolean; manualControl: boolean; available: boolean; running: boolean; width: number; height: number }
 
 export const api = {
   uploadImage: async (file: File) => {
@@ -109,12 +109,12 @@ export const api = {
     if (!response.ok) { if (response.status === 401) window.dispatchEvent(new Event('opendots:unauthorized')); throw new ApiError(value.error ?? 'Impossible de joindre cette image.', response.status); }
     return value as { id: string; url: string; filename: string; mediaType: 'image/jpeg'; width: number; height: number; size: number };
   },
-  desktop: () => request<DesktopStatus>('GET', '/computer/desktop'),
+  desktop: (agentId: string) => request<DesktopStatus>('GET', `/computer/desktop?agentId=${agentId}`),
   desktopPermissions: () => request<Record<string, DesktopPermissions>>('GET', '/computer/desktop/permissions'),
   setDesktopPermissions: (agentId: string, permissions: DesktopPermissions) => request<DesktopPermissions>('PUT', `/computer/desktop/permissions/${agentId}`, permissions),
-  startDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/start'),
-  stopDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/stop'),
-  desktopControl: (enabled: boolean) => request<{ok: boolean}>('POST', '/computer/desktop/control', { enabled }),
+  startDesktop: (agentId: string) => request<DesktopStatus>('POST', `/computer/desktop/start?agentId=${agentId}`),
+  stopDesktop: (agentId: string) => request<DesktopStatus>('POST', `/computer/desktop/stop?agentId=${agentId}`),
+  desktopControl: (agentId: string, enabled: boolean) => request<{ok: boolean}>('POST', `/computer/desktop/control?agentId=${agentId}`, { enabled }),
   integrationCatalog: () => request<{ entries: IntegrationCatalogEntry[]; apps: OAuthAppDTO[] }>('GET', '/integrations/catalog'),
   saveOAuthApp: (provider: OAuthProvider, clientId: string, clientSecret?: string) => request<{ apps: OAuthAppDTO[] }>('PUT', `/integrations/oauth/apps/${provider}`, { clientId, clientSecret }),
   startOAuth: (provider: IntegrationProvider, permissions: string[], connectorId?: string, requestedBy?: string) => request<{ url: string; expiresAt: number }>('POST', '/integrations/oauth/start', { provider, permissions, connectorId, requestedBy }),

@@ -3,26 +3,53 @@
 For the complete Linux container deployment, volumes, HTTPS, backup and upgrade
 commands, see [Docker Compose](docker-compose.md).
 
-The **Computer / Ordinateur** page starts a private Linux desktop for the signed-in
-account: XFCE, Xvfb, Chromium, xdotool and a noVNC viewer. These components are
-free/open-source; there is no desktop service subscription or API key. The model
-provider still charges its usual image/input token usage.
+The **Computer / Ordinateur** page selects a companion's own Linux desktop:
+XFCE, Xvfb, Chromium, xdotool and a noVNC viewer. The account owns **one Docker
+container** combining shell and GUI. Each companion has its own stable Linux UID,
+1280 × 800 X display, X authentication cookie, clipboard, VNC password, D-Bus
+session, home directory and Chromium profile. Shell and GUI use the same home:
+`data/users/<account>/workspaces/<agent>`, mounted at `/workspaces/<agent>`.
+Screenshots live separately under `data/users/<account>/desktops/<agent>/screenshots`.
+Only `/workspaces/shared` is intentionally shared between that account's bots.
+The Docker socket, account databases and OAuth tokens are never mounted inside.
 
-Install Docker on the OpenDots server. Open **Computer → Start desktop**. The
-first start automatically builds `opendots/desktop:2` from the repository's
-Dockerfile and may take several minutes. You can pre-build it with
-`pnpm desktop:build`, or rebuild after changing its Dockerfile/start script with
-`pnpm desktop:build -- --rebuild`. Allow access to Debian package repositories and
-the Docker registry. The default memory limit is 2 GiB per desktop, configurable
-with `OPENDOTS_DESKTOP_MEMORY`; leave additional RAM for OpenDots and its account
-databases. The desktop uses a separate container from the existing shell, so
-adding it does not reset installed shell programs.
+These are containers sharing the host kernel, not full virtual machines. The
+components are free/open-source; model providers still charge their usual token
+usage. Install Docker and prepare `opendots/computer:3` using `pnpm desktop:build`
+or `docker compose build computer-image` before accepting users. Compose does this
+automatically. A missing image can also build at first use, taking minutes; this
+is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
 
-A fixed **1280 × 800** display keeps model coordinates consistent. The browser
-viewer scales the display without changing its resolution. A persistent home and
-Chromium profile are mounted from `data/users/<id>/desktop`; closing/stopping the
-desktop preserves them. Do not share or copy one account's browser profile into
-another account. The GUI is shared by companions within that account.
+Grant desktop access to a companion to let its tools start its session on demand.
+The Computer page lets you select, start, stop and take over each bot independently.
+Stopping a bot's desktop does not stop its teammates or shell. Homes/profiles
+persist through restarts. Default account limits are 4 GiB, 2 CPUs and 2048 PIDs
+(shared by all its bots): `OPENDOTS_COMPUTER_MEMORY`, `OPENDOTS_COMPUTER_CPUS`,
+`OPENDOTS_COMPUTER_PIDS`. Old `OPENDOTS_DESKTOP_MEMORY/CPUS` are no longer used.
+Custom shell images must include the account session controller and GUI tools;
+plain Debian images support shell only. Old built-in `opendots/computer:1` settings
+upgrade automatically to `:3`.
+
+## Fast on-demand resume
+
+After `OPENDOTS_COMPUTER_IDLE_SECONDS` without a shell command, desktop action or
+connected viewer (300 by default, 0 disables), the account container is **paused**.
+Its screens, browsers and processes remain in RAM. The next tool action or viewer
+connection unpauses it without rebooting Chromium. Active commands and noVNC
+connections hold leases so the container cannot pause mid-operation. Closing the
+viewer allows the idle timer to run. Pause retains RAM and disk; it does not free
+memory. Detached background daemons are paused too; set the timeout to 0 if they
+must run continuously. A fully stopped container needs a cold start and relaunches requested bot
+sessions, preserving files and browser profiles. Latency depends on the host;
+use the live test's measured resume time rather than assuming an instant cold boot.
+
+An upgrade recreates the account container when its image/resources/network change;
+packages installed only in the old container layer are lost. Persistent workspace
+files remain. Prepare a custom image for persistent system packages. The previous
+shared desktop under `data/users/<account>/desktop` is retained as legacy data and
+is **not copied into every bot**: doing so would duplicate logged-in sessions.
+Stop old `opendots-desktop-*` containers during upgrade using the deployment's
+stop script. Reconnect services in each bot's own browser when needed.
 
 ## Dynamic wallpaper
 
@@ -35,9 +62,8 @@ Only two disposable 1280 × 800 PNGs are retained under
 
 Set `OPENDOTS_DESKTOP_WALLPAPER=off` in the **server** environment to keep a
 manually selected background. Timezone/wallpaper mode changes take effect when
-the desktop is next started/accessed, recreating its container while preserving
-its home and browser profile. An image rebuild is required after changing the
-bundled assets: `pnpm desktop:build -- --rebuild` or `docker compose build desktop-image`.
+its session is next restarted. Its home and browser profile are preserved. An image rebuild is required after changing the
+bundled assets: `pnpm desktop:build -- --rebuild` or `docker compose build computer-image`.
 
 ## Models and approvals
 
@@ -87,13 +113,13 @@ account include potentially sensitive screenshots and browser sessions.
 
 ## Network and deployment
 
-Keep the account's computer network enabled for the desktop: the VNC relay needs
-Docker's bridge network. Turning computer networking off or selecting the off
+Keep the account's computer network enabled to use the desktop. Turning computer networking off or selecting the off
 mode stops the desktop. Re-enable it explicitly when needed.
 
-VNC port 5900 is published only on a random **host loopback** port. OpenDots relays
-it through `/api/computer/vnc`, requiring the signed-in session and exact browser
-Origin. Logout/session expiry terminates established WebSockets. No VNC port or
+VNC stays on the container loopback with a private password per bot. No VNC port
+is published on the host. OpenDots relays it with `docker exec`/socat through
+`/api/computer/vnc?agentId=…`, requiring the signed-in session, bot ownership and
+exact browser Origin. Logout/session expiry terminates established WebSockets. No VNC port or
 additional public hostname is needed. Do not expose Docker or VNC directly.
 
 The existing reverse proxy must forward WebSocket upgrades for `/api/computer/vnc`
@@ -101,12 +127,13 @@ and support long connections. Caddy's `reverse_proxy` already does this; for ngi
 include the usual Upgrade/Connection headers and an appropriate read timeout.
 Local Vite development forwards this WebSocket with the normal `/api` proxy.
 
-The graphical container runs desktop applications as uid 1000, mounts only that
-account's home, has no Docker socket or host credential mounts, and uses
-`no-new-privileges` with a reduced capability set. Chromium uses `--no-sandbox`
+The account container runs each bot as a distinct Linux UID and mounts only that
+account's workspaces, with no Docker socket or host credential mounts. Chromium uses `--no-sandbox`
 inside this container; the Docker container is its isolation boundary. This is
 not a hardened environment for mutually hostile tenants; use a dedicated host or
-VM for untrusted public registrations. Runtime proxy CA trust is configured without
+VM for untrusted public registrations. Granting a bot unrestricted sudo also grants
+control of the other sessions within its own account container; keep sudo off for
+mutual Linux-user isolation. Runtime proxy CA trust is configured without
 disabling browser TLS verification.
 
 ## Verification

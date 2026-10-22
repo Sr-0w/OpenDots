@@ -49,15 +49,13 @@ fournisseur. Voir [les instructions OAuth](accounts-and-connectors.md).
 | `app` | Serveur Node, interface, authentification, bases par compte, courtier Git | HTTP sur `127.0.0.1:3000`, données dans le bind mount |
 | `search-init` | Génère la configuration et un secret aléatoire, puis termine | Volume `search-config`, secret réutilisé aux redémarrages |
 | `searxng` | Moteur OSS local, interroge DuckDuckGo/Brave/Wikipedia | JSON sur `127.0.0.1:18080`, jamais public |
-| `desktop-image` | Construit `opendots/desktop:2`, puis termine avec succès | Aucun bureau partagé ; prépare seulement l’image |
-| `shell-image` | Construit `opendots/computer:1`, puis termine avec succès | Prépare Python, Node, Git et les outils shell |
-| `opendots-desktop-*` | Bureau XFCE/Chromium **par compte**, créé à la demande par l’application | Home et profil privés ; VNC sur un port loopback aléatoire |
-| `*-computer-*` | Shell **par compte**, un utilisateur Linux et dossier par compagnon | Workspaces privés par compte, dossier partagé entre ses compagnons |
+| `computer-image` | Construit `opendots/computer:3`, puis termine avec succès | Prépare ensemble shell et bureaux |
+| `*-computer-*` | Un conteneur **par compte**, créé à la demande, mis en pause après inactivité | Un UID, écran, presse-papiers, home et profil Chromium par bot ; aucun port VNC publié |
 | `caddy` (profil `https`) | Reverse proxy et certificats automatiques | Ports 80/443 ; volumes de certificats persistants |
 
 Ces ordinateurs sont des **conteneurs Linux**, pas des machines virtuelles avec
-leur propre noyau. Les compagnons d’un même compte partagent le bureau de ce
-compte, mais pas les sessions d’autres comptes. Le courtier Git authentifié
+leur propre noyau. Chaque bot a son propre bureau et ses sessions, y compris entre bots du même compte.
+Seul le dossier `/workspaces/shared` permet de partager volontairement des fichiers. Le courtier Git authentifié
 s’exécute dans `app` depuis un dépôt temporaire propre ; aucun jeton OAuth n’est
 transmis aux ordinateurs des compagnons.
 
@@ -67,8 +65,9 @@ un redémarrage de `app` et à `docker compose down`. Voir l’arrêt complet ci
 
 ## Réseau, chemins et SELinux
 
-`app` utilise `network_mode: host` pour joindre les ports VNC dynamiques publiés
-sur le loopback de l’hôte. Il écoute lui-même uniquement sur `127.0.0.1`.
+`app` utilise `network_mode: host` et écoute uniquement sur `127.0.0.1` pour le proxy.
+Le relais noVNC passe par `docker exec` vers le loopback interne du conteneur,
+avec un mot de passe privé par bot ; aucun port VNC n’est publié sur l’hôte.
 C’est un choix de déploiement Linux, pas une recette Docker Desktop Windows/macOS.
 Ne remplacer ni ce mode par bridge, ni les ports VNC par `0.0.0.0`.
 
@@ -133,12 +132,14 @@ refuse l’origine incorrecte et coupe les WebSockets à la déconnexion/expirat
 
 Prévoir environ **8 Go de RAM pour un petit déploiement avec un bureau actif**,
 plus de l’espace disque pour les images et profils Chromium. Les plafonds ne
-réservent pas la RAM : app 2 Go, SearXNG 1 Go, chaque bureau 2 Go, chaque shell
-2 Go. Les builders ne restent pas actifs. Adapter les variables `*_MEMORY` dans
+réservent pas la RAM : app 2 Go, SearXNG 1 Go, chaque compte 4 Go partagés par ses shells et bureaux. Les builders ne restent pas actifs. Adapter les variables `*_MEMORY` dans
 [l’exemple](../deploy/compose.env.example) au nombre de comptes simultanés.
-Les plafonds CPU sont de 2 cœurs pour app et chaque ordinateur, et 1 pour
-SearXNG ; les variables `OPENDOTS_APP_CPUS`, `OPENDOTS_DESKTOP_CPUS` et
-`OPENDOTS_COMPUTER_CPUS` permettent de les adapter.
+Les plafonds CPU sont de 2 cœurs pour app et chaque compte, et 1 pour SearXNG ;
+`OPENDOTS_APP_CPUS`, `OPENDOTS_COMPUTER_CPUS` et `OPENDOTS_COMPUTER_PIDS` les règlent.
+`OPENDOTS_COMPUTER_IDLE_SECONDS=300` met un compte inactif en pause et permet de
+reprendre ses sessions en mémoire, sans relancer Chromium. Une vue noVNC ouverte
+ou une commande active empêchent la pause. La pause conserve la RAM ; un premier
+démarrage à froid et une compilation d’image prennent plus longtemps.
 
 Les cinq images fournies sont incluses dans l’image du bureau. Le fond passe
 progressivement de nuit à aube, matin, jour et crépuscule, selon le fuseau du
@@ -157,7 +158,7 @@ docker compose stop app
 docker compose run --rm --no-deps app node /app/deploy/stop-computers.mjs
 git pull --ff-only
 docker compose build --pull
-docker compose up -d --wait
+docker compose up -d --wait --remove-orphans
 ```
 
 Pour arrêter le déploiement entier, exécuter les deux premières commandes puis
@@ -199,12 +200,12 @@ docker compose ps -a
 docker compose logs --tail 100 app searxng search-init
 curl --fail http://127.0.0.1:3000/healthz
 docker compose exec app docker info --format '{{.ServerVersion}}'
-docker ps --filter label=opendots.desktop.owner
+docker ps --filter label=opendots.workspaces
 ```
 
 - **App unhealthy** : vérifier port occupé, permissions du dossier data, espace
   disque et logs. `/healthz` expose seulement `{"ok":true}`, sans comptes/secrets.
-- **Le bureau ne démarre pas** : vérifier le builder `desktop-image` (exit 0),
+- **Le bureau ne démarre pas** : vérifier le builder `computer-image` (exit 0),
   les logs du conteneur graphique, le réseau du compte, sa limite mémoire et les
   montages absolus. Le premier navigateur peut prendre quelques secondes.
 - **noVNC déconnecté** : vérifier HTTPS/public URL, cookies et Upgrade du proxy.

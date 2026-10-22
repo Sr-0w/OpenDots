@@ -29,26 +29,17 @@ services:
       retries: 10
       start_period: 30s
 
-  desktop-image:
-    image: opendots/desktop:2
+  computer-image:
+    image: opendots/computer:3
     build:
       context: apps/server/computer
-      secrets: [opendots_ca]
-    entrypoint: [/bin/true]
-    restart: "no"
-
-  shell-image:
-    image: opendots/computer:1
-    build:
-      context: apps/server/computer
-      dockerfile: shell.Dockerfile
       secrets: [opendots_ca]
     entrypoint: [/bin/true]
     restart: "no"
 
   app:
     image: opendots/server:local
-    # Linux host networking keeps the private host-loopback VNC relay reachable.
+    # Bind the HTTP service to host loopback for the reverse proxy.
     network_mode: host
     env_file:
       - path: .env
@@ -67,8 +58,7 @@ services:
     security_opt: [label=disable]
     depends_on:
       searxng: { condition: service_healthy }
-      desktop-image: { condition: service_completed_successfully }
-      shell-image: { condition: service_completed_successfully }
+      computer-image: { condition: service_completed_successfully }
     restart: unless-stopped
     init: true
     mem_limit: ${OPENDOTS_APP_MEMORY:-2g}

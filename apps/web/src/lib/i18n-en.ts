@@ -577,4 +577,7 @@ export const EN: Record<string, string> = {
   "Vue seule. Les modèles agissent selon les permissions de chaque compagnon.": "View only. Models act according to each companion’s permissions.",
   "L’accès au bureau autorise les actions sans confirmation par défaut. Tu peux demander une validation pour tout ou seulement certaines actions.": "Desktop access allows actions without confirmation by default. You can require approval for all or only some actions.",
   "Les actions cochées sont autorisées sans confirmation. Les autres demandent une validation.": "Checked actions are allowed without confirmation. Other actions require approval.",
+  "Bureau du compagnon": "Companion desktop",
+  "Un conteneur privé par compte, un bureau et un navigateur séparés par compagnon.": "One private container per account, with a separate desktop and browser for each companion.",
+  "Démarrage du bureau. Une session en pause reprend sans relancer le navigateur.": "Starting the desktop. A paused session resumes without restarting the browser.",
 };

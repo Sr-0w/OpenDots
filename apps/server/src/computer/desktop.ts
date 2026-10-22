@@ -1,157 +1,128 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { lookup } from 'node:dns/promises';
-import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { config, repoRoot, systemDataDir } from '../config.ts';
+import { config } from '../config.ts';
 import { accountKey } from '../auth/context.ts';
-import { getSetting, getShellSettings, getTimezone, setSetting } from '../settings.ts';
-import { dockerAvailable } from './shell.ts';
+import { BUILTIN_COMPUTER_IMAGE, getSetting, getShellSettings, getTimezone, setSetting } from '../settings.ts';
+import { computerName, computerState, dockerAvailable, ensureContainer, ensureComputerUser, ensureImage, leaseComputer, linuxUser } from './shell.ts';
 import { KeyedMutex } from '../util.ts';
+import { desktopAgentId, desktopKey, withDesktopAgent, computerSlot } from './session.ts';
+import { getAgent, listAgentRows } from '../agents/repo.ts';
 
-export const DESKTOP_IMAGE = 'opendots/desktop:2';
+export const DESKTOP_IMAGE = BUILTIN_COMPUTER_IMAGE;
 export const WIDTH = 1280, HEIGHT = 800;
 const run = promisify(execFile);
-const name = () => `opendots-desktop-${createHash('sha256').update(`${systemDataDir}:${accountKey()}`).digest('hex').slice(0, 16)}`;
 const starting = new Map<string, Promise<number>>();
-const actions = new KeyedMutex();
-export const humanControl = async () => (await getSetting('desktop.config'))?.manualControl === true;
-export async function setHumanControl(enabled: boolean) { const current = await getSetting('desktop.config'); await setSetting('desktop.config', { enabled: current?.enabled ?? false, manualControl: enabled }); }
-async function assertModelControl() { if (await humanControl()) throw new DesktopError('L’utilisateur a pris la main. Captures et actions des modèles suspendues.'); }
-let building: Promise<void> | undefined;
+const actions = new KeyedMutex(), allocation = new KeyedMutex();
 export class DesktopError extends Error {}
-export const desktopEnabled = async () => (await getSetting('desktop.config'))?.enabled === true;
-const docker = (args: string[], timeout = 30_000) => run('docker', args, { timeout, maxBuffer: 8_000_000 });
-
-async function trust() {
-  const dir = join(systemDataDir, 'desktop-build');
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  const system = await readFile(process.env.SSL_CERT_FILE ?? '/etc/ssl/certs/ca-certificates.crt', 'utf8');
-  const proxy = process.env.CODEX_PROXY_CERT ? await readFile(process.env.CODEX_PROXY_CERT, 'utf8') : '';
-  if ((system + proxy).includes('PRIVATE KEY') || !system.includes('BEGIN CERTIFICATE')) throw new DesktopError('Certificats TLS invalides.');
-  const bundle = join(dir, 'ca.pem');
-  await writeFile(bundle, system + '\n' + proxy, { mode: 0o644 });
-  await chmod(bundle, 0o644);
-  const proxyFile = join(dir, 'proxy.crt');
-  if (proxy) { await writeFile(proxyFile, proxy, { mode: 0o644 }); await chmod(proxyFile, 0o644); }
-  return { bundle, proxyFile: proxy ? proxyFile : undefined };
+const settingKey = () => `desktop.bot.${desktopAgentId()}` as const;
+export const humanControl = async () => (await getSetting(settingKey()))?.manualControl === true;
+export async function setHumanControl(enabled: boolean) {
+  const current = await getSetting(settingKey());
+  await setSetting(settingKey(), { ...current, enabled: current?.enabled ?? await desktopEnabled(), manualControl: enabled });
 }
-async function proxyArgs() {
-  const proxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy;
-  const extra: string[] = [];
-  if (proxy) {
-    const host = new URL(proxy).hostname;
-    const { address } = await lookup(host);
-    extra.push('--add-host', `${host}:${address}`);
-  }
-  return { proxy, extra };
-}
+async function assertModelControl() { if (await humanControl()) throw new DesktopError('L’utilisateur a pris la main. Captures et actions des modèles suspendues.'); }
+export const desktopEnabled = async () => {
+  const agent = await getAgent(desktopAgentId());
+  if (!agent || agent.archived) return false;
+  return (await getSetting(settingKey()))?.enabled ?? agent.permissions.computer;
+};
 export async function buildDesktopImage(force = false) {
-  if (!await dockerAvailable()) throw new DesktopError('Docker est nécessaire pour le bureau graphique.');
-  if (!force) try { await docker(['image', 'inspect', DESKTOP_IMAGE]); return; } catch { /* build once */ }
-  building ??= (async () => {
-    const ca = await trust(), network = await proxyArgs();
-    const args = ['build', ...network.extra, '--secret', `id=opendots_ca,src=${ca.bundle}`, ...(network.proxy ? ['--build-arg', `http_proxy=${network.proxy}`, '--build-arg', `https_proxy=${network.proxy}`] : []), '-t', DESKTOP_IMAGE, join(repoRoot, 'apps/server/computer')];
-    try { await docker(args, 600_000); }
-    catch { throw new DesktopError('Construction du bureau impossible. Vérifie Docker, l’accès aux dépôts Debian et les certificats du proxy.'); }
-  })();
-  try { await building; } finally { building = undefined; }
+  // The account's one image contains both shell and independent desktop sessions.
+  await ensureImage(DESKTOP_IMAGE, force);
 }
-async function inspect() {
-  try {
-    const { stdout } = await docker(['inspect', name()]);
-    const value = JSON.parse(stdout)[0];
-    if (value.Config.Labels?.['opendots.desktop.owner'] !== `${systemDataDir}:${accountKey()}`) throw new DesktopError('Nom de conteneur déjà utilisé.');
+async function session() {
+  return allocation.run(accountKey(), async () => {
+    const saved = await getSetting(settingKey());
+    if (saved?.slot && saved.password) return saved as typeof saved & { slot: number; password: string };
+    const slot = await computerSlot(desktopAgentId());
+    const value = { ...saved, enabled: saved?.enabled ?? await desktopEnabled(), slot, password: randomBytes(6).toString('base64') };
+    await setSetting(settingKey(), value);
     return value;
-  } catch (error) { if (error instanceof DesktopError) throw error; return null; }
+  });
 }
-/** Arguments `docker run` du bureau. Montages en `-v` pour porter les étiquettes SELinux. */
-export function desktopRunArgs(o: { name: string; owner: string; home: string; proxy?: string | null; extra: string[]; proxyCa?: string | null; memory?: string; cpus?: string; revision?: string; timezone?: string; wallpaper?: string }) {
-  for (const path of [o.home, o.proxyCa].filter(Boolean) as string[]) if (/[:,]/.test(path)) throw new DesktopError('Chemin de montage invalide pour le bureau.');
-  const proxy = o.proxy ? ['-e', `HTTPS_PROXY=${o.proxy}`, '-e', `HTTP_PROXY=${o.proxy}`, '-e', `https_proxy=${o.proxy}`, '-e', `http_proxy=${o.proxy}`] : [];
-  return ['run', '-d', '--name', o.name, '--label', `opendots.desktop.owner=${o.owner}`, ...(o.revision ? ['--label', `opendots.desktop.config=${o.revision}`] : []), '-e', `TZ=${o.timezone ?? 'UTC'}`, '-e', `OPENDOTS_DESKTOP_WALLPAPER=${o.wallpaper ?? 'dynamic'}`, '--restart', 'unless-stopped', '--memory', o.memory ?? process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g', '--cpus', o.cpus ?? process.env.OPENDOTS_DESKTOP_CPUS ?? '2', '--pids-limit', '512', '--shm-size', '256m', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--security-opt', 'no-new-privileges', '-p', '127.0.0.1::5900',
-    // :Z — dossier privé à ce conteneur ; :ro,z — certificat partagé en lecture seule (SELinux enforcing).
-    '-v', `${o.home}:/home/opendots:Z`, ...o.extra, ...proxy, ...(o.proxyCa ? ['-v', `${o.proxyCa}:/usr/local/share/ca-certificates/opendots-proxy.crt:ro,z`] : []), DESKTOP_IMAGE];
-}
-
-/** Attend que le conteneur tourne vraiment ; signale une boucle de redémarrage. */
-async function runningState() {
-  for (let attempt = 0; attempt < 15; attempt++) {
-    const state = await inspect();
-    if (state?.State.Running && !state.State.Restarting && state.NetworkSettings.Ports?.['5900/tcp']?.length) return state;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-  const state = await inspect();
-  if (!state) throw new DesktopError('Le conteneur du bureau a disparu au démarrage.');
-  if (state.State.Restarting || !state.State.Running) throw new DesktopError(`Le conteneur du bureau redémarre en boucle (${state.RestartCount ?? 0} redémarrage(s)${state.State.Error ? ` : ${String(state.State.Error).slice(0, 160)}` : ''}). Consulte ses logs : docker logs ${name()}`);
-  return state;
-}
-
 export async function desktopStatus() {
   const available = await dockerAvailable();
-  const state = available ? await inspect() : null;
-  return { enabled: await desktopEnabled(), manualControl: await humanControl(), available, running: Boolean(state?.State.Running), width: WIDTH, height: HEIGHT };
+  const state = available ? await computerState() : null;
+  const saved = await getSetting(settingKey());
+  const running = Boolean(state?.running && saved?.runtimeId === state.generation);
+  return { agentId: desktopAgentId(), enabled: await desktopEnabled(), manualControl: await humanControl(), available, running, suspended: state?.paused ?? false, width: WIDTH, height: HEIGHT, ...(running ? { vncPassword: saved?.password } : {}) };
 }
 export async function startDesktop(): Promise<number> {
-  if (!await desktopEnabled()) throw new DesktopError('Active le bureau depuis la page Ordinateur.');
+  if (!await desktopEnabled()) throw new DesktopError('Active le bureau de ce compagnon depuis la page Ordinateur.');
   const settings = await getShellSettings();
-  if (settings.mode === 'off') throw new DesktopError('L’ordinateur est désactivé dans les paramètres.');
-  // A network-disabled Docker container cannot expose a loopback VNC mapping.
-  if (!settings.network) throw new DesktopError('Active le réseau de l’ordinateur pour utiliser le bureau graphique.');
-  const key = accountKey();
+  if (settings.mode === 'off' || !settings.network) throw new DesktopError('Active l’ordinateur et son réseau pour utiliser le bureau.');
+  const key = desktopKey();
   if (starting.has(key)) return starting.get(key)!;
   const pending = (async () => {
-    await buildDesktopImage();
-    const latest = await getShellSettings();
-    if (!await desktopEnabled() || latest.mode === 'off' || !latest.network) throw new DesktopError('Démarrage du bureau annulé.');
-    const timezone = await getTimezone();
-    const wallpaper = process.env.OPENDOTS_DESKTOP_WALLPAPER === 'off' ? 'off' : 'dynamic';
-    const revision = `${timezone}:${wallpaper}:${process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g'}:${process.env.OPENDOTS_DESKTOP_CPUS ?? '2'}`;
-    let state = await inspect();
-    const image = (await docker(['image', 'inspect', '--format', '{{.Id}}', DESKTOP_IMAGE])).stdout.trim();
-    if (state && (state.Image !== image || state.Config.Labels?.['opendots.desktop.config'] !== revision)) { await docker(['rm', '-f', name()]); state = null; }
-    const launched = !state?.State.Running;
-    if (!state) {
-      const home = join(config.dataDir, 'desktop');
-      await mkdir(home, { recursive: true, mode: 0o700 });
-      const network = await proxyArgs(), ca = await trust();
-      await docker(desktopRunArgs({ name: name(), owner: `${systemDataDir}:${accountKey()}`, home, proxy: network.proxy, extra: network.extra, proxyCa: ca.proxyFile, revision, timezone, wallpaper }));
-    } else if (!state.State.Running) await docker(['start', name()]);
-    state = await runningState();
-    const binding = state.NetworkSettings.Ports['5900/tcp']?.find((p: any) => p.HostIp === '127.0.0.1');
-    if (!binding) throw new DesktopError('Le bureau ne dispose pas de port privé.');
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try { await desktopExec(launched ? ['sh', '-c', 'xdotool getdisplaygeometry && xdotool search --onlyvisible --class chromium'] : ['xdotool', 'getdisplaygeometry']); return Number(binding.HostPort); }
-      catch { await new Promise((resolve) => setTimeout(resolve, 200)); }
-    }
-    throw new DesktopError('Le bureau ne démarre pas. Consulte les logs de son conteneur Docker.');
+    const release = leaseComputer();
+    try {
+      await ensureContainer(settings);
+      if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
+      const bot = await session();
+      const { user } = await ensureComputerUser(desktopAgentId(), settings.sudo);
+      const payload = JSON.stringify({ password: bot.password, timezone: await getTimezone(), wallpaper: process.env.OPENDOTS_DESKTOP_WALLPAPER === 'off' ? 'off' : 'dynamic' });
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('docker', ['exec', '-i', computerName(), 'python3', '/usr/local/bin/opendots-bot-session', 'start', user, String(bot.slot)], { stdio: ['pipe', 'ignore', 'pipe'] });
+        let error = ''; child.stderr.on('data', (data) => { error = (error + data).slice(-500); });
+        const timer = setTimeout(() => child.kill('SIGKILL'), 15_000);
+        child.on('error', (e) => { clearTimeout(timer); reject(e); });
+        child.on('close', (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new DesktopError(`Le bureau ne démarre pas : ${error}`)); });
+        child.stdin.on('error', () => {}); child.stdin.end(payload);
+      });
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
+        try {
+          await desktopExec(['sh', '-c', 'xdotool getdisplaygeometry && xdotool search --onlyvisible --class chromium']);
+          if (!await desktopEnabled()) throw new DesktopError('Démarrage du bureau annulé.');
+          const state = await computerState();
+          const current = await getSetting(settingKey());
+          await setSetting(settingKey(), { ...current, enabled: current?.enabled ?? true, runtimeId: state?.generation });
+          return 5900 + bot.slot;
+        } catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
+      }
+      throw new DesktopError('Le bureau ne démarre pas. Consulte les logs de sa session dans son dossier personnel.');
+    } finally { release(); }
   })();
   starting.set(key, pending);
   try { return await pending; } finally { starting.delete(key); }
 }
 export async function stopDesktop() {
-  // Disable first: pending approvals and WebSocket reconnects must fail closed.
-  await setHumanControl(false);
-  await setSetting('desktop.config', { enabled: false });
-  await starting.get(accountKey())?.catch(() => {});
-  if (await inspect()) await docker(['stop', name()]);
+  const saved = await getSetting(settingKey());
+  await setSetting(settingKey(), { ...saved, enabled: false, manualControl: false, runtimeId: undefined });
+  await starting.get(desktopKey())?.catch(() => {});
+  const state = await computerState();
+  if (!state?.running || !saved?.slot) return;
+  const release = leaseComputer();
+  try {
+    if (state.paused) await run('docker', ['unpause', computerName()], { timeout: 15_000 });
+    await run('docker', ['exec', computerName(), 'python3', '/usr/local/bin/opendots-bot-session', 'stop', linuxUser(desktopAgentId()), String(saved.slot)], { timeout: 15_000 });
+  } finally { release(); }
 }
-export async function removeDesktop() {
-  if (await inspect()) await docker(['rm', '-f', name()]);
-}
+// Removes the running session only; homes and browser profiles persist.
+export const removeDesktop = stopDesktop;
 export async function desktopExec(args: string[], input?: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('docker', ['exec', '-i', '-u', '1000:1000', '-e', 'DISPLAY=:99', '-e', 'HOME=/home/opendots', name(), ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const bot = await session();
+  const user = linuxUser(desktopAgentId()), home = `/workspaces/${desktopAgentId()}`;
+  const release = leaseComputer();
+  try {
+    await ensureContainer();
+    return await new Promise((resolve, reject) => {
+    const child = spawn('docker', ['exec', '-i', '-u', user, '-e', `DISPLAY=:${bot.slot}`, '-e', `XAUTHORITY=${home}/.Xauthority`, '-e', `HOME=${home}`, '-e', `XDG_RUNTIME_DIR=/tmp/runtime-${user}`, computerName(), ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
     const chunks: Buffer[] = []; let size = 0, error = '';
     const timer = setTimeout(() => child.kill('SIGKILL'), 15_000);
     child.stdout.on('data', (part: Buffer) => { size += part.length; if (size > 8_000_000) child.kill('SIGKILL'); else chunks.push(part); });
-    child.stderr.on('data', (part) => { error = (error + part).slice(-2000); });
-    child.on('error', () => { clearTimeout(timer); reject(new DesktopError('Commande du bureau indisponible.')); });
+    child.stderr.on('data', (part) => { error = (error + part).slice(-1000); });
+    child.on('error', (e) => { clearTimeout(timer); reject(e); });
     child.on('close', (code) => { clearTimeout(timer); code === 0 && size <= 8_000_000 ? resolve(Buffer.concat(chunks)) : reject(new DesktopError(`Opération du bureau impossible (${code ?? 'timeout'}). ${error.slice(-400)}`)); });
     child.stdin.on('error', () => {}); child.stdin.end(input);
-  });
+  }); } finally { release(); }
+}
+export function desktopVncStream(port: number) {
+  return spawn('docker', ['exec', '-i', computerName(), 'socat', 'STDIO', `TCP:127.0.0.1:${port}`], { stdio: ['pipe', 'pipe', 'pipe'] });
 }
 const point = { x: z.number().int().min(0).max(WIDTH - 1), y: z.number().int().min(0).max(HEIGHT - 1) };
 export const desktopActionSchema = z.discriminatedUnion('action', [
@@ -164,7 +135,7 @@ export const desktopActionSchema = z.discriminatedUnion('action', [
 export type DesktopAction = z.infer<typeof desktopActionSchema>;
 export async function desktopAction(input: unknown) {
   const action = desktopActionSchema.parse(input);
-  return actions.run(accountKey(), async () => {
+  return actions.run(desktopKey(), async () => {
     await assertModelControl();
     await startDesktop();
     await assertModelControl();
@@ -179,21 +150,25 @@ export async function desktopAction(input: unknown) {
   });
 }
 export async function screenshot() {
-  return actions.run(accountKey(), async () => {
+  return actions.run(desktopKey(), async () => {
     await assertModelControl();
     await startDesktop();
     await assertModelControl();
-    const png = await desktopExec(['python3', '-c', 'from PIL import ImageGrab; import sys; ImageGrab.grab(xdisplay=":99").save(sys.stdout.buffer,"PNG")']);
+    const png = await desktopExec(['python3', '-c', 'from PIL import ImageGrab; import sys, os; ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save(sys.stdout.buffer,"PNG")']);
     if (!png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new DesktopError('Capture PNG invalide.');
-    const dir = join(config.dataDir, 'screenshots'); await mkdir(dir, { recursive: true, mode: 0o700 });
+    const dir = join(config.dataDir, 'desktops', desktopAgentId(), 'screenshots'); await mkdir(dir, { recursive: true, mode: 0o700 });
     const files = await Promise.all((await readdir(dir)).filter((f) => /^[a-f0-9]{32}\.png$/.test(f)).map(async (file) => ({ file, time: (await stat(join(dir, file))).mtimeMs })));
     // Bound storage and retention of browser contents; ownership is the account directory.
     for (const file of files.sort((a, b) => b.time - a.time).slice(19)) await rm(join(dir, file.file), { force: true });
     const id = randomBytes(16).toString('hex'); await writeFile(join(dir, `${id}.png`), png, { mode: 0o600 });
-    return { ok: true as const, screenshotId: id, width: WIDTH, height: HEIGHT, url: `/api/computer/screenshots/${id}`, capturedAt: new Date().toISOString() };
+    return { ok: true as const, screenshotId: id, width: WIDTH, height: HEIGHT, url: `/api/computer/screenshots/${id}?agentId=${desktopAgentId()}`, capturedAt: new Date().toISOString() };
   });
 }
 export async function readScreenshot(id: string) {
   if (!/^[a-f0-9]{32}$/.test(id)) return null;
-  try { return await readFile(join(config.dataDir, 'screenshots', `${id}.png`)); } catch { return null; }
+  try { return await readFile(join(config.dataDir, 'desktops', desktopAgentId(), 'screenshots', `${id}.png`)); } catch { return null; }
+}
+
+export async function stopAllDesktops() {
+  for (const agent of await listAgentRows()) await withDesktopAgent(agent.id, stopDesktop);
 }

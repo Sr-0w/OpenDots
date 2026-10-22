@@ -1,7 +1,7 @@
 import { bodyLimit } from 'hono/body-limit';
 import { attachmentRoutes } from '../attachments/routes.ts';
 import { AttachmentError, validateMessageParts } from '../attachments/service.ts';
-import { desktopEnabled, stopDesktop } from '../computer/desktop.ts';
+import { stopAllDesktops } from '../computer/desktop.ts';
 import { desktopRoutes } from '../computer/routes.ts';
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
@@ -189,7 +189,7 @@ export function createApi() {
     if (body.shell) {
       const next = { ...(await getShellSettings()), ...body.shell };
       await setSetting('shell.config', next);
-      if ((next.mode === 'off' || !next.network) && await desktopEnabled()) await stopDesktop();
+      if (next.mode === 'off' || !next.network) await stopAllDesktops();
       await log(null, 'computer.settings', `Ordinateur : mode ${next.mode}, validation ${next.approval}`);
     }
     if (body.openrouterKey) {

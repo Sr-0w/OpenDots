@@ -1,12 +1,14 @@
 import type { Server as HttpServer, IncomingMessage } from 'node:http';
-import { connect } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { parse } from 'hono/utils/cookie';
 import { config } from '../config.ts';
 import { sessionAccount, sessionExpiresAt, onSessionRevoked } from '../auth/store.ts';
 import { withAccount, type AccountContext } from '../auth/context.ts';
 import { activateAccount } from '../auth/runtime.ts';
-import { desktopEnabled, desktopStatus, startDesktop } from './desktop.ts';
+import { desktopEnabled, desktopStatus, startDesktop, desktopVncStream } from './desktop.ts';
+import { getAgent } from '../agents/repo.ts';
+import { withDesktopAgent, desktopAgentId } from './session.ts';
+import { leaseComputer } from './shell.ts';
 import { getShellSettings } from '../settings.ts';
 import { subscribe } from '../bus.ts';
 
@@ -15,7 +17,11 @@ export function attachDesktopWebSocket(server: HttpServer, activate: (account: A
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false });
   server.on('upgrade', (req, socket, head) => {
     const refuse = (status: number) => { socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\n\r\n`); };
-    if (req.url !== '/api/computer/vnc') return refuse(404);
+    let url: URL;
+    try { url = new URL(req.url ?? '/', 'http://localhost'); }
+    catch { return refuse(400); }
+    if (url.pathname !== '/api/computer/vnc') return refuse(404);
+    const agentId = url.searchParams.get('agentId');
     socket.pause();
     const timeout = setTimeout(() => socket.destroy(), 15_000);
     void (async () => {
@@ -26,39 +32,47 @@ export function attachDesktopWebSocket(server: HttpServer, activate: (account: A
       if (!account || !token) return refuse(401);
       await withAccount(account, async () => {
         await activate(account);
+        if (!agentId || !/^ag_[a-zA-Z0-9_]+$/.test(agentId)) return refuse(400);
+        const agent = await getAgent(agentId);
+        if (!agent || agent.archived) return refuse(404);
+        return withDesktopAgent(agentId, async () => {
         if (!await desktopEnabled() || !(await desktopStatus()).running) return refuse(409);
         const port = await startDesktop(), expires = await sessionExpiresAt(token);
         if (socket.destroyed || !await sessionAccount(token)) return refuse(401);
         wss.handleUpgrade(req, socket, head, (ws) => relay(ws, req, port, token, expires, account));
         socket.resume();
+        });
       });
     })().catch(() => refuse(503)).finally(() => clearTimeout(timeout));
   });
   function relay(ws: WebSocket, req: IncomingMessage, port: number, token: string, expires: number, account: AccountContext) {
-    const upstream = connect({ host: '127.0.0.1', port });
+    const botId = desktopAgentId();
+    const release = leaseComputer();
+    const upstream = desktopVncStream(port);
     let closed = false;
-    const close = () => { if (closed) return; closed = true; clearTimeout(expiry); clearInterval(heartbeat); offSession(); offEvents(); upstream.destroy(); ws.terminate(); };
+    const close = () => { if (closed) return; closed = true; clearTimeout(expiry); clearInterval(heartbeat); offSession(); offEvents(); upstream.kill(); release(); ws.terminate(); };
     const expiry = setTimeout(close, Math.min(2 ** 31 - 1, Math.max(0, expires - Date.now())));
     const offSession = onSessionRevoked(token, close);
     const offEvents = withAccount(account, () => subscribe((event) => {
-      if (event.type === 'settings.changed') void withAccount(account, async () => {
+      if (event.type === 'settings.changed') void withAccount(account, () => withDesktopAgent(botId, async () => {
         const shell = await getShellSettings();
         if (!await desktopEnabled() || shell.mode === 'off' || !shell.network) close();
-      }).catch(close);
+      })).catch(close);
     }));
     let alive = true;
     const heartbeat = setInterval(() => { if (!alive || Date.now() >= expires) return close(); alive = false; ws.ping(); }, 30_000);
     ws.on('pong', () => { alive = true; });
-    upstream.on('data', (chunk) => {
+    upstream.stdout.on('data', (chunk) => {
       if (ws.readyState !== WebSocket.OPEN) return close();
-      upstream.pause();
-      ws.send(chunk, { binary: true }, (error) => { if (error) close(); else if (!closed) upstream.resume(); });
+      upstream.stdout.pause();
+      ws.send(chunk, { binary: true }, (error) => { if (error) close(); else if (!closed) upstream.stdout.resume(); });
     });
+    upstream.stdin.on('error', close); upstream.stderr.resume();
     upstream.on('error', close); upstream.on('close', close);
     ws.on('message', (data, binary) => {
-      if (!binary || closed || upstream.writableLength > 2_000_000) return close();
+      if (!binary || closed || upstream.stdin.writableLength > 2_000_000) return close();
       const buffer = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data);
-      upstream.write(buffer);
+      upstream.stdin.write(buffer);
     });
     ws.on('error', close); ws.on('close', close); req.on('aborted', close);
     // Logout may have raced with registering the listener above.

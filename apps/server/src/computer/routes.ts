@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { config } from '../config.ts';
+import { withDesktopAgent, desktopAgentId } from './session.ts';
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { DesktopError, desktopStatus, readScreenshot, screenshot, startDesktop, stopDesktop, setHumanControl } from './desktop.ts';
@@ -8,6 +12,15 @@ import { desktopPermissionsSchema, getDesktopPermissions, setDesktopPermissions 
 export function desktopRoutes() {
   const app = new Hono();
   app.onError((error, c) => c.json({ error: error instanceof DesktopError ? error.message : 'Le bureau graphique est indisponible.' }, 400));
+  app.use('*', async (c, next) => {
+    if (c.req.path.includes('/desktop/permissions')) return next();
+    const agentId = c.req.query('agentId');
+    if (!agentId && c.req.path.includes('/screenshots/')) return next(); // historical account-level artifacts only
+    if (!agentId || !/^ag_[a-zA-Z0-9_]+$/.test(agentId)) return c.json({ error: 'Sélectionne un compagnon.' }, 400);
+    const agent = await getAgent(agentId);
+    if (!agent || agent.archived) return c.json({ error: 'Compagnon introuvable.' }, 404);
+    return withDesktopAgent(agentId, next);
+  });
   app.get('/desktop', async (c) => c.json(await desktopStatus()));
   app.get('/desktop/permissions', async (c) => {
     const entries = await Promise.all((await listAgentRows()).map(async (agent) => [agent.id, await getDesktopPermissions(agent.id)]));
@@ -21,7 +34,7 @@ export function desktopRoutes() {
     return c.json(await setDesktopPermissions(agent.id, parsed.data));
   });
   app.post('/desktop/start', async (c) => {
-    await setSetting('desktop.config', { ...await getSetting('desktop.config'), enabled: true });
+    await setSetting(`desktop.bot.${desktopAgentId()}`, { ...await getSetting(`desktop.bot.${desktopAgentId()}`), enabled: true });
     await startDesktop();
     return c.json(await desktopStatus());
   });
@@ -32,7 +45,8 @@ export function desktopRoutes() {
   });
   app.post('/screenshot', async (c) => c.json(await screenshot()));
   app.get('/screenshots/:id', async (c) => {
-    const image = await readScreenshot(c.req.param('id'));
+    const id = c.req.param('id');
+    const image = c.req.query('agentId') ? await readScreenshot(id) : /^[a-f0-9]{32}$/.test(id) ? await readFile(join(config.dataDir, 'screenshots', `${id}.png`)).catch(() => null) : null;
     if (!image) return c.json({ error: 'Capture introuvable.' }, 404);
     c.header('Content-Type', 'image/png'); c.header('Cache-Control', 'no-store');
     return c.body(new Uint8Array(image));
