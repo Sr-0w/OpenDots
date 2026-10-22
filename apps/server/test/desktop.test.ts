@@ -7,9 +7,9 @@ import { withAccount, type AccountContext } from '../src/auth/context.ts';
 import { openDatabase, closeAllDatabases } from '../src/db/client.ts';
 import { config } from '../src/config.ts';
 import { setSetting } from '../src/settings.ts';
-import { createAgent, getAgent, mainConversationId } from '../src/agents/repo.ts';
+import { createAgent, getAgent, mainConversationId, updateAgent } from '../src/agents/repo.ts';
 import { desktopTools } from '../src/computer/tools.ts';
-import { desktopActionSchema, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
+import { desktopActionSchema, desktopEnabled, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
 import { withDesktopAgent, desktopAgentId, computerSlot } from '../src/computer/session.ts';
 import { COMPUTER_ACTION_TYPES } from '@opendots/shared';
 import { desktopActionNeedsApproval, getDesktopPermissions, setDesktopPermissions } from '../src/computer/permissions.ts';
@@ -97,4 +97,14 @@ it('alloue des numéros persistants et distincts même avec des démarrages simu
   expect(slots[0]).not.toBe(slots[1]);
   expect(slots[0]).toBe(slots[2]);
   expect(await computerSlot('ag_slot_two')).toBe(slots[1]);
+}));
+
+it('un ancien réglage enabled ne réactive pas un bureau dont la permission est retirée', async () => withAccount(account, async () => {
+  const bot = (await ctx(true)).agent;
+  await setSetting(`desktop.bot.${bot.id}`, { enabled: true });
+  await withDesktopAgent(bot.id, async () => {
+    expect(await desktopEnabled()).toBe(true);
+    await updateAgent(bot.id, { permissions: { ...bot.permissions, computer: false } });
+    expect(await desktopEnabled()).toBe(false);
+  });
 }));

@@ -295,6 +295,26 @@ Ollama's `/api/show`. This metadata check cannot guarantee that every routed
 provider interprets images correctly; the optional probe below checks actual
 recognition with one provider and no fallback.
 
+### Automatic desktop startup
+
+OpenDots restores all authorized, enabled bot desktops in the background when
+an account runtime starts. It also watches Docker container-start events and
+restarts those desktops after the account container is restarted externally.
+After a Docker daemon interruption, the watcher reconnects and reconciles
+missed starts. No manual start click or first agent tool call is required.
+
+Each account keeps its own container; each bot keeps its private Linux UID,
+screen, home directory and browser profile. Explicitly stopped desktops,
+archived bots, revoked permissions and disabled/offline computer settings are
+respected. Chromium is still opened only on demand. Startup errors in one bot
+do not prevent other desktops or the HTTP service from starting. No credentials
+are stored in container labels or writable bot startup scripts.
+
+The change is in the application controller; the existing `computer:9` image
+works without a rebuild. Deploy the updated application and its background
+startup runs automatically. Test the actual lifecycle with
+`pnpm test:computer:autostart` (requires Docker and the desktop image).
+
 ### Browser launchers and upgrades
 
 The built-in computer image is `opendots/computer:9`. Pull the application changes

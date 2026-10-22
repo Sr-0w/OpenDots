@@ -29,7 +29,7 @@ export async function setHumanControl(enabled: boolean) {
 async function assertModelControl() { if (await humanControl()) throw new DesktopError('L’utilisateur a pris la main. Captures et actions des modèles suspendues.'); }
 export const desktopEnabled = async () => {
   const agent = await getAgent(desktopAgentId());
-  if (!agent || agent.archived) return false;
+  if (!agent || agent.archived || !agent.permissions.computer) return false;
   return (await getSetting(settingKey()))?.enabled ?? agent.permissions.computer;
 };
 export async function buildDesktopImage(force = false) {
