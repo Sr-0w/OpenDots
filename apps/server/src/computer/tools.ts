@@ -42,7 +42,6 @@ export async function desktopTools(ctx: ToolContext): Promise<ToolSet> {
   if (!ctx.agent.permissions.computer || !await withDesktopAgent(ctx.agent.id, desktopEnabled)) return {};
   let observed = false;
   let lastFrame: string | undefined;
-  const repeats = new Map<string, number>();
   return {
     ...semanticTools(ctx),
     computer_screenshot: tool({
@@ -65,16 +64,13 @@ export async function desktopTools(ctx: ToolContext): Promise<ToolSet> {
         const agent = await getAgent(ctx.agent.id);
         if (!agent?.permissions.computer || agent.archived || !await withDesktopAgent(ctx.agent.id, desktopEnabled)) return { ok: false, error: 'Accès au bureau retiré.' };
         if (await withDesktopAgent(agent.id, humanControl)) throw new Error('L’utilisateur a pris la main. Actions suspendues.');
-        const fingerprint = JSON.stringify(action);
         if (!await desktopActionNeedsApproval(agent.id, action.action)) {
-          if ((repeats.get(fingerprint) ?? 0) >= 2) return { ok: false, status: 'blocked_repeat', note: 'Action identique déjà exécutée deux fois dans ce tour. Regarde la capture et change d’approche (Entrée ? clic ?).' };
           if (!observed) {
             const shot = await withDesktopAgent(agent.id, screenshot);
             observed = true;
             lastFrame = shot.frameHash;
             return { ...shot, status: 'observe_first', actionExecuted: false, note: 'Capture actuelle du bureau. Action PAS exécutée : aucun clic ni focus acquis par cet appel. Inspecte cet écran puis renvoie l’action voulue avec les coordonnées observées avant de saisir du texte.' };
           }
-          repeats.set(fingerprint, (repeats.get(fingerprint) ?? 0) + 1);
           const result = await withDesktopAgent(agent.id, () => executeObserved(action, ctx.abortSignal ?? options.abortSignal, lastFrame));
           observed = 'screenshotId' in result;
           lastFrame = 'frameHash' in result ? result.frameHash : undefined;

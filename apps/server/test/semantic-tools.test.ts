@@ -59,3 +59,11 @@ it('garde le clavier natif sans vision et sans soumission implicite', async () =
   await tools.computer_keyboard.execute!({ action: 'key', key: 'Return', reason: 'Soumettre explicitement' }, options);
   expect(state.keyboard).toHaveBeenLastCalledWith({ action: 'key', key: 'Return' }, controller.signal);
 });
+
+it('autorise les frappes répétées sans ajouter Entrée automatiquement', async () => {
+  const tools = semanticTools(ctx);
+  const input = { action: 'type', text: 'https://shop.example/search', submit: false, reason: 'Saisir une URL' } as const;
+  for (let i = 0; i < 4; i++) expect(await tools.computer_keyboard.execute!(input, options)).toMatchObject({ ok: true });
+  expect(state.keyboard).toHaveBeenCalledTimes(4);
+  expect(state.keyboard.mock.calls.every((c: any) => c[0].submit === false)).toBe(true);
+});

@@ -15,7 +15,7 @@ The Docker socket, account databases and OAuth tokens are never mounted inside.
 
 These are containers sharing the host kernel, not full virtual machines. The
 components are free/open-source; model providers still charge their usual token
-usage. Install Docker and prepare `opendots/computer:8` using `pnpm desktop:build`
+usage. Install Docker and prepare `opendots/computer:9` using `pnpm desktop:build`
 or `docker compose build computer-image` before accepting users. Compose does this
 automatically. A missing image can also build at first use, taking minutes; this
 is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
@@ -280,8 +280,7 @@ Routing can change between steps; the preferred provider is never recorded as
 if it were the actual provider. This trace does not prove image recognition.
 
 If capture fails, the result still reports that
-the action ran, and requires another observation. The third identical automatic
-action in a turn is blocked. `observe_first` explicitly returns
+the action ran, and requires another observation. Repeated actions are allowed; Stop remains available to interrupt a loop. `observe_first` explicitly returns
 `actionExecuted: false`: it has not clicked or acquired focus. Pending approvals
 do not execute or capture.
 
@@ -298,7 +297,7 @@ recognition with one provider and no fallback.
 
 ### Browser launchers and upgrades
 
-The built-in computer image is `opendots/computer:8`. Pull the application changes
+The built-in computer image is `opendots/computer:9`. Pull the application changes
 and run `pnpm desktop:build -- --rebuild` on the Docker host (or rebuild using the
 Compose instructions). The old built-in image setting migrates automatically;
 custom image names remain unchanged and must include the equivalent launcher
@@ -367,3 +366,28 @@ a random code was read correctly and its rectangle centre was located within
 only in the image, testing recognition and coordinate grounding separately. No
 key or image data is printed. The default
 local tests do not establish Cerebras recognition or the Amazon scenario on SRV03.
+
+### Turn completion and optional budgets
+
+There is **no step limit by default**: a model may continue using tools beyond
+12, 48 or any other fixed number of steps. Normal model completion, an
+interactive form or Stop can end the workflow; existing operation timeouts
+still report errors rather than a silent step cutoff.
+
+Each account can explicitly opt into a positive work-step limit in
+**Settings → General → Step limit per turn**. Leave the field blank for no limit.
+The value is private to that account and applies to subsequent turns. If that optional budget is exhausted, one extra
+tools-disabled step reads the last tool result and summarizes progress. A deterministic limit notice is streamed and
+saved even if the model returns no summary, and `turn.limit` is journaled.
+This is a suspension, not a claim of completion; asking to continue starts a
+new turn with the conversation history. Stop, errors and interactive forms keep
+their existing early-exit behavior.
+
+During a live turn only the latest two semantic UI trees remain complete in
+the model context. Older trees become bounded text summaries without snapshot
+refs; stored tool results are unchanged. This prevents repeated 30 KB browser
+inspections accumulating unbounded UI trees in the model's context.
+
+Identical desktop actions and keyboard typing are not blocked automatically.
+The prompt still recommends checking results and switching to accessibility
+targets when coordinate clicks fail. Submission remains explicit.

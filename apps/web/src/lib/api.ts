@@ -87,6 +87,7 @@ export interface SettingsDTO {
   ollamaUrl: string | null;
   timezone: string;
   paused: boolean;
+  turnStepLimit: number | null;
   search: { provider: "auto" | "mwmbl" | "searxng"; url: string | null };
   shell: ShellSettingsDTO;
 }

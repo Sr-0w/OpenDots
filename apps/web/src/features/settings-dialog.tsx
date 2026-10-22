@@ -22,6 +22,7 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
   const [key, setKey] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [providers, setProviders] = useState<string[]>([]);
+  const [turnLimit, setTurnLimit] = useState("");
   const [busy, setBusy] = useState(false);
   const { theme, setTheme } = useTheme();
   const [notify, setNotify] = useState(notificationsEnabled);
@@ -33,6 +34,9 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
     }).catch(e => setFailure(e.message));
   }, [revision]);
 
+  useEffect(() => { setTurnLimit(settings?.turnStepLimit == null ? "" : String(settings.turnStepLimit)); }, [settings?.turnStepLimit]);
+  const parsedTurnLimit = turnLimit.trim() === "" ? null : Number(turnLimit);
+  const validTurnLimit = parsedTurnLimit === null || (Number.isSafeInteger(parsedTurnLimit) && parsedTurnLimit > 0);
   const model = settings?.defaultModel;
   useEffect(() => {
     if (section === 'models' && model?.provider === "openrouter" && model.model) api.openrouterEndpoints(model.model).then(setProviders).catch(() => setProviders([]));
@@ -145,6 +149,16 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
               </div>
             </section>}
 {section === "general" && <section className="space-y-4 pt-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="turn-step-limit">{t("Limite d’étapes par tour")}</Label>
+                <p className="text-muted-foreground text-xs">{t("Aucune limite par défaut. Laisse vide pour laisser les agents poursuivre leur travail ; tu peux les arrêter avec Stop.")}</p>
+                <div className="flex gap-2">
+                  <Input id="turn-step-limit" type="number" min="1" step="1" inputMode="numeric" placeholder={t("Aucune limite")} value={turnLimit} aria-invalid={!validTurnLimit} onChange={e => setTurnLimit(e.target.value)} />
+                  <Button disabled={busy || !validTurnLimit || parsedTurnLimit === settings.turnStepLimit} onClick={() => update({ turnStepLimit: parsedTurnLimit })}>{t("Enregistrer")}</Button>
+                </div>
+                <p className="text-muted-foreground text-xs">{t("Une limite choisie ici s’applique aux prochains tours de tes agents. À la limite, ils présentent leur avancement avant de faire une pause.")}</p>
+              </div>
+
               <label className="flex items-center justify-between gap-4">
                 <div>
                   <p className="font-medium text-sm">{t("Suspendre les activités autonomes")}</p>

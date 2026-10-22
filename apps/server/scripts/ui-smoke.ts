@@ -152,6 +152,17 @@ try {
   await page.screenshot({ path: process.env.OPENDOTS_UI_SCREENSHOT ?? '/tmp/opendots-connectors-ui.png', fullPage: true });
   await page.getByRole('tab', { name: 'Général', exact: true }).click();
   await page.getByRole('heading', { name: 'Général', exact: true }).waitFor();
+  const turnLimit = page.getByLabel('Limite d’étapes par tour', { exact: true });
+  await turnLimit.waitFor(); assert.equal(await turnLimit.inputValue(), '');
+  const saveLimit = turnLimit.locator('..').getByRole('button', { name: 'Enregistrer', exact: true });
+  await turnLimit.fill('17'); await saveLimit.click();
+  await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).turnStepLimit === 17);
+  await page.reload(); await turnLimit.waitFor();
+  await page.waitForFunction(() => (document.querySelector('#turn-step-limit') as HTMLInputElement)?.value === '17');
+  await turnLimit.fill(''); await saveLimit.click();
+  await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).turnStepLimit === null);
+  await page.screenshot({ path: '/tmp/opendots-turn-limit-settings.png', fullPage: true });
+
   await page.getByText('Profil public Gravatar', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Mon compte' }).getByRole('img', { name: 'Camille Martin' }).waitFor();
   await page.waitForFunction(() => { const img = document.querySelector('[aria-label="Mon compte"] img') as HTMLImageElement; return img?.complete && img.naturalWidth > 0; });

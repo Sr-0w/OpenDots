@@ -1,5 +1,9 @@
 /** Dictionnaire anglais : clé = texte français. */
 export const EN: Record<string, string> = {
+  "Limite d’étapes par tour": "Step limit per turn",
+  "Aucune limite": "No limit",
+  "Aucune limite par défaut. Laisse vide pour laisser les agents poursuivre leur travail ; tu peux les arrêter avec Stop.": "No limit by default. Leave blank to let agents continue working; you can interrupt them with Stop.",
+  "Une limite choisie ici s’applique aux prochains tours de tes agents. À la limite, ils présentent leur avancement avant de faire une pause.": "A limit chosen here applies to your agents’ next turns. At the limit, they report their progress before pausing.",
   "Origine en haut à gauche": "Top-left origin",
   "Pointeur X11": "X11 pointer",
   "Vérifier les coordonnées": "Check coordinates",

@@ -22,7 +22,6 @@ export const config = {
   maxConcurrentJobs: Number(process.env.OPENDOTS_MAX_JOBS ?? 3),
   maxAgents: Number(process.env.OPENDOTS_MAX_AGENTS ?? 16),
   maxTeamDepth: 6,
-  maxStepsPerTurn: 12,
 };
 
 mkdirSync(config.dataDir, { recursive: true });

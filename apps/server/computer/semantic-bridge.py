@@ -166,6 +166,13 @@ def cdp(tab, method, params=None):
     return browser_rpc('executeCdp', {'target': {'tabId': tab}, 'method': method, 'commandParams': params or {}})
 
 
+def hit_test(tab, x, y):
+    # getContentQuads/Input events use viewport CSS pixels, whereas this CDP
+    # hit-test uses document CSS pixels. Scrolled pages need their page offset.
+    viewport = cdp(tab, 'Page.getLayoutMetrics')['cssLayoutViewport']
+    return cdp(tab, 'DOM.getNodeForLocation', {'x': round(x + viewport['pageX']), 'y': round(y + viewport['pageY'])})
+
+
 def identity(node):
     return (node.get('role', {}).get('value'), node.get('name', {}).get('value'))
 
@@ -227,7 +234,7 @@ def browser(request):
     q = quads[0]
     x, y = sum(q[::2])/4, sum(q[1::2])/4
     # Hit-test avoids clicking an overlay covering the inspected target.
-    hit = cdp(tab, 'DOM.getNodeForLocation', {'x': int(x), 'y': int(y)})
+    hit = hit_test(tab, x, y)
     if hit.get('backendNodeId') != backend:
         target_object = cdp(tab, 'DOM.resolveNode', {'backendNodeId': backend})['object']['objectId']
         hit_object = cdp(tab, 'DOM.resolveNode', {'backendNodeId': hit['backendNodeId']})['object']['objectId']
@@ -259,7 +266,7 @@ def browser(request):
     after_hover = cdp(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': False})['nodes']
     if not after_hover or identity(after_hover[0]) != identity(node):
         raise RuntimeError('Element changed during pointer movement: inspect again')
-    if cdp(tab, 'DOM.getNodeForLocation', {'x': int(x), 'y': int(y)}).get('backendNodeId') != hit.get('backendNodeId'):
+    if hit_test(tab, x, y).get('backendNodeId') != hit.get('backendNodeId'):
         raise RuntimeError('Target changed during pointer movement: inspect again')
     if action == 'focus':
         cdp(tab, 'DOM.focus', {'backendNodeId': backend})

@@ -27,6 +27,7 @@ import {
   getOpenRouterKey,
   getSetting,
   getTimezone,
+  getTurnStepLimit,
   isPaused,
   setOpenRouterKey,
   setSetting,
@@ -170,6 +171,7 @@ export function createApi() {
       ollamaUrl: await getSetting('ollama.url'),
       timezone: await getTimezone(),
       paused: await isPaused(),
+      turnStepLimit: await getTurnStepLimit(),
       search: await getSearchSettings(),
       shell: await getShellSettings(),
     });
@@ -183,6 +185,7 @@ export function createApi() {
         ollamaUrl: z.string().nullable().optional(),
         timezone: z.string().optional(),
         paused: z.boolean().optional(),
+        turnStepLimit: z.number().int().positive().nullable().optional(),
         search: z
           .object({
             provider: z.enum(['auto', 'mwmbl', 'searxng']),
@@ -220,6 +223,7 @@ export function createApi() {
     }
     if (body.ollamaUrl !== undefined) await setSetting('ollama.url', body.ollamaUrl?.trim() || null);
     if (body.timezone) await setSetting('user.timezone', body.timezone);
+    if (body.turnStepLimit !== undefined) await setSetting('engine.turnStepLimit', body.turnStepLimit);
     if (body.paused !== undefined) {
       await setSetting('engine.paused', body.paused);
       await log(null, 'engine.paused', body.paused ? 'Activités autonomes suspendues' : 'Activités autonomes reprises');

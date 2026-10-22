@@ -21,11 +21,11 @@ it('publie un schéma plat sans union et tolère les anciens arguments tout en v
  const click = { action: 'click', x: 617, y: 769 };
  expect((await tools.computer_action.execute!({ ...click, reason: 'Cible' }, options) as any).status).toBe('executed');
  expect((await tools.computer_action.execute!({ action: JSON.stringify(click), reason: 'Cible' }, options) as any).status).toBe('executed');
- expect((await tools.computer_action.execute!({ action: click, reason: 'Cible' }, options) as any).status).toBe('blocked_repeat');
+ expect((await tools.computer_action.execute!({ action: click, reason: 'Cible' }, options) as any).status).toBe('executed');
  for (const invalid of [{ action: 'click', reason: 'x manque' }, { action: 'unknown', reason: 'Inconnu' }, { action: '{bad', reason: 'JSON invalide' }]) {
    expect((await tools.computer_action.execute!(invalid, options) as any).status).toBe('invalid_input');
  }
- expect(state.action).toHaveBeenCalledTimes(2);
+ expect(state.action).toHaveBeenCalledTimes(3);
  expect((await tools.computer_action.execute!({ action: { action: 'key', key: 'Tab' }, reason: 'Ancienne forme' }, options) as any).status).toBe('executed');
 });
 it('observe un bureau actuel avant d’agir puis joint une image après l’action', async () => {
@@ -41,11 +41,11 @@ it('observe un bureau actuel avant d’agir puis joint une image après l’acti
  expect(output.value.find((part: any) => part.type === 'text').text).toContain('ne déduis pas un succès');
  expect(output.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png')).toBe(true);
 });
-it('bloque la troisième action identique pendant le tour', async () => {
+it('autorise les actions répétées tout en observant leur résultat', async () => {
  const tools = await desktopTools(ctx); await tools.computer_screenshot.execute!({}, options);
  await tools.computer_action.execute!(input as any, options); await tools.computer_action.execute!(input as any, options);
- expect((await tools.computer_action.execute!(input as any, options) as any).status).toBe('blocked_repeat');
- expect(state.action).toHaveBeenCalledTimes(2);
+ expect((await tools.computer_action.execute!(input as any, options) as any).status).toBe('executed');
+ expect(state.action).toHaveBeenCalledTimes(3);
 });
 it('ne capture rien pour une approbation en attente', async () => {
  state.ask = true; const tools = await desktopTools(ctx);

@@ -1,3 +1,4 @@
+import { compactSemanticObservations } from '../src/computer/semantic-context.ts';
 import { describe, expect, it } from 'vitest';
 import { historyForModel } from '../src/agents/turn.ts';
 
@@ -50,3 +51,19 @@ describe('historique envoyé au modèle', () => {
   });
 });
 
+
+
+it('borne les gros arbres pendant un tour, garde les deux derniers et ne modifie pas les résultats stockés', () => {
+  const messages: any[] = Array.from({ length: 40 }, (_, i) => ({ role: 'tool', content: [{ type: 'tool-result', toolCallId: `inspect-${i}`, toolName: i % 2 ? 'browser_inspect' : 'computer_inspect', output: { type: 'json', value: { ok: true, snapshot: `snapshot-${i}`, url: 'https://page.example', elements: Array.from({ length: 100 }, (_, j) => ({ ref: String(j), role: 'StaticText', name: `Observation ${i}, information ${j}: ${'word '.repeat(40)}` })) } } }] }));
+  const before = JSON.stringify(messages);
+  const compacted = compactSemanticObservations(messages) as any[];
+  expect(JSON.stringify(compacted).length).toBeLessThan(120_000);
+  expect(JSON.stringify(messages)).toBe(before);
+  for (let i = 0; i < 38; i++) {
+    expect(compacted[i].content[0].output.value.snapshot).toBeUndefined();
+    expect(compacted[i].content[0].output.value.textSummary).toContain(`Observation ${i}`);
+  }
+  expect(compacted[38].content[0]).toEqual(messages[38].content[0]);
+  expect(compacted[39].content[0]).toEqual(messages[39].content[0]);
+  expect(compactSemanticObservations(compacted)).toEqual(compacted);
+});

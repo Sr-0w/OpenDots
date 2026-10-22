@@ -278,6 +278,26 @@ PY`]))).toString());
   const staleResult = await asA(() => semanticOperation({ engine: 'browser', action: 'focus', snapshot: staleBrowser.snapshot, ref: staleBrowser.elements.find((e: any) => e.name === 'Nom navigateur' && e.role === 'textbox').ref }));
   assert.equal(staleResult.ok, false); assert.match(staleResult.error, /navigated/);
   console.log('PASS Open Browser Use réel : extension locale + Go natif + socket privé, DOM/AX nommé, focus, frappe trusted Unicode/mot de passe, clic sans coordonnées devinées, snapshot périmé après navigation refusé.');
+  // Regression #10: page offsets must be added ONLY for the document hit-test,
+  // while pointer movement and trusted mouse events retain viewport coordinates.
+  await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
+(Path.home()/'semantic-scroll.html').write_text('''<!doctype html><title>Scroll target fixture</title><style>body{margin:0;width:3000px;height:2600px;font:20px sans-serif}.target{position:absolute;left:2100px;top:1900px;width:80px}</style><div class=target><a href="#done" aria-label="Learn more" onclick="event.preventDefault();document.title='Scrolled link clicked'"><span>Learn more</span></a></div><script>if(location.search.includes('covered')){const cover=document.createElement('div');cover.style='position:fixed;inset:0;background:#ccc;z-index:9999';cover.textContent='Real blocking overlay';document.body.append(cover)}addEventListener('mousemove',e=>{const a=e.target.closest('a');if(a)fetch('/scroll-hover?x='+e.clientX+'&y='+e.clientY)});</script>''', encoding='utf-8')`]));
+  for (const covered of [false, true]) {
+    const opened = await asA(() => semanticOperation({ engine: 'browser', action: 'open', url: `http://127.0.0.1:8765/semantic-scroll.html${covered ? '?covered' : ''}` }));
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    const state = await until(() => asA(() => semanticOperation({ engine: 'browser', action: 'inspect', tabId: opened.tabId })), value => value.ok && value.elements.some((e: any) => e.role === 'link' && e.name === 'Learn more'));
+    const link = state.elements.find((e: any) => e.role === 'link' && e.name === 'Learn more');
+    const result = await asA(() => semanticOperation({ engine: 'browser', action: 'click', snapshot: state.snapshot, ref: link.ref }));
+    assert.equal(result.ok, !covered, JSON.stringify(result));
+    const layout = JSON.parse((await asA(() => desktopExec(['python3', '-c', `import importlib.util,json
+s=importlib.util.spec_from_file_location('s','/usr/local/share/opendots/semantic-bridge.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+print(json.dumps(m.cdp(${opened.tabId},'Page.getLayoutMetrics')['cssLayoutViewport']))`]))).toString());
+    assert(layout.pageX > 0 && layout.pageY > 0, JSON.stringify(layout));
+    const title = await browserTitle();
+    if (covered) { assert.match(result.error, /covered/); assert(!title.includes('Scrolled link clicked')); }
+    else { await assertPointer(result); assert(title.includes('Scrolled link clicked'), title); }
+  }
+  console.log('PASS #10 : lien multiligne/descendant après défilement X/Y, vrai pointeur et clic Chromium ; vraie surcouche toujours refusée.');
   // Load a controlled offline page. Its title records real browser events.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
 Path('/workspaces/${botA.id}/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));

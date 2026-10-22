@@ -54,6 +54,16 @@ describe('authentification et séparation des comptes', () => {
     expect(await (await request('/agents', 'GET', undefined, cookieB)).json()).toEqual([]);
     expect(await (await request('/connectors', 'GET', undefined, cookieB)).json()).toEqual([]);
   });
+  it('ne limite pas les tours par défaut, isole la limite choisie et permet de la retirer', async () => {
+    expect((await (await request('/settings', 'GET', undefined, cookieA)).json()).turnStepLimit).toBeNull();
+    expect((await request('/settings', 'PUT', { turnStepLimit: 17 }, cookieA)).status).toBe(200);
+    expect((await (await request('/settings', 'GET', undefined, cookieA)).json()).turnStepLimit).toBe(17);
+    expect((await (await request('/settings', 'GET', undefined, cookieB)).json()).turnStepLimit).toBeNull();
+    for (const invalid of [0, -1, 1.5, '12']) expect((await request('/settings', 'PUT', { turnStepLimit: invalid }, cookieA)).status).toBe(400);
+    expect((await (await request('/settings', 'GET', undefined, cookieA)).json()).turnStepLimit).toBe(17);
+    expect((await request('/settings', 'PUT', { turnStepLimit: null }, cookieA)).status).toBe(200);
+    expect((await (await request('/settings', 'GET', undefined, cookieA)).json()).turnStepLimit).toBeNull();
+  });
   it('conserve une clé OpenRouter personnelle et ne transmet pas celle d’un autre compte', async () => {
     await withAccount(a, () => setOpenRouterKey('alice-personal-key'));
     expect(await withAccount(a, getOpenRouterKey)).toBe('alice-personal-key');

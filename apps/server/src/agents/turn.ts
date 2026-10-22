@@ -1,4 +1,5 @@
 import { desktopVisionMessages } from '../computer/vision.ts';
+import { compactSemanticObservations } from '../computer/semantic-context.ts';
 import { abortableChunks } from './abortable.ts';
 import { interruptedMessage, INTERRUPTED } from './interruption.ts';
 import { hydrateMessageImages } from '../attachments/service.ts';
@@ -6,12 +7,11 @@ import { accountKey } from '../auth/context.ts';
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
 import { cleanModelText, type MessageMetadata } from '@opendots/shared';
-import { config } from '../config.ts';
 import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { log } from '../journal.ts';
 import { resolveModel, requireDesktopVision } from '../models/gateway.ts';
-import { getTimezone } from '../settings.ts';
+import { getTimezone, getTurnStepLimit } from '../settings.ts';
 import { contextMemories } from '../memory/repo.ts';
 import { listActivities } from '../activities/repo.ts';
 import { getConversation, loadMessages, messageText, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
@@ -278,6 +278,9 @@ async function executeTurn(
   const responseId = newId('msg');
   let turnError: string | null = null;
   let finalMessage: OpenDotsUIMessage | null = null;
+  const stepLimit = await getTurnStepLimit();
+  let limitReached = false;
+  let limitNotice: string | null = null;
 
   beginStream(stream);
   publish({ type: 'turn.started', agentId, conversationId, autonomous });
@@ -292,8 +295,17 @@ async function executeTurn(
       tools,
       // Outils de services chargés à la demande : load_tools les active dès l'étape suivante.
       activeTools: activeToolNames(tools, capabilities.lazy) as any,
-      prepareStep: ({ messages }) => ({ activeTools: activeToolNames(tools, capabilities.lazy) as any, messages: desktopVisionMessages(messages) }),
-      stopWhen: [isStepCount(config.maxStepsPerTurn), formShown],
+      prepareStep: ({ messages, stepNumber }) => {
+        const prepared = compactSemanticObservations(desktopVisionMessages(messages));
+        if (stepLimit === null || stepNumber < stepLimit) return { activeTools: activeToolNames(tools, capabilities.lazy) as any, messages: prepared };
+        limitReached = true;
+        return {
+          activeTools: [], toolChoice: 'none' as const, messages: prepared,
+          instructions: system + '\n\nThe work-step budget is exhausted. Read the LAST tool result and give the user a concise, honest progress report: verified results, unfinished work and the next action. Do not call tools, claim unfinished work is complete, or return <silence/>. The server will display the limit notice.',
+        };
+      },
+      // No default step limit. If explicitly configured, reserve a synthesis.
+      stopWhen: stepLimit === null ? [formShown] : [isStepCount(stepLimit + 1), formShown],
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
       abortSignal: stream.abort.signal,
@@ -332,6 +344,13 @@ async function executeTurn(
     });
 
     for await (const chunk of abortableChunks(uiStream, stream.abort.signal)) {
+      if (chunk.type === 'finish' && limitReached && !turnError && !stream.abort.signal.aborted) {
+        limitNotice = `\n\nLimite de ${stepLimit} étapes de travail atteinte : ce tour est suspendu et la tâche peut être incomplète. Tu peux me demander de continuer pour reprendre.`;
+        const id = newId('limit');
+        stream.push({ type: 'text-start', id });
+        stream.push({ type: 'text-delta', id, delta: limitNotice });
+        stream.push({ type: 'text-end', id });
+      }
       stream.push(chunk);
       if (chunk.type === 'tool-input-start') {
         const label = toolActivityLabel(chunk.toolName);
@@ -349,6 +368,12 @@ async function executeTurn(
     turnError = null;
     finalMessage = interruptedMessage(finalMessage, stream.chunks, responseId);
     for (const part of finalMessage.parts as any[]) if (part.state === 'output-error' && part.errorText === INTERRUPTED) stream.push({ type: 'tool-output-error', toolCallId: part.toolCallId, errorText: INTERRUPTED });
+  }
+
+  if (limitNotice && !stream.abort.signal.aborted) {
+    finalMessage ??= { id: responseId, role: 'assistant', parts: [], metadata: { agentId, kind: pair ? 'team' : 'chat', autonomous } };
+    (finalMessage as OpenDotsUIMessage).parts.push({ type: 'text', text: limitNotice.trim() });
+    await log(agentId, 'turn.limit', `Limite de ${stepLimit} étapes atteinte ; synthèse demandée et suspension affichée.`, { conversationId, trigger: trigger.kind });
   }
 
   // 2. Persistance de la réponse
