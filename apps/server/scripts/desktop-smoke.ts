@@ -109,11 +109,20 @@ try {
   const apps = await until(() => asA(() => semanticOperation({ engine: 'native', action: 'apps' })), value => value.ok && value.apps?.some((app: any) => app.pid === fixturePid));
   const nativeApp = apps.apps.find((app: any) => app.pid === fixturePid);
   const inspectNative = () => asA(() => semanticOperation({ engine: 'native', action: 'inspect', app: String(nativeApp.pid) }));
+  const assertPointer = async (result: any) => {
+    assert(result.pointer && Number.isInteger(result.pointer.x) && Number.isInteger(result.pointer.y), JSON.stringify(result));
+    const actual = (await asA(() => desktopExec(['xdotool', 'getmouselocation', '--shell']))).toString();
+    assert(actual.includes(`X=${result.pointer.x}\nY=${result.pointer.y}\n`), actual);
+  };
   const actNative = async (name: string, action = 'focus') => {
     const state = await inspectNative(); assert.equal(state.ok, true, JSON.stringify(state));
     const element = state.elements.find((e: any) => e.name === name); assert(element, JSON.stringify(state));
     const operation = { engine: 'native' as const, action, snapshot: state.snapshot, ref: element.ref };
     const result = await asA(() => semanticOperation(operation)); assert.equal(result.ok, true, JSON.stringify(result));
+    await assertPointer(result);
+    const hover = JSON.parse((await asA(() => desktopExec(['sh', '-c', 'cat "$HOME/semantic-hover.json"']))).toString());
+    assert.equal(hover.name, name, 'The real GTK widget must receive the pointer motion');
+    assert.equal(hover.x, result.pointer.x); assert.equal(hover.y, result.pointer.y);
     assert.equal((await asA(() => semanticOperation(operation))).ok, false, 'A consumed snapshot must not repeat its action');
   };
   await actNative('Nom de test');
@@ -209,7 +218,7 @@ PY`]))).toString());
   await until(() => asA(async () => (await desktopExec(['sh', '-c', 'window=$(xdotool search --onlyvisible --class chromium | head -n 1); test -n "$window" && xdotool windowactivate --sync "$window" && echo ready || true'])).toString()), value => value.includes('ready'));
   // Open Browser Use's actual extension, Go native host and private Unix socket.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
-(Path.home()/'semantic-browser.html').write_text('''<!doctype html><meta charset="utf-8"><title>Semantic browser fixture</title><script>let keys=0,pastes=0;addEventListener('keydown',e=>{if(e.isTrusted)keys++});addEventListener('paste',()=>pastes++);</script><form onsubmit="document.title='Submitted:'+document.getElementById('name').value+':'+document.getElementById('password').value.length+':keys='+keys+':pastes='+pastes;return false"><label>Nom navigateur<input id=name></label><label>Mot de passe navigateur<input id=password type=password></label><button><span>Valider le formulaire navigateur</span></button><button type="button" onmousedown="document.title='MouseDown';let start=performance.now();while(performance.now()-start&lt;1500){}" onmouseup="document.title='MouseReleased'">Tester Stop pendant un clic</button></form>''', encoding='utf-8')`]));
+(Path.home()/'semantic-browser.html').write_text('''<!doctype html><meta charset="utf-8"><title>Semantic browser fixture</title><script>let keys=0,pastes=0;addEventListener('keydown',e=>{if(e.isTrusted)keys++});addEventListener('paste',()=>pastes++);addEventListener('mousemove',e=>{const t=e.target.closest('input,button')||e.target;const r=t.getBoundingClientRect();fetch('/hover?target='+encodeURIComponent(t.id||t.textContent||t.tagName)+'&dx='+(e.clientX-r.left-r.width/2)+'&dy='+(e.clientY-r.top-r.height/2));});</script><form onsubmit="document.title='Submitted:'+document.getElementById('name').value+':'+document.getElementById('password').value.length+':keys='+keys+':pastes='+pastes;return false"><label>Nom navigateur<input id=name></label><label>Mot de passe navigateur<input id=password type=password></label><button id=submit><span>Valider le formulaire navigateur</span></button><button id=stop type="button" onmousedown="document.title='MouseDown';let start=performance.now();while(performance.now()-start&lt;1500){}" onmouseup="document.title='MouseReleased'">Tester Stop pendant un clic</button></form>''', encoding='utf-8')`]));
   await asA(() => desktopExec(['sh', '-c', 'python3 -m http.server 8765 --bind 127.0.0.1 --directory "$HOME" >"$HOME/.vnc/browser-http.log" 2>&1 &']));
   await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x chromium || true']));
   await until(() => asA(async () => (await desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true'])).toString()), value => value.trim() === '');
@@ -218,10 +227,20 @@ PY`]))).toString());
   const inspectBrowser = () => asA(() => semanticOperation({ engine: 'browser', action: 'inspect', tabId: browserOpen.tabId }));
   await until(inspectBrowser, value => value.ok && value.elements.some((e: any) => e.name === 'Valider le formulaire navigateur'));
   const actBrowser = async (name: string, action = 'focus') => {
+    await asA(() => desktopExec(['xdotool', 'mousemove', '0', '0']));
+    const beforeHover = (await asA(() => desktopExec(['sh', '-c', 'cat "$HOME/.vnc/browser-http.log"']))).toString().length;
     const state = await inspectBrowser(); assert.equal(state.ok, true, JSON.stringify(state));
     const element = state.elements.find((e: any) => e.name === name && (action === 'click' ? e.role === 'button' : e.role === 'textbox')); assert(element, JSON.stringify(state));
     const operation = { engine: 'browser' as const, action, snapshot: state.snapshot, ref: element.ref };
     const result = await asA(() => semanticOperation(operation)); assert.equal(result.ok, true, JSON.stringify(result));
+    await assertPointer(result);
+    const expectedHover = name === 'Nom navigateur' ? 'name' : name === 'Mot de passe navigateur' ? 'password' : 'submit';
+    const hoverLog = (await asA(() => desktopExec(['sh', '-c', 'cat "$HOME/.vnc/browser-http.log"']))).toString();
+    const lastHover = [...hoverLog.slice(beforeHover).matchAll(/\/hover\?([^ ]+) /g)].at(-1);
+    assert(lastHover, `Actual native pointer did not hover the DOM target: ${hoverLog}`);
+    const hover = new URLSearchParams(lastHover[1]);
+    assert.equal(hover.get('target'), expectedHover, hoverLog);
+    assert(Math.abs(Number(hover.get('dx'))) <= 2 && Math.abs(Number(hover.get('dy'))) <= 2, `Pointer missed live DOM centre: ${lastHover[1]}`);
     assert.equal((await asA(() => semanticOperation(operation))).ok, false, 'A consumed browser snapshot must be rejected');
   };
   await actBrowser('Nom navigateur');
@@ -231,6 +250,15 @@ PY`]))).toString());
   assert(!JSON.stringify(await inspectBrowser()).includes('Secret-été-123'));
   const browserTitle = async () => asA(async () => (await desktopExec(['xdotool', 'getactivewindow', 'getwindowname'])).toString());
   assert(!(await browserTitle()).includes('Submitted:'));
+  // A zoomed, moved and resized browser must still receive REAL native hover
+  // over the semantic target; CDP success alone cannot prove cursor calibration.
+  await asA(() => desktopExec(['xdotool', 'key', 'ctrl+plus']));
+  await actBrowser('Nom navigateur');
+  await asA(() => desktopExec(['xdotool', 'key', 'alt+F10']));
+  await asA(() => desktopExec(['sh', '-c', 'w=$(xdotool getactivewindow); xdotool windowsize "$w" 1000 650; xdotool windowmove "$w" 150 80']));
+  await actBrowser('Mot de passe navigateur');
+  await asA(() => desktopExec(['xdotool', 'key', 'ctrl+0']));
+  await asA(() => desktopExec(['xdotool', 'key', 'alt+F10']));
   const stopState = await inspectBrowser();
   const stopButton = stopState.elements.find((e: any) => e.role === 'button' && e.name === 'Tester Stop pendant un clic'); assert(stopButton);
   const stopSemantic = new AbortController();

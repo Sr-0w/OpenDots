@@ -15,7 +15,7 @@ The Docker socket, account databases and OAuth tokens are never mounted inside.
 
 These are containers sharing the host kernel, not full virtual machines. The
 components are free/open-source; model providers still charge their usual token
-usage. Install Docker and prepare `opendots/computer:7` using `pnpm desktop:build`
+usage. Install Docker and prepare `opendots/computer:8` using `pnpm desktop:build`
 or `docker compose build computer-image` before accepting users. Compose does this
 automatically. A missing image can also build at first use, taking minutes; this
 is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
@@ -112,6 +112,14 @@ Stop and manual takeover cancel in-progress operations. Inspections and actions
 cannot bypass a disabled desktop or revoked bot permission. UI labels and page
 content remain untrusted external data.
 
+The system prompt and coordinate-tool description specify an accessibility-first
+workflow: inspect named controls, target their current refs, type with explicit
+submission, then inspect again. Screenshots and coordinate clicks are a last
+resort for controls absent from the accessibility tree. After one ineffective
+coordinate attempt, agents are instructed to return to semantic inspection rather
+than adjust guessed coordinates repeatedly. These are model instructions, not a
+guarantee that every model follows them.
+
 ### Cursor Motion on Linux
 
 The X11 movement adapter ports the upstream MIT `CursorMotionPath` cubic curve
@@ -129,8 +137,13 @@ position from a commanded click. Manual control restores the normal local
 cursor. The viewer uses x11vnc’s standard arrow (`-noxfixes -cursor arrow`): the packaged
 x11vnc crashed when updating custom XFixes cursor shapes in live tests. Native
 position updates remain enabled; screenshots still include the actual native
-XFixes shape. Server-side cursor blitting is also avoided. Semantic AT-SPI/CDP actions do not move that pointer and do
-not claim its position is their target. Screenshot cursor metadata continues to
+XFixes shape. Server-side cursor blitting is also avoided.
+
+Semantic AT-SPI/CDP focus and click also animate this same pointer to the live
+accessible target before dispatch. Native targets use AT-SPI screen bounds;
+browser targets use fresh DOM geometry and the active X11 window/client metrics.
+Hover changes are checked before dispatch. Off-screen targets are refused,
+not represented by a fake cursor or a last-command overlay. Screenshot cursor metadata continues to
 describe the actual native X11 hotspot.
 
 Enable **Desktop access** for the intended companion on the Computer page or its
@@ -285,7 +298,7 @@ recognition with one provider and no fallback.
 
 ### Browser launchers and upgrades
 
-The built-in computer image is `opendots/computer:7`. Pull the application changes
+The built-in computer image is `opendots/computer:8`. Pull the application changes
 and run `pnpm desktop:build -- --rebuild` on the Docker host (or rebuild using the
 Compose instructions). The old built-in image setting migrates automatically;
 custom image names remain unchanged and must include the equivalent launcher

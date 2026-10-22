@@ -75,7 +75,7 @@ export function semanticTools(ctx: ToolContext): ToolSet {
       },
     }),
     computer_target: tool({
-      description: 'Agis sur un élément nommé de la dernière inspection : engine native (AT-SPI) ou browser (DOM via Open Browser Use), action click ou focus, snapshot et ref EXACTS retournés par inspect. Ne devine pas les refs. focus prépare la saisie ; utilise ensuite computer_keyboard type (touches réelles, Entrée séparée). Pour ouvrir TON navigateur à la demande : engine browser, action open, url. En mode auto, aucune approbation par clic. Un résultat executed confirme l’envoi de l’action, pas son effet : inspecte ensuite. Les actions browser ciblées ne déplacent pas le pointeur X11.',
+      description: 'Agis sur un élément nommé de la dernière inspection : engine native (AT-SPI) ou browser (DOM via Open Browser Use), action click ou focus, snapshot et ref EXACTS retournés par inspect. Ne devine pas les refs. focus prépare la saisie ; utilise ensuite computer_keyboard type (touches réelles, Entrée séparée). Pour ouvrir TON navigateur à la demande : engine browser, action open, url. En mode auto, aucune approbation par clic. Un résultat executed confirme l’envoi de l’action, pas son effet : inspecte ensuite. Le pointeur système est animé vers la cible visible ; l’action reste sémantique, aucun clic par coordonnées à ajouter.',
       inputSchema: z.object({ engine: z.enum(['native', 'browser']), action: z.enum(['click', 'focus', 'open']), snapshot: z.string().optional(), ref: z.string().optional(), url: z.string().optional(), reason: z.string().min(1).max(500) }).strict(),
       execute: async ({ reason, ...input }, options) => {
         const parsed = actionSchema.safeParse(input);

@@ -33,7 +33,7 @@ export interface ShellSettings {
   sudo: boolean;
 }
 
-export const BUILTIN_COMPUTER_IMAGE = 'opendots/computer:7';
+export const BUILTIN_COMPUTER_IMAGE = 'opendots/computer:8';
 
 export const DEFAULT_SHELL: ShellSettings = { mode: 'auto', approval: 'default', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: false };
 
@@ -95,6 +95,6 @@ export async function setSearchSettings(input: { provider: SearchProvider; url?:
 
 export async function getShellSettings(): Promise<ShellSettings> {
   const settings = { ...DEFAULT_SHELL, ...((await getSetting('shell.config')) ?? {}) };
-  if (['opendots/computer:1', 'opendots/computer:3', 'opendots/computer:4', 'opendots/computer:5', 'opendots/computer:6'].includes(settings.image)) settings.image = BUILTIN_COMPUTER_IMAGE;
+  if (['opendots/computer:1', 'opendots/computer:3', 'opendots/computer:4', 'opendots/computer:5', 'opendots/computer:6', 'opendots/computer:7'].includes(settings.image)) settings.image = BUILTIN_COMPUTER_IMAGE;
   return settings;
 }

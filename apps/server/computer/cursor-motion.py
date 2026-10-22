@@ -25,7 +25,7 @@ def path_point(start, end, progress):
     return tuple(round((1-t)**3 * start[i] + 3*(1-t)**2*t*a[i] + 3*(1-t)*t*t*b[i] + t**3*end[i]) for i in range(2))
 
 
-def move(x, y):
+def move(x, y, cancelled=None):
     x11, xtst = ctypes.CDLL('libX11.so.6'), ctypes.CDLL('libXtst.so.6')
     x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
     x11.XOpenDisplay.restype = ctypes.c_void_p
@@ -54,7 +54,7 @@ def move(x, y):
         began = time.monotonic()
         for step in range(344):
             # stdin EOF cancels motion before the eventual click.
-            if select.select([sys.stdin], [], [], 0)[0] and sys.stdin.read(1) == '':
+            if (cancelled is not None and cancelled.is_set()) or (cancelled is None and select.select([sys.stdin], [], [], 0)[0] and sys.stdin.read(1) == ''):
                 raise RuntimeError('Motion cancelled')
             half_velocity = velocity + force * dt / 2
             progress += half_velocity * dt
