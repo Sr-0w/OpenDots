@@ -13,6 +13,16 @@ describe('historique envoyé au modèle', () => {
     expect(parts.filter(p => p.output?.screenshot === 'omitted_from_history')).toHaveLength(2);
     expect((messages[1] as any).parts[0].output.screenshotId).toBe('shot1');
   });
+  it('ne rejoue pas les anciens arguments shell invalides comme exemples exécutables', () => {
+    const parts = [
+      { type: 'tool-shell_exec', toolCallId: 'bad', state: 'output-error', input: { preview: 'partial command', truncated: 'true' }, errorText: 'command is required' },
+      { type: 'tool-shell_exec', toolCallId: 'good', state: 'output-available', input: { command: 'pwd', timeout_seconds: 1 }, output: { stdout: '/workspaces' } },
+    ];
+    const out = historyForModel([user('u', 'Teste le shell'), { id: 'a', role: 'assistant', parts } as any], agent, new Map(), false);
+    expect(out[1].parts.filter((p: any) => p.type === 'tool-shell_exec')).toEqual([parts[1]]);
+    expect(JSON.stringify(out[1].parts)).toContain('command is required');
+    expect(parts[0].input).toEqual({ preview: 'partial command', truncated: 'true' });
+  });
   it('garde le contexte ancien malgré un tour très outillé', () => {
     const heavy = { id: 'a2', role: 'assistant', metadata: {}, parts: [
       { type: 'reasoning', text: 'r'.repeat(50_000) },
@@ -26,6 +36,8 @@ describe('historique envoyé au modèle', () => {
     expect(compact.length).toBeLessThan(12_000);
     expect(compact).not.toContain('r'.repeat(100));
     expect(compact).toContain('Fichiers prêts.');
+    expect(out.find((m) => m.id === 'a2')!.parts.some((p: any) => p.type === 'tool-shell_exec')).toBe(false);
+    expect(compact).toContain('not an executable tool call');
   });
 });
 

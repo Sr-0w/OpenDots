@@ -1,5 +1,9 @@
 /** Dictionnaire anglais : clé = texte français. */
 export const EN: Record<string, string> = {
+  "Avant action — action non exécutée": "Before action — action not executed",
+  "Après action — vérifie le résultat visible": "After action — verify the visible result",
+  "Écran inchangé": "Screen unchanged",
+  "Pointeur": "Pointer",
   "service": "service",
   "Mon compte": "My account",
   "Compte personnel": "Personal account",

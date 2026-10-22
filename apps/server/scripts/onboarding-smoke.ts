@@ -25,7 +25,7 @@ globalThis.fetch = async (input, init) => {
     if (phase === 'welcome') { assert.match(JSON.stringify(payload.messages), /Start the conversation yourself now/); assert.match(JSON.stringify(payload.messages), /setup cards/); assert.equal(payload.tools?.length ?? 0, 0); }
     else { assert.match(JSON.stringify(payload.messages), /Catalogue prêt à connecter/); assert(payload.tools.some((t: any) => t.function.name === 'connection_request_setup')); }
     await new Promise(resolve => setTimeout(resolve, 300));
-    const chunk = (delta: unknown, finish_reason: string | null) => JSON.stringify({ id: 'welcome', created: 1, model: payload.model, choices: [{ index: 0, delta, finish_reason }] });
+    const chunk = (delta: unknown, finish_reason: string | null) => JSON.stringify({ id: 'welcome', created: 1, provider: calls % 2 ? 'Fixture A' : 'Fixture B', model: payload.model, choices: [{ index: 0, delta, finish_reason }] });
     let delta: unknown = { role: 'assistant', content: phase === 'welcome' ? greeting : phase === 'computer' ? 'Mon ordinateur est prêt.' : 'Connecte Gmail depuis cette carte pour envoyer ton message.' }, finish = 'stop';
     if (phase === 'gmail' && !gmailOffered) { gmailOffered = true; finish = 'tool_calls'; delta = { role: 'assistant', tool_calls: [{ index: 0, id: 'gmail-setup', type: 'function', function: { name: 'connection_request_setup', arguments: JSON.stringify({ kind: 'integration', provider: 'gmail', permissions: ['send'], reason: 'Envoyer ton message avec Gmail' }) } }] }; }
     return new Response(`data: ${chunk(delta, null)}\n\ndata: ${chunk({}, finish)}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
@@ -65,6 +65,7 @@ try {
   const [agent] = await (await context.request.get(`${origin}/api/agents`)).json();
   const history = await (await context.request.get(`${origin}/api/agents/${agent.id}/messages`)).json();
   assert.deepEqual(history.messages.map((m: any) => m.role), ['assistant']);
+  assert.deepEqual(history.messages[0].metadata.modelSteps, [{ step: 1, model: 'fixture/welcome', provider: 'Fixture A', responseId: 'welcome' }]);
   for (const response of await Promise.all([1, 2].map(() => context.request.post(`${origin}/api/onboarding/complete`, { headers: { 'x-opendots-client': '1' }, data: { model: { provider: 'openrouter', model: 'fixture/welcome' } } })))) assert.equal(response.status(), 200);
   await page.reload(); await page.getByRole('log').getByText(greeting, { exact: true }).waitFor(); await absent(page);
   const mobile = await browser.newContext({ locale: 'fr-BE', isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
@@ -83,6 +84,9 @@ try {
   await page.getByRole('button', { name: 'Envoyer', exact: true }).click();
   const requestCard = page.getByText('Envoyer ton message avec Gmail', { exact: true }).locator('..').locator('..').locator('..');
   await requestCard.getByRole('button', { name: 'Configurer', exact: true }).click();
+  let traced: any;
+  for (let i = 0; i < 50; i++) { const stored = await (await context.request.get(`${origin}/api/agents/${agent.id}/messages`)).json(); traced = stored.messages.find((m: any) => m.role === 'assistant' && m.metadata?.modelSteps?.length === 2); if (traced) break; await new Promise(resolve => setTimeout(resolve, 100)); }
+  assert.deepEqual(traced?.metadata.modelSteps.map((step: any) => step.provider), ['Fixture B', 'Fixture A']);
   let dialog = page.getByRole('dialog'); await dialog.getByRole('heading', { name: 'Connecter Gmail', exact: true }).waitFor();
   assert.equal(await dialog.getByRole('checkbox').nth(0).isChecked(), false);
   assert.equal(await dialog.getByRole('checkbox').nth(1).isChecked(), true);

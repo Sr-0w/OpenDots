@@ -1,5 +1,6 @@
 /** Real XFCE/Chromium/X11/noVNC test. Does not call a paid model or public site. */
 import assert from 'node:assert/strict';
+import sharp from 'sharp';
 import { once } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,6 +18,8 @@ const { createAgent, getAgent, mainConversationId, updateAgent } = await import(
 const { buildCapabilityTools } = await import('../src/agents/capability-tools.ts');
 const { resolveApproval } = await import('../src/approvals/service.ts');
 const { createApplication } = await import('../src/app.ts');
+const { saveMessage } = await import('../src/conversations/repo.ts');
+const { desktopTools } = await import('../src/computer/tools.ts');
 const { attachDesktopWebSocket } = await import('../src/computer/websocket.ts');
 const { startDesktop, screenshot, readScreenshot, desktopAction, desktopExec, removeDesktop, setHumanControl, desktopStatus } = await import('../src/computer/desktop.ts');
 const { withDesktopAgent } = await import('../src/computer/session.ts');
@@ -66,10 +69,62 @@ try {
   await asA(async () => { await startDesktop(); });
   assert.equal((await asA(desktopStatus)).running, true);
   assert.equal((await asA(() => desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true']))).toString().trim(), '');
-  await asA(() => desktopExec(['sh', '-c', 'xterm -title OpenDots-terminal >/tmp/xterm-launch.log 2>&1 &']));
+  await asA(() => desktopExec(['sh', '-c', `xterm -title OpenDots-terminal -e sh -c 'for name in terminal-paste terminal-abort terminal-takeover; do IFS= read -r line; printf "%s" "$line" > "$HOME/$name.txt"; done; sleep 30' >/tmp/xterm-launch.log 2>&1 &`]));
   await until(() => asA(async () => (await desktopExec(['sh', '-c', 'xdotool search --onlyvisible --name OpenDots-terminal || true'])).toString()), value => value.trim().length > 0);
+  await asA(() => desktopExec(['xdotool', 'search', '--onlyvisible', '--name', '^OpenDots-terminal$', 'windowactivate', '--sync']));
+  const terminalFocus = await asA(screenshot);
+  assert.equal(terminalFocus.focusedWindow?.title, 'OpenDots-terminal');
+  assert(terminalFocus.focusedWindow?.wmClass?.includes('XTerm'));
+  assert(terminalFocus.focusedWindow!.geometry.width > 0 && terminalFocus.focusedWindow!.geometry.height > 0);
+  // An unchanged clipboard proves type used native keys instead of pasting.
+  await asA(() => desktopExec(['sh', '-c', 'printf clipboard-sentinel | xclip -selection clipboard -i >/dev/null 2>&1']));
+  const terminalText = 'TEST_ARIA café — saisie sans Entrée';
+  await asA(() => desktopAction({ action: 'type', text: terminalText }));
+  assert.equal((await asA(() => desktopExec(['sh', '-c', 'test -e "$HOME/terminal-paste.txt" && echo submitted || true']))).toString().trim(), '');
+  assert.equal((await asA(() => desktopExec(['xclip', '-selection', 'clipboard', '-o']))).toString(), 'clipboard-sentinel');
+  await asA(() => desktopAction({ action: 'key', key: 'Return' }));
+  await until(() => asA(async () => (await desktopExec(['sh', '-c', 'cat "$HOME/terminal-paste.txt" 2>/dev/null || true'])).toString()), value => value === terminalText);
+  for (const mode of ['abort', 'takeover']) {
+    const stop = new AbortController();
+    const operation = asA(() => desktopAction({ action: 'type', text: 'A'.repeat(500) }, stop.signal));
+    const rejected = assert.rejects(operation, mode === 'abort' ? /stop typing fixture/ : /pris la main/);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    if (mode === 'abort') stop.abort(new Error('stop typing fixture'));
+    else await asA(() => setHumanControl(true));
+    await rejected;
+    if (mode === 'takeover') await asA(() => setHumanControl(false));
+    await asA(() => desktopAction({ action: 'type', text: 'tail' }));
+    await asA(() => desktopAction({ action: 'key', key: 'Return' }));
+    await until(() => asA(async () => (await desktopExec(['sh', '-c', `cat "$HOME/terminal-${mode}.txt" 2>/dev/null || true`])).toString()), value => /^A{1,499}tail$/.test(value));
+  }
+  console.log('PASS frappe interrompue par Stop et reprise manuelle : pas de texte restant ni de touche/modificateur bloqué.');
   await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x xterm']));
-  console.log('PASS démarrage shell puis XFCE sans Chromium, terminal graphique utilisable.');
+  console.log('PASS démarrage shell puis XFCE sans Chromium, terminal graphique utilisable, frappes Unicode réelles et aucune validation avant Return.');
+  for (const [x, y] of [[444, 333], [0, 0], [1279, 799]]) {
+    await asA(() => desktopAction({ action: 'move', x, y }));
+    const shot = await asA(screenshot);
+    const realPointer = (await asA(() => desktopExec(['xdotool', 'getmouselocation', '--shell']))).toString();
+    assert(realPointer.includes(`X=${x}\nY=${y}\n`));
+    assert.equal(shot.cursor?.x, x); assert.equal(shot.cursor?.y, y);
+    const png = (await asA(() => readScreenshot(shot.screenshotId)))!;
+    const info = await sharp(png).metadata(); assert.equal(info.width, 1280); assert.equal(info.height, 800);
+    if (x === 444) {
+      const c = shot.cursor as any;
+      assert.equal(c.source, 'xfixes'); assert(c.width > 0 && c.height > 0);
+      const region = { left: x-c.hotspotX, top: y-c.hotspotY, width: c.width, height: c.height };
+      const raw = await asA(() => desktopExec(['python3', '-c', 'from PIL import ImageGrab; import os,sys; ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save(sys.stdout.buffer,"PNG")']));
+      const annotatedPixels = await sharp(png).extract(region).raw().toBuffer();
+      const rawPixels = await sharp(raw).removeAlpha().extract(region).raw().toBuffer();
+      assert(!annotatedPixels.equals(rawPixels), 'Native cursor pixels must be visible at its actual hotspot, unlike ImageGrab alone');
+      await writeFile('/tmp/opendots-native-cursor.png', png);
+    }
+  }
+  await asA(() => desktopAction({ action: 'move', x: 444, y: 333 }));
+  const repeatStart = Date.now();
+  await asA(() => desktopAction({ action: 'move', x: 444, y: 333 }));
+  await asA(() => desktopAction({ action: 'click', x: 444, y: 333 }));
+  assert(Date.now()-repeatStart < 5000, 'Move/click at the current pointer location must not wait for a nonexistent motion event');
+  console.log('PASS curseur X11 natif : pixels visibles au point actif réel, position confirmée par xdotool et captures aux deux coins sans décalage ni changement de résolution.');
   await until(
     () => asA(async () => (await desktopExec(['sh', '-c', 'cat "$HOME/.vnc/wallpaper.log" 2>/dev/null || true'])).toString()),
     (value) => value.includes('Wallpaper ready:'),
@@ -131,7 +186,7 @@ print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len
   console.log('PASS Chromium réel : saisie Unicode, touches, cible identifiée dans les pixels, clic et défilement.');
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
 import os
-(Path.home()/'form.html').write_text("""<title>Form test</title><form onsubmit='document.title="Submitted";return false'><input id=a autofocus oninput='document.title="First:"+this.value'><input id=b><button>Submit</button></form>""")`]));
+(Path.home()/'form.html').write_text("""<meta charset="utf-8"><title>Form test</title><script>window.keyEvents=0;window.pasteEvents=0;addEventListener('keydown',e=>{if(e.isTrusted)keyEvents++});addEventListener('paste',e=>{pasteEvents++;e.preventDefault()})</script><form onsubmit='document.title="Submitted";return false'><input id=a autofocus oninput='document.title="First:"+this.value'><input id=b type=password onfocus='window.keyEvents=0' oninput='document.title="Password:"+(this.value==="Clé-été-123!✓")+";keys:"+keyEvents+";pastes:"+pasteEvents'><button>Submit</button></form>""",encoding='utf-8')`]));
   const formUrl = `file:///workspaces/${botA.id}/form.html`;
   await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
   await asA(() => desktopAction({ action: 'type', text: formUrl, submit: true }));
@@ -139,6 +194,12 @@ import os
   await asA(() => desktopAction({ action: 'type', text: 'Champ non envoyé' }));
   await until(title, (value) => value.includes('First:Champ non envoyé'));
   assert(!(await title()).includes('Submitted'));
+  await asA(() => desktopAction({ action: 'key', key: 'Tab' }));
+  await asA(() => desktopAction({ action: 'type', text: 'Clé-été-123!✓' }));
+  const passwordTitle = await until(title, value => /Password:true;keys:[1-9][0-9]*;pastes:0/.test(value));
+  assert(Number(/keys:(\d+)/.exec(passwordTitle)![1]) >= 'Clé-été-123!✓'.length);
+  assert.equal((await asA(() => desktopExec(['xclip', '-selection', 'clipboard', '-o']))).toString(), 'clipboard-sentinel');
+  console.log('PASS champ mot de passe Unicode : vraies touches trusted, collage bloqué par la page, presse-papiers inchangé et formulaire non soumis.');
   await asA(() => desktopAction({ action: 'key', key: 'Return' }));
   await until(title, (value) => value.includes('Submitted'));
   for (const launch of [['chromium', formUrl], ['exo-open', '--launch', 'WebBrowser', formUrl], ['xdg-open', formUrl]]) {
@@ -301,6 +362,20 @@ import os
 
   await asA(screenshot);
   await page.screenshot({ path: '/tmp/opendots-desktop-ui.png', fullPage: true });
+  // Real post-action image must also be visible in chat, not only screenshot tools.
+  const imageTools = await asA(async () => desktopTools({ agent: (await getAgent(botA.id))!, conversationId: await mainConversationId(botA.id) } as any));
+  await asA(() => imageTools.computer_screenshot.execute!({}, { toolCallId: 'before', messages: [] } as any));
+  const actionShot: any = await asA(() => imageTools.computer_action.execute!({ action: 'move', x: 640, y: 400, reason: 'Observer le pointeur réel' }, { toolCallId: 'real-action', messages: [] } as any));
+  assert.equal(actionShot.status, 'executed'); assert.equal(actionShot.cursor.x, 640); assert.equal(actionShot.cursor.y, 400);
+  await asA(async () => saveMessage(await mainConversationId(botA.id), { id: 'real-post-action', role: 'assistant', parts: [{ type: 'tool-computer_action', toolCallId: 'real-action', state: 'output-available', input: { action: 'move', x: actionShot.cursor?.x ?? 0, y: actionShot.cursor?.y ?? 0, reason: 'Observer le pointeur réel' }, output: actionShot }], metadata: { agentId: botA.id } } as any, { author: 'agent', agentId: botA.id }));
+  await page.goto(`${origin}/#/agent/${botA.id}`);
+  const chatShot = page.getByRole('img', { name: 'Capture du bureau privé', exact: true });
+  await chatShot.waitFor();
+  await page.waitForFunction(() => { const img = document.querySelector('img[alt="Capture du bureau privé"]') as HTMLImageElement; return img?.complete && img.naturalWidth === 1280; });
+  await page.getByText('Après action — vérifie le résultat visible', { exact: false }).waitFor();
+  if (actionShot.visualChange === 'unchanged') await page.getByText('Écran inchangé', { exact: false }).waitFor();
+  await page.screenshot({ path: '/tmp/opendots-post-action-chat.png', fullPage: true });
+  console.log('PASS capture après computer_action visible dans le chat avec curseur réel et retour visuel de l’outil.');
   assert.deepEqual(errors, []);
   // An established websocket must be revoked immediately on logout.
   const ws = new WebSocket(origin.replace('http:', 'ws:') + `/api/computer/vnc?agentId=${botA.id}`, { headers: { cookie: cookieA, origin } });

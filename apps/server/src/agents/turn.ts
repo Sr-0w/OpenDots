@@ -70,7 +70,13 @@ function compactToolOutput(output: unknown, max = 3000): unknown {
 function compactAssistantParts(parts: any[]): any[] {
   const pass = (max: number) => parts
     .filter((p) => p.type !== 'reasoning')
-    .map((p: any) => (p.type?.startsWith('tool-') ? { ...p, ...('input' in p ? { input: compactToolOutput(p.input, max) } : {}), ...('output' in p ? { output: compactToolOutput(p.output, max) } : {}) } : p));
+    .map((p: any) => {
+      if (!p.type?.startsWith('tool-')) return p;
+      // Never replay {preview,truncated} as tool arguments: the model may copy
+      // that invalid shape into its next call (or run a truncated command).
+      if ((p.type === 'tool-shell_exec' && typeof p.input?.command !== 'string') || ('input' in p && JSON.stringify(p.input ?? null).length > max)) return { type: 'text', text: `[Historical ${p.type.slice(5)} call (${p.state}): invalid or oversized arguments omitted. This is a summary, not an executable tool call. Result: ${JSON.stringify(compactToolOutput(p.output ?? p.errorText, max))}]` };
+      return { ...p, ...('output' in p ? { output: compactToolOutput(p.output, max) } : {}) };
+    });
   let out = pass(3000);
   if (JSON.stringify(out).length > MESSAGE_CHAR_CAP) out = pass(400);
   return out;
@@ -290,12 +296,19 @@ async function executeTurn(
       model: resolved.label,
       autonomous,
     };
+    const modelSteps: NonNullable<MessageMetadata['modelSteps']> = [];
 
     const uiStream = toUIMessageStream<typeof tools, OpenDotsUIMessage>({
       stream: result.stream,
       generateMessageId: () => responseId,
       sendReasoning: true,
-      messageMetadata: ({ part }) => (part.type === 'start' ? { ...metadata, createdAt: new Date().toISOString() } : undefined),
+      messageMetadata: ({ part }) => {
+        if (part.type === 'start') return { ...metadata, createdAt: new Date().toISOString() };
+        if (part.type !== 'finish-step') return;
+        const provider = part.providerMetadata?.openrouter?.provider;
+        modelSteps.push({ step: modelSteps.length + 1, model: part.response.modelId || resolved.label, provider: typeof provider === 'string' && provider.trim() ? provider.trim().slice(0, 120) : null, responseId: part.response.id ?? null });
+        return { modelSteps: [...modelSteps] };
+      },
       // Erreurs d'outils incluses : elles sont renvoyées au modèle, qui peut corriger.
       // Les erreurs fatales du flux sont capturées par onError de streamText.
       onError: (error) => errorMessage(error).slice(0, 2000),

@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { asSchema, convertToModelMessages, generateText } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-const state = vi.hoisted(() => ({ ask: false, action: vi.fn(async () => ({ ok: true, action: 'type' })), shot: vi.fn(async () => ({ ok: true, screenshotId: 'a'.repeat(32), width: 1280, height: 800 })), approval: vi.fn(async () => ({ id: 'approval' })) }));
+const state = vi.hoisted(() => ({ ask: false, action: vi.fn(async () => ({ ok: true, action: 'type' })), shot: vi.fn(async () => ({ ok: true, screenshotId: 'a'.repeat(32), frameHash: 'stable-desktop-pixels', width: 1280, height: 800 })), approval: vi.fn(async () => ({ id: 'approval' })) }));
 vi.mock('../src/computer/desktop.ts', async (original) => ({ ...await original<any>(), desktopEnabled: async () => true, humanControl: async () => false, desktopAction: state.action, screenshot: state.shot, readScreenshot: async () => Buffer.from('png-fixture') }));
 vi.mock('../src/agents/repo.ts', () => ({ getAgent: async () => ({ id: 'ag_test', archived: false, permissions: { computer: true } }) }));
 vi.mock('../src/computer/permissions.ts', () => ({ desktopActionNeedsApproval: async () => state.ask }));
@@ -34,8 +34,11 @@ it('observe un bureau actuel avant d’agir puis joint une image après l’acti
  expect(state.action).not.toHaveBeenCalled();
  const result: any = await tools.computer_action.execute!(input as any, options);
  expect(result.status).toBe('executed');
- expect(state.action).toHaveBeenCalledWith({ action: 'type', text: input.text, submit: true });
+ expect(result.visualChange).toBe('unchanged');
+ expect(result.note).toContain('ne déduis pas un succès');
+ expect(state.action).toHaveBeenCalledWith({ action: 'type', text: input.text, submit: true }, undefined);
  const output: any = await tools.computer_action.toModelOutput!({ output: result } as any);
+ expect(output.value.find((part: any) => part.type === 'text').text).toContain('ne déduis pas un succès');
  expect(output.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png')).toBe(true);
 });
 it('bloque la troisième action identique pendant le tour', async () => {

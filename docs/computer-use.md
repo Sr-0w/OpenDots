@@ -140,16 +140,56 @@ disabling browser TLS verification.
 
 ### Typing and visual feedback
 
-`computer_action` pastes text without pressing Enter by default. Keep `submit: false`
-(or omit it) to fill individual form fields. Set `submit: true` only when the
-paste must also validate, for example after `ctrl+l` to navigate to a URL. A
-separate `key: Return` also remains available.
+`computer_action` types using native X11 key press/release events (`xdotool type`),
+never clipboard paste. Printable Unicode characters are accepted, up to 2000 per call; split longer text.
+A 12 ms interval prevents temporary Unicode key mappings from being restored
+before XTerm processes their events. Stop, manual takeover and desktop shutdown
+interrupt typing through a liveness pipe and release held keys. Control characters
+(including newlines and tabs) are rejected before any input is sent: use explicit
+`key: Return` or `key: Tab` actions instead. This prevents hidden Enter events
+from submitting a partially filled form. Keep `submit: false` (the default); set
+`submit: true` only when the text should be followed by Return, for example an
+address-bar URL. Tests read Unicode back from a real terminal's TTY and from
+Chromium while checking that the clipboard is unchanged and forms remain unsent.
 
 The first automatic action in each turn returns a fresh observation without
 executing if the agent has not yet captured its desktop. Executed actions wait
-450 ms and attach a screenshot. If capture fails, the result still reports that
+450 ms and attach a screenshot. Both explicit screenshots and post-action images
+are visible in chat. Native X11 cursor pixels come from XFixes together with their
+actual position and hotspot, and are composited at `(x - hotspotX, y - hotspotY)`
+without resizing the 1280×800 screen. The marker is the real virtual desktop
+cursor, not an estimated position from the requested action. Cropping handles
+screen edges. If cursor capture is unavailable, `cursor` is null rather than
+inventing a position. No overlay window intercepts input. Moving or clicking at the current pointer
+position does not wait for a motion event: X11 queues motion and click commands
+on the same connection without `xdotool mousemove --sync`.
+
+Each observation also includes `focusedWindow`: actual focused X11 window ID,
+title, WM_CLASS and native x/y/width/height, or null when unavailable. The model
+can check whether keyboard focus belongs to a terminal, browser or desktop without
+inferring it solely from an image. Titles remain untrusted external content and
+are bounded; they never supply instructions or executable commands.
+
+`frameHash` compares native desktop pixels before compositing the cursor, so
+pointer movement alone does not count as visual progress. `visualChange: unchanged`
+is feedback, not an automatic failure: focusing a field can leave pixels unchanged.
+`ok: true` confirms that input was delivered, not that the intended UI target was
+reached. The agent must inspect the image and must not guess coordinates.
+
+Completed model steps store `metadata.modelSteps` with the actual response model,
+OpenRouter-reported provider (or null if absent), response ID and step number.
+Routing can change between steps; the preferred provider is never recorded as
+if it were the actual provider. This trace does not prove image recognition.
+
+If capture fails, the result still reports that
 the action ran, and requires another observation. The third identical automatic
-action in a turn is blocked. Pending approvals do not execute or capture.
+action in a turn is blocked. `observe_first` explicitly returns
+`actionExecuted: false`: it has not clicked or acquired focus. Pending approvals
+do not execute or capture.
+
+Oversized historical tool arguments are replaced by a plain-text summary of the
+whole call, not an invalid `{preview,truncated}` argument object. Short arguments
+retain their original schema and values; summaries must never be executed.
 
 Only the last two desktop images are replayed. They are sent as standard user
 image parts after the tool result, rather than images inside tool messages.
@@ -224,5 +264,8 @@ It requires `OPENROUTER_VISION_TEST_KEY`, defaults to `qwen/qwen3.8-27b` and
 `Cerebras`, and makes exactly two requests: image in a tool result, then image in
 a user message. Set `OPENDOTS_VISION_TEST_MODEL` / `OPENDOTS_VISION_TEST_PROVIDER`
 to compare another endpoint. It prints HTTP status, reported provider and whether
-a random code was read correctly; no key or image data is printed. The default
+a random code was read correctly and its rectangle centre was located within
+24 native pixels in a 1280×800 image. The target position is random and appears
+only in the image, testing recognition and coordinate grounding separately. No
+key or image data is printed. The default
 local tests do not establish Cerebras recognition or the Amazon scenario on SRV03.

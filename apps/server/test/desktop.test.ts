@@ -45,6 +45,7 @@ it('démarre à la demande pour le bon compagnon et respecte sa désactivation',
 }));
 it('valide coordonnées et touches sans accepter de commandes arbitraires', () => {
   for (const input of [{ action: 'click', x: -1, y: 1 }, { action: 'click', x: 1280, y: 1 }, { action: 'key', key: 'Return; id' }, { action: 'scroll', x: 1, y: 1, direction: 'down', amount: 1000 }, { action: 'type', text: '', command: 'sh' }]) expect(desktopActionSchema.safeParse(input).success).toBe(false);
+  for (const text of ['première ligne\nseconde', 'commande\r', 'champ\tchamp', '\x00']) expect(desktopActionSchema.safeParse({ action: 'type', text }).success).toBe(false);
   expect(desktopActionSchema.parse({ action: 'type', text: 'Champ de formulaire' })).toMatchObject({ submit: false });
   expect(desktopActionSchema.parse({ action: 'type', text: 'https://example.com', submit: true })).toMatchObject({ submit: true });
   expect(desktopActionSchema.parse({ action: 'click', x: 1279, y: 799 })).toMatchObject({ button: 'left', double: false });

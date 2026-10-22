@@ -199,6 +199,8 @@ export interface MessageMetadata {
     fromAgentId?: string;
   };
   model?: string;
+  /** Actual response routing per completed step; null means not reported. */
+  modelSteps?: Array<{ step: number; model: string; provider: string | null; responseId: string | null }>;
   createdAt?: string;
   autonomous?: boolean;
   hidden?: boolean;
