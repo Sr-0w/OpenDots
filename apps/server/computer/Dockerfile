@@ -1,16 +1,29 @@
 # syntax=docker/dockerfile:1
+FROM golang:1.25.10-alpine AS browser-build
+WORKDIR /src
+COPY vendor/open-browser-use/go.mod vendor/open-browser-use/go.sum ./
+COPY vendor/open-browser-use/cmd ./cmd
+COPY vendor/open-browser-use/internal ./internal
+RUN --mount=type=secret,id=opendots_ca,target=/run/opendots-ca.pem \
+    SSL_CERT_FILE=/run/opendots-ca.pem CGO_ENABLED=0 go build -trimpath -o /open-browser-use ./cmd/open-browser-use
+
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PIP_BREAK_SYSTEM_PACKAGES=1
 RUN --mount=type=secret,id=opendots_ca,target=/run/opendots-ca.pem \
     apt-get -o Acquire::https::CaInfo=/run/opendots-ca.pem update \
  && apt-get -o Acquire::https::CaInfo=/run/opendots-ca.pem install -y --no-install-recommends \
-    ca-certificates chromium xvfb x11vnc xdotool xclip python3 python3-pil \
+    ca-certificates chromium xvfb x11vnc xdotool xclip python3 python3-pil python3-gi gir1.2-atspi-2.0 gir1.2-gtk-3.0 at-spi2-core \
     xfce4-session xfwm4 xfdesktop4 xfce4-panel thunar dbus-x11 xterm \
     fonts-dejavu fonts-liberation libnss3-tools curl procps util-linux tzdata xauth exo-utils xdg-utils socat python3-pycryptodome \
     python3-pip python3-venv nodejs npm git wget jq unzip zip xz-utils sqlite3 less nano file sudo locales bc \
  && rm -rf /var/lib/apt/lists/*
 COPY . /usr/local/share/opendots/
-RUN mkdir -p /etc/chromium.d /usr/share/xfce4/helpers /usr/share/applications \
+RUN --mount=from=browser-build,source=/open-browser-use,target=/run/build-browser \
+    cp /run/build-browser /usr/local/bin/open-browser-use \
+ && python3 /usr/local/share/opendots/configure-browser.py \
+ && chmod -R a+rX /usr/local/share/opendots/vendor /usr/local/share/opendots/browser-extension \
+ && chmod a+r /usr/local/share/opendots/browser-extension-id \
+ && mkdir -p /etc/chromium.d /usr/share/xfce4/helpers /usr/share/applications \
  && ln -s /usr/local/share/opendots/browser.desktop /usr/share/applications/opendots-browser.desktop \
  && ln -s /usr/local/share/opendots/chromium-flags.sh /etc/chromium.d/opendots \
  && ln -s /usr/local/share/opendots/chromium-helper.desktop /usr/share/xfce4/helpers/opendots-chromium.desktop \

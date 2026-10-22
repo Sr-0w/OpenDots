@@ -15,7 +15,7 @@ The Docker socket, account databases and OAuth tokens are never mounted inside.
 
 These are containers sharing the host kernel, not full virtual machines. The
 components are free/open-source; model providers still charge their usual token
-usage. Install Docker and prepare `opendots/computer:6` using `pnpm desktop:build`
+usage. Install Docker and prepare `opendots/computer:7` using `pnpm desktop:build`
 or `docker compose build computer-image` before accepting users. Compose does this
 automatically. A missing image can also build at first use, taking minutes; this
 is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
@@ -28,7 +28,7 @@ persist through restarts. Default account limits are 4 GiB, 2 CPUs and 2048 PIDs
 `OPENDOTS_COMPUTER_PIDS`. Old `OPENDOTS_DESKTOP_MEMORY/CPUS` are no longer used.
 Custom shell images must include the account session controller and GUI tools;
 plain Debian images support shell only. Old built-in `opendots/computer:1` settings
-upgrade automatically to `:3`.
+and `:3` through `:6` settings upgrade automatically to `:7`.
 
 ## Fast on-demand resume
 
@@ -67,9 +67,76 @@ bundled assets: `pnpm desktop:build -- --rebuild` or `docker compose build compu
 
 ## Models and approvals
 
+### Semantic control (Open Computer Use and Open Browser Use)
+
+The built-in image includes pinned MIT sources from
+[Open Computer Use](https://github.com/iFurySt/open-computer-use) and
+[Open Browser Use](https://github.com/iFurySt/open-browser-use). Revision IDs and
+licenses are in `apps/server/computer/vendor/sources.json` and the adjacent
+license files. They require no extra account, paid API, or browser-store install.
+The existing model provider/key is still needed for reasoning.
+
+Prefer semantic targets before screenshot coordinates:
+
+1. `computer_inspect {}` lists accessible Linux applications. Inspect an `app`
+   name or PID to get role/name/state and bounded element references via AT-SPI.
+2. `computer_target` with `engine: native`, `action: focus` or `click`, `snapshot`
+   and `ref` acts on that exact inspected control. Native clicks invoke its
+   accessibility action, without a guessed coordinate fallback.
+3. For Chromium, `computer_target` with `engine: browser`, `action: open` and
+   `url` opens it on demand. `browser_inspect {}` lists tabs; supplying `tabId`
+   returns the page accessibility tree with DOM-backed targets. Browser clicks
+   use DOM geometry and hit testing with trusted CDP pointer events. A covered
+   element is refused rather than clicking through an overlay.
+4. Focus a field and use `computer_keyboard` for real X11 text/key events.
+   `submit` is false by default. Re-inspect to verify the effect. Typed values
+   are not exposed in semantic tree results, including password values.
+
+These tools are available to text-only models too. Only the screenshot/coordinate
+tools require image support. Snapshots expire after 120 seconds, another
+inspection, or a successful target action. Changed native target identities and
+browser navigations reject old references. Native inspection is bounded to
+300 nodes/32 levels, browser inspection to 400 exposed nodes; inaccessible apps,
+canvas surfaces and deeper trees can still require screenshots. This does not
+guarantee that every application exposes usable accessibility information.
+
+AT-SPI and Chromium native messaging run on the bot's private D-Bus/session and
+Linux UID. The extension is bundled and keyed locally. Its Go relay uses a
+mode-600 Unix socket inside the mode-700 bot runtime directory; there is no TCP
+debugging port. Browser profiles, accessibility snapshots and sockets are not
+shared across bots. Chromium is not started at container/session startup.
+
+Semantic clicks/focus/browser opening follow the **click** permission;
+`computer_keyboard` follows **type/key** permissions. Auto remains the default.
+Stop and manual takeover cancel in-progress operations. Inspections and actions
+cannot bypass a disabled desktop or revoked bot permission. UI labels and page
+content remain untrusted external data.
+
+### Cursor Motion on Linux
+
+The X11 movement adapter ports the upstream MIT `CursorMotionPath` cubic curve
+and Velocity Verlet spring progress (reference Swift source retained in vendor).
+It animates the real pointer in about 350 ms, then locks to the exact native
+endpoint **before** a coordinate click/scroll. A move to the same point returns
+immediately. Motion cancellation stops before the pending click.
+
+This is a Linux adaptation of the path/progress portion, not the Swift/macOS
+application or its complete glyph/rotation renderer. noVNC displays the real
+moving X11 pointer. The noVNC patch reads TightVNC PointerPos and Cursor shape
+updates: view-only mode renders the server sprite at the reported hotspot,
+scaled with the desktop canvas on desktop and mobile. It never derives pointer
+position from a commanded click. Manual control restores the normal local
+cursor. The viewer uses x11vnc’s standard arrow (`-noxfixes -cursor arrow`): the packaged
+x11vnc crashed when updating custom XFixes cursor shapes in live tests. Native
+position updates remain enabled; screenshots still include the actual native
+XFixes shape. Server-side cursor blitting is also avoided. Semantic AT-SPI/CDP actions do not move that pointer and do
+not claim its position is their target. Screenshot cursor metadata continues to
+describe the actual native X11 hotspot.
+
 Enable **Desktop access** for the intended companion on the Computer page or its
 permissions panel. This permission is off by default for existing and new
-companions. Choose a model with both vision and tools. OpenRouter's model picker
+companions. Semantic tools require tool calling; screenshot-based control also
+requires vision. Choose a model with both vision and tools for that fallback. OpenRouter's model picker
 shows an eye icon for advertised image support; `qwen/qwen3.8-27b` advertises both
 image input and tool calls. For local Ollama, the installed model and serving
 configuration must support images as well.
@@ -79,7 +146,7 @@ The model receives:
 - `computer_screenshot`: a real PNG image, with physical pixel dimensions. Only
   small private artifact references are stored in chat tool outputs; PNG bytes
   are sent through the AI SDK's image content format.
-- `computer_action`: click/double-click, move, Unicode text paste, whitelisted
+- `computer_action`: click/double-click, move, Unicode keypress typing, whitelisted
   keys/shortcuts and scrolling. **Once desktop access is granted, actions execute
   directly by default.** This also applies to previously enabled companions.
   On the Computer page, choose per companion: **Always allow**, **Always ask**,
@@ -142,8 +209,11 @@ disabling browser TLS verification.
 
 `computer_action` types using native X11 key press/release events (`xdotool type`),
 never clipboard paste. Printable Unicode characters are accepted, up to 2000 per call; split longer text.
-A 12 ms interval prevents temporary Unicode key mappings from being restored
-before XTerm processes their events. Stop, manual takeover and desktop shutdown
+A 12 ms interval paces events. For batches that fit the available spare X11
+keycodes, Unicode mappings remain stable through the whole batch and a short
+client-drain interval, then only those previously empty slots are restored. This
+avoids per-character remapping races observed in a busy XTerm. Larger distinct
+Unicode alphabets use xdotool’s normal mapping behavior. Stop, manual takeover and desktop shutdown
 interrupt typing through a liveness pipe and release held keys. Control characters
 (including newlines and tabs) are rejected before any input is sent: use explicit
 `key: Return` or `key: Tab` actions instead. This prevents hidden Enter events
@@ -215,7 +285,7 @@ recognition with one provider and no fallback.
 
 ### Browser launchers and upgrades
 
-The built-in computer image is `opendots/computer:6`. Pull the application changes
+The built-in computer image is `opendots/computer:7`. Pull the application changes
 and run `pnpm desktop:build -- --rebuild` on the Docker host (or rebuild using the
 Compose instructions). The old built-in image setting migrates automatically;
 custom image names remain unchanged and must include the equivalent launcher

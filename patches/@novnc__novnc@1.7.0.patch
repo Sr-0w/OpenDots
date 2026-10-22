@@ -1,3 +1,73 @@
+diff --git a/core/encodings.js b/core/encodings.js
+index 7afcb17fcc0f55210f03ec1bd9e894378ee648e1..4e56a1257d455ae0960c7b9af3fcf8a9b87bd3c7 100644
+--- a/core/encodings.js
++++ b/core/encodings.js
+@@ -23,6 +23,7 @@ export const encodings = {
+     pseudoEncodingDesktopSize: -223,
+     pseudoEncodingLastRect: -224,
+     pseudoEncodingCursor: -239,
++    pseudoEncodingPointerPos: -232,
+     pseudoEncodingQEMUExtendedKeyEvent: -258,
+     pseudoEncodingQEMULedEvent: -261,
+     pseudoEncodingDesktopName: -307,
+diff --git a/core/rfb.js b/core/rfb.js
+index 80011e4a10203806f14df1ffc3b8425861a965a7..4a4f03d0083f9e17bc0f822ed55eceada4924e21 100644
+--- a/core/rfb.js
++++ b/core/rfb.js
+@@ -310,6 +310,7 @@ export default class RFB extends EventTargetMixin {
+     get viewOnly() { return this._viewOnly; }
+     set viewOnly(viewOnly) {
+         this._viewOnly = viewOnly;
++        this._refreshCursor();
+ 
+         if (this._rfbConnectionState === "connecting" ||
+             this._rfbConnectionState === "connected") {
+@@ -2249,6 +2250,7 @@ export default class RFB extends EventTargetMixin {
+         encs.push(encodings.pseudoEncodingQualityLevel0 + this._qualityLevel);
+         encs.push(encodings.pseudoEncodingCompressLevel0 + this._compressionLevel);
+ 
++        encs.push(encodings.pseudoEncodingPointerPos);
+         encs.push(encodings.pseudoEncodingDesktopSize);
+         encs.push(encodings.pseudoEncodingLastRect);
+         encs.push(encodings.pseudoEncodingQEMUExtendedKeyEvent);
+@@ -2675,6 +2677,14 @@ export default class RFB extends EventTargetMixin {
+             case encodings.pseudoEncodingCursor:
+                 return this._handleCursor();
+ 
++            case encodings.pseudoEncodingPointerPos:
++                // TightVNC's real server-side pointer position, not the last
++                // client mouse event or a requested automation destination.
++                this.dispatchEvent(new CustomEvent("cursorposition", {
++                    detail: { x: this._FBU.x, y: this._FBU.y }
++                }));
++                return true;
++
+             case encodings.pseudoEncodingQEMUExtendedKeyEvent:
+                 this._qemuExtKeyEventSupported = true;
+                 return true;
+@@ -3027,6 +3037,9 @@ export default class RFB extends EventTargetMixin {
+             rgbaPixels: rgba,
+             hotx: hotx, hoty: hoty, w: w, h: h,
+         };
++        this.dispatchEvent(new CustomEvent("cursorimage", {
++            detail: this._cursorImage
++        }));
+         this._refreshCursor();
+     }
+ 
+@@ -3057,6 +3070,12 @@ export default class RFB extends EventTargetMixin {
+             this._rfbConnectionState !== "connected") {
+             return;
+         }
++        // OpenDots renders the server cursor at its reported native hotspot
++        // in view-only mode. Keep the local OS/touch cursor for manual control.
++        if (this._viewOnly) {
++            this._cursor.clear();
++            return;
++        }
+         const image = this._shouldShowDotCursor() ? RFB.cursors.dot : this._cursorImage;
+         this._cursor.change(image.rgbaPixels,
+                             image.hotx, image.hoty,
 diff --git a/core/util/browser.js b/core/util/browser.js
 index 63596d211bc3f2ac0c1853d58488dcbb18bd8949..31d1de5d7f21d595b5f4d18163905776072e1922 100644
 --- a/core/util/browser.js

@@ -21,7 +21,7 @@ const { createApplication } = await import('../src/app.ts');
 const { saveMessage } = await import('../src/conversations/repo.ts');
 const { desktopTools } = await import('../src/computer/tools.ts');
 const { attachDesktopWebSocket } = await import('../src/computer/websocket.ts');
-const { startDesktop, screenshot, readScreenshot, desktopAction, desktopExec, removeDesktop, setHumanControl, desktopStatus } = await import('../src/computer/desktop.ts');
+const { startDesktop, screenshot, readScreenshot, desktopAction, desktopExec, removeDesktop, setHumanControl, desktopStatus, semanticOperation } = await import('../src/computer/desktop.ts');
 const { withDesktopAgent } = await import('../src/computer/session.ts');
 const { computerName, computerState, execShell } = await import('../src/computer/shell.ts');
 const { execFile } = await import('node:child_process');
@@ -50,7 +50,7 @@ const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
 async function until<T>(read: () => Promise<T>, test: (value: T) => boolean): Promise<T> {
   let last: T | undefined;
   for (let i = 0; i < 60; i++) { last = await read(); if (test(last)) return last; await pause(); }
-  throw new Error(`État attendu non atteint : ${String(last).slice(0, 200)}`);
+  throw new Error(`État attendu non atteint : ${JSON.stringify(last).slice(0, 1600)}`);
 }
 async function rejectedSocket(cookie?: string, from = origin) {
   const ws = new WebSocket(origin.replace('http:', 'ws:') + `/api/computer/vnc?agentId=${botA.id}`, { headers: { ...(cookie ? { cookie } : {}), origin: from } });
@@ -100,6 +100,32 @@ try {
   console.log('PASS frappe interrompue par Stop et reprise manuelle : pas de texte restant ni de touche/modificateur bloqué.');
   await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x xterm']));
   console.log('PASS démarrage shell puis XFCE sans Chromium, terminal graphique utilisable, frappes Unicode réelles et aucune validation avant Return.');
+  // Native accessible targets: no screenshot coordinates and no clipboard edits.
+  const nativeFixture = await readFile(new URL('./fixtures/semantic-form.py', import.meta.url), 'utf8');
+  await asA(() => desktopExec(['python3', '-c', `from pathlib import Path; (Path.home()/'semantic-form.py').write_text(${JSON.stringify(nativeFixture)})`]));
+  const gtkLaunch = await asA(() => execShell(botA.id, 'python3 "$HOME/semantic-form.py" >"$HOME/.vnc/semantic-fixture.log" 2>&1 &'));
+  assert.equal(gtkLaunch.exitCode, 0, gtkLaunch.stderr);
+  const fixturePid = Number((await asA(() => desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -f "^python3 .*/semantic-form.py$"']))).toString().trim());
+  const apps = await until(() => asA(() => semanticOperation({ engine: 'native', action: 'apps' })), value => value.ok && value.apps?.some((app: any) => app.pid === fixturePid));
+  const nativeApp = apps.apps.find((app: any) => app.pid === fixturePid);
+  const inspectNative = () => asA(() => semanticOperation({ engine: 'native', action: 'inspect', app: String(nativeApp.pid) }));
+  const actNative = async (name: string, action = 'focus') => {
+    const state = await inspectNative(); assert.equal(state.ok, true, JSON.stringify(state));
+    const element = state.elements.find((e: any) => e.name === name); assert(element, JSON.stringify(state));
+    const operation = { engine: 'native' as const, action, snapshot: state.snapshot, ref: element.ref };
+    const result = await asA(() => semanticOperation(operation)); assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal((await asA(() => semanticOperation(operation))).ok, false, 'A consumed snapshot must not repeat its action');
+  };
+  await actNative('Nom de test');
+  await asA(() => desktopAction({ action: 'type', text: 'Ari été ✓' }));
+  await actNative('Mot de passe de test');
+  await asA(() => desktopAction({ action: 'type', text: 'Clé-native-123!' }));
+  assert(!(JSON.stringify(await inspectNative())).includes('Clé-native-123!'));
+  assert.equal((await asA(() => desktopExec(['sh', '-c', 'test -f "$HOME/semantic-submitted.json" && echo submitted || true']))).toString().trim(), '');
+  await actNative('Enregistrer le formulaire', 'click');
+  assert.deepEqual(JSON.parse((await asA(() => desktopExec(['sh', '-c', 'cat "$HOME/semantic-submitted.json"']))).toString()), { name: 'Ari été ✓', password: 'Clé-native-123!' });
+  await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -f "^python3 .*/semantic-form.py$" || true']));
+  console.log('PASS Open Computer Use AT-SPI réel : champs ciblés par nom, touches Unicode, mot de passe masqué, absence de soumission implicite et snapshot consommé refusé.');
   for (const [x, y] of [[444, 333], [0, 0], [1279, 799]]) {
     await asA(() => desktopAction({ action: 'move', x, y }));
     const shot = await asA(screenshot);
@@ -181,6 +207,49 @@ PY`]))).toString());
   await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -f "^sleep 999$" || true']));
   console.log('PASS navigateur détaché via le shell en moins de 5 s et retour immédiat pour sleep 999 &.');
   await until(() => asA(async () => (await desktopExec(['sh', '-c', 'window=$(xdotool search --onlyvisible --class chromium | head -n 1); test -n "$window" && xdotool windowactivate --sync "$window" && echo ready || true'])).toString()), value => value.includes('ready'));
+  // Open Browser Use's actual extension, Go native host and private Unix socket.
+  await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
+(Path.home()/'semantic-browser.html').write_text('''<!doctype html><meta charset="utf-8"><title>Semantic browser fixture</title><script>let keys=0,pastes=0;addEventListener('keydown',e=>{if(e.isTrusted)keys++});addEventListener('paste',()=>pastes++);</script><form onsubmit="document.title='Submitted:'+document.getElementById('name').value+':'+document.getElementById('password').value.length+':keys='+keys+':pastes='+pastes;return false"><label>Nom navigateur<input id=name></label><label>Mot de passe navigateur<input id=password type=password></label><button><span>Valider le formulaire navigateur</span></button><button type="button" onmousedown="document.title='MouseDown';let start=performance.now();while(performance.now()-start&lt;1500){}" onmouseup="document.title='MouseReleased'">Tester Stop pendant un clic</button></form>''', encoding='utf-8')`]));
+  await asA(() => desktopExec(['sh', '-c', 'python3 -m http.server 8765 --bind 127.0.0.1 --directory "$HOME" >"$HOME/.vnc/browser-http.log" 2>&1 &']));
+  await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x chromium || true']));
+  await until(() => asA(async () => (await desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true'])).toString()), value => value.trim() === '');
+  const browserOpen = await asA(() => semanticOperation({ engine: 'browser', action: 'open', url: 'http://127.0.0.1:8765/semantic-browser.html' }));
+  assert.equal(browserOpen.ok, true, JSON.stringify(browserOpen));
+  const inspectBrowser = () => asA(() => semanticOperation({ engine: 'browser', action: 'inspect', tabId: browserOpen.tabId }));
+  await until(inspectBrowser, value => value.ok && value.elements.some((e: any) => e.name === 'Valider le formulaire navigateur'));
+  const actBrowser = async (name: string, action = 'focus') => {
+    const state = await inspectBrowser(); assert.equal(state.ok, true, JSON.stringify(state));
+    const element = state.elements.find((e: any) => e.name === name && (action === 'click' ? e.role === 'button' : e.role === 'textbox')); assert(element, JSON.stringify(state));
+    const operation = { engine: 'browser' as const, action, snapshot: state.snapshot, ref: element.ref };
+    const result = await asA(() => semanticOperation(operation)); assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal((await asA(() => semanticOperation(operation))).ok, false, 'A consumed browser snapshot must be rejected');
+  };
+  await actBrowser('Nom navigateur');
+  await asA(() => desktopAction({ action: 'type', text: 'Ari navigateur ✓' }));
+  await actBrowser('Mot de passe navigateur');
+  await asA(() => desktopAction({ action: 'type', text: 'Secret-été-123' }));
+  assert(!JSON.stringify(await inspectBrowser()).includes('Secret-été-123'));
+  const browserTitle = async () => asA(async () => (await desktopExec(['xdotool', 'getactivewindow', 'getwindowname'])).toString());
+  assert(!(await browserTitle()).includes('Submitted:'));
+  const stopState = await inspectBrowser();
+  const stopButton = stopState.elements.find((e: any) => e.role === 'button' && e.name === 'Tester Stop pendant un clic'); assert(stopButton);
+  const stopSemantic = new AbortController();
+  const semanticClick = asA(() => semanticOperation({ engine: 'browser', action: 'click', snapshot: stopState.snapshot, ref: stopButton.ref }, stopSemantic.signal));
+  const rejectedSemantic = assert.rejects(semanticClick, /stop semantic click/);
+  await until(browserTitle, value => value.includes('MouseDown'));
+  stopSemantic.abort(new Error('stop semantic click'));
+  await rejectedSemantic;
+  await until(browserTitle, value => value.includes('MouseReleased'));
+  console.log('PASS Stop pendant un clic CDP : bouton relâché avant la sortie du moteur, aucune souris virtuelle bloquée.');
+  await actBrowser('Valider le formulaire navigateur', 'click');
+  await until(browserTitle, value => /Submitted:Ari navigateur ✓:14:keys=[1-9][0-9]*:pastes=0/.test(value));
+  const staleBrowser = await inspectBrowser();
+  await asA(() => desktopAction({ action: 'key', key: 'ctrl+l' }));
+  await asA(() => desktopAction({ action: 'type', text: 'about:blank', submit: true }));
+  await until(browserTitle, value => !value.includes('Submitted:'));
+  const staleResult = await asA(() => semanticOperation({ engine: 'browser', action: 'focus', snapshot: staleBrowser.snapshot, ref: staleBrowser.elements.find((e: any) => e.name === 'Nom navigateur' && e.role === 'textbox').ref }));
+  assert.equal(staleResult.ok, false); assert.match(staleResult.error, /navigated/);
+  console.log('PASS Open Browser Use réel : extension locale + Go natif + socket privé, DOM/AX nommé, focus, frappe trusted Unicode/mot de passe, clic sans coordonnées devinées, snapshot périmé après navigation refusé.');
   // Load a controlled offline page. Its title records real browser events.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
 Path('/workspaces/${botA.id}/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));
@@ -197,6 +266,12 @@ im=ImageGrab.grab(xdisplay=__import__('os').environ['DISPLAY']).convert('RGB')
 p=[(x,y) for y in range(im.height) for x in range(im.width) if im.getpixel((x,y))==(11,203,79)]
 assert p, 'Bouton non visible'
 print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len(p)}))`]))).toString());
+  const cancelClick = new AbortController();
+  const movingClick = asA(() => desktopAction({ action: 'click', ...position }, cancelClick.signal));
+  const noClick = assert.rejects(movingClick, /stop before click/);
+  setTimeout(() => cancelClick.abort(new Error('stop before click')), 90);
+  await noClick;
+  assert(!(await title()).includes('Clicked'), 'Stop during motion must not send the pending click');
   await asA(() => desktopAction({ action: 'click', ...position }));
   await until(title, (value) => value.includes('Clicked'));
   await asA(() => desktopAction({ action: 'scroll', direction: 'down', amount: 4, x: 700, y: 600 }));
@@ -296,6 +371,12 @@ import os
   assert.equal((await asA(() => desktopExec(['cat', `/workspaces/${botA.id}/shell-note.txt`]))).toString(), 'from-shell');
   await assert.rejects(() => asC(() => desktopExec(['cat', `/workspaces/${botA.id}/.Xauthority`])));
   await assert.rejects(() => asC(() => desktopExec(['cat', `/workspaces/${botA.id}/.vnc/passwd`])));
+  const runtimeA = (await asA(() => desktopExec(['printenv', 'XDG_RUNTIME_DIR']))).toString().trim();
+  await assert.rejects(() => asC(() => desktopExec(['cat', `${runtimeA}/obu/active.json`])));
+  const otherApps = await asC(() => semanticOperation({ engine: 'native', action: 'apps' }));
+  assert.equal(otherApps.ok, true, JSON.stringify(otherApps));
+  assert(!otherApps.apps.some((app: any) => /chromium|semantic-fixture/i.test(app.name)));
+  assert.equal((await asC(() => semanticOperation({ engine: 'browser', action: 'tabs' }))).ok, false, 'A bot without a browser must not discover another bot’s socket');
   const slotA = await asA(async () => (await import('../src/settings.ts')).getSetting(`desktop.bot.${botA.id}`));
   await assert.rejects(() => asC(() => desktopExec(['sh', '-c', `DISPLAY=:${slotA!.slot} xdotool getdisplaygeometry`])));
   await asC(() => desktopExec(['sh', '-c', 'test ! -e "$HOME/private-alice.txt" && echo private']));
@@ -344,11 +425,47 @@ import os
   const takeOver = page.getByRole('button', { name: 'Prendre la main', exact: true });
   await takeOver.click({ timeout: 30_000 });
   await page.getByText('Tu contrôles le bureau. Les captures et actions des modèles sont suspendues.', { exact: true }).waitFor();
-  const canvas = page.locator('[aria-label="Bureau distant"] canvas');
+  const canvas = page.locator('[aria-label="Bureau distant"] canvas:not([data-remote-pointer])');
   assert.equal(await canvas.evaluate((element: HTMLCanvasElement) => element.width), 1280);
   await asA(() => assert.rejects(screenshot, /pris la main/));
   await page.getByRole('button', { name: 'Rendre la main aux modèles', exact: true }).click();
   await page.getByText('Vue seule. Les modèles agissent selon les permissions de chaque compagnon.', { exact: true }).waitFor();
+  // Verify actual RFB shape + PointerPos are visible even in view-only mode.
+  await asA(() => desktopAction({ action: 'move', x: 100, y: 400 }));
+  const vncCursor = JSON.parse((await asA(() => desktopExec(['python3', '-c', cursorFixture, 'set']))).toString()).window;
+  try {
+    const pointer = page.locator('canvas[data-remote-pointer]');
+    await page.waitForFunction(() => {
+      const c = document.querySelector('canvas[data-remote-pointer]') as HTMLCanvasElement;
+      if (!c || c.dataset.x !== '100' || c.dataset.y !== '400' || !c.width || !c.height || c.style.display === 'none') return false;
+      return c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data.some((value,index) => index%4 === 3 && value > 0);
+    });
+    const samples = pointer.evaluate(async (element: HTMLCanvasElement) => {
+      const points: number[][] = [], started = performance.now();
+      while (performance.now()-started < 1400) {
+        if (element.style.display !== 'none') points.push([Number(element.dataset.x), Number(element.dataset.y)]);
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return points;
+    });
+    await asA(() => desktopAction({ action: 'move', x: 900, y: 600 }));
+    const points = await samples;
+    const hot = await pointer.evaluate(element=>({ x:Number(element.dataset.hotspotX), y:Number(element.dataset.hotspotY) }));
+    assert(new Set(points.map(point => point.join(','))).size >= 3, `noVNC must show intermediate cursor frames: ${JSON.stringify(points)}`);
+    assert(points.some(([x,y]) => x === 900 && y === 600), `Final native hotspot must match RFB: ${JSON.stringify(points)}`);
+    assert(points.some(([x,y]) => x > 100 && x < 850 && Math.abs(y-400-(x-100)/4) > 5), 'The visible cursor path must be curved, not a teleport or a straight line');
+    for (const viewport of [{ width: 1440, height: 1080 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(100);
+      const screen = (await canvas.boundingBox())!, cursor = (await pointer.boundingBox())!;
+      assert(Math.abs(cursor.x-(screen.x+(900-hot.x)*screen.width/1280)) < 1, 'Pointer hotspot X must follow native/display scaling');
+      assert(Math.abs(cursor.y-(screen.y+(600-hot.y)*screen.height/800)) < 1, 'Pointer hotspot Y must follow native/display scaling');
+      await page.screenshot({ path: `/tmp/opendots-remote-pointer-${viewport.width}.png`, fullPage: true });
+    }
+    await page.setViewportSize({ width: 1440, height: 1080 });
+  } finally { await asA(() => desktopExec(['python3', '-c', cursorFixture, 'restore', String(vncCursor)])).catch(() => {}); }
+  console.log('PASS Cursor Motion Linux visible dans noVNC : positions intermédiaires courbes du vrai pointeur, sprite RFB standard, hotspot final exact et échelle desktop/mobile.');
+
   const panel = page.getByLabel('Permissions du bureau — Vision', { exact: true });
   const selector = panel.getByRole('combobox', { name: 'Validation des actions — Vision' });
   await selector.click(); await page.getByRole('option', { name: 'Personnalisé', exact: true }).click();
@@ -427,7 +544,7 @@ import os
 } catch (error) {
   const failedPage = browser?.contexts()[0]?.pages()[0];
   if (failedPage) { console.error('Browser:', await failedPage.getByRole('alert').allTextContents()); await failedPage.screenshot({ path: '/tmp/opendots-bot-ui-failure.png', fullPage: true }).catch(() => {}); }
-  const diagnostics = await asA(() => run('docker', ['exec', computerName(), 'sh', '-c', 'for log in /run/opendots-sessions/*.log /workspaces/ag_*/.vnc/session.log /workspaces/ag_*/.vnc/chromium.log; do if [ -f "$log" ]; then tail -12 "$log"; fi; done'])).catch(() => null);
+  const diagnostics = await asA(() => run('docker', ['exec', computerName(), 'sh', '-c', 'for log in /run/opendots-sessions/*.log /workspaces/ag_*/.vnc/*.log; do if [ -f "$log" ]; then tail -12 "$log"; fi; done'])).catch(() => null);
   if (diagnostics) console.error(diagnostics.stdout);
   try {
     await writeFile('/tmp/opendots-desktop-failure.png', await asA(() => desktopExec(['python3', '-c', `from PIL import ImageGrab; import sys, os; ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(sys.stdout.buffer,"PNG")`])));

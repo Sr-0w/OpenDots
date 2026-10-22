@@ -7,6 +7,16 @@ import subprocess
 import sys
 import tempfile
 
+# Applications launched by the bot's shell join its existing private GUI bus.
+# A shell-only computer still starts no desktop or browser.
+runtime = os.environ.get('XDG_RUNTIME_DIR')
+if runtime:
+    bus = Path(runtime) / 'session-bus'
+    if bus.exists():
+        os.environ['DBUS_SESSION_BUS_ADDRESS'] = bus.read_text().strip()
+        os.environ['NO_AT_BRIDGE'] = '0'
+        os.environ['GTK_MODULES'] = 'gail:atk-bridge'
+
 seconds, command = sys.argv[1:]
 with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
     process = subprocess.Popen(['timeout', '-k', '1', seconds, 'bash', '-lc', command],

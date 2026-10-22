@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { t } from '@/lib/i18n';
+import { remotePointer } from './remote-pointer';
 
 const ACTION_LABELS: Record<ComputerActionType, string> = { click: 'Clics et doubles-clics', type: 'Saisie de texte', key: 'Touches et raccourcis', scroll: 'Défilement', move: 'Déplacement du pointeur' };
 const DEFAULT_DESKTOP_PERMISSIONS: DesktopPermissions = { mode: 'auto', actions: [] };
@@ -23,6 +24,7 @@ export function ComputerPage() {
   const [permissions, setPermissions] = useState<Record<string, DesktopPermissions>>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false), [savingPermissions, setSavingPermissions] = useState<string | null>(null);
   const target = useRef<HTMLDivElement>(null), client = useRef<RFB | null>(null);
+  const pointer = useRef<ReturnType<typeof remotePointer> | null>(null);
   useEffect(() => {
     let active = true; setStatus(null); setError('');
     if (agentId) api.desktop(agentId).then((value) => { if (active) setStatus(value); }).catch((e) => { if (active) setError(e.message); });
@@ -43,11 +45,12 @@ export function ComputerPage() {
     const url = new URL('/api/computer/vnc', location.href); url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     url.searchParams.set('agentId', agentId);
     const rfb = new RFB(target.current, url.href, { credentials: { password: status.vncPassword ?? '' } }); client.current = rfb;
+    const remote = remotePointer(target.current, rfb, status.width, status.height); pointer.current = remote;
     rfb.viewOnly = true; rfb.scaleViewport = true; rfb.resizeSession = false; rfb.background = '#111';
     rfb.addEventListener('connect', () => { if (active) { setConnected(true); setError(''); } });
     rfb.addEventListener('securityfailure', (event) => { if (active) setError((event as CustomEvent<{ reason: string }>).detail.reason || t('Connexion au bureau interrompue.')); });
-    rfb.addEventListener('disconnect', () => { if (active) { setConnected(false); setControl(false); setError(t('Connexion au bureau interrompue.')); } });
-    return () => { active = false; rfb.disconnect(); client.current = null; setConnected(false); setControl(false); };
+    rfb.addEventListener('disconnect', () => { remote.remove(); if (pointer.current === remote) pointer.current = null; if (active) { setConnected(false); setControl(false); setError(t('Connexion au bureau interrompue.')); } });
+    return () => { active = false; remote.remove(); if (pointer.current === remote) pointer.current = null; rfb.disconnect(); client.current = null; setConnected(false); setControl(false); };
   }, [status?.running, status?.agentId, agentId, revision]);
   async function start() {
     setBusy(true); setError('');
@@ -60,7 +63,7 @@ export function ComputerPage() {
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function takeover() {
-    try { await api.desktopControl(agentId, !control); if (client.current) { client.current.viewOnly = control; if (!control) client.current.focus(); } setControl(!control); setStatus((old) => old ? { ...old, manualControl: !control } : old); }
+    try { await api.desktopControl(agentId, !control); if (client.current) { client.current.viewOnly = control; pointer.current?.refresh(); if (!control) client.current.focus(); } setControl(!control); setStatus((old) => old ? { ...old, manualControl: !control } : old); }
     catch (e) { toast.error((e as Error).message); }
   }
   return <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
@@ -73,8 +76,8 @@ export function ComputerPage() {
       {status?.restartRequired && <p role="status" className="rounded-xl border p-3 text-sm">{t('L’ordinateur a redémarré après une mise à jour. Relance le bureau et les applications nécessaires ; les fichiers et profils sont conservés.')}</p>}
       {status && !status.available && <p className="text-sm text-muted-foreground">{t('Docker doit être installé et démarré sur le serveur.')}</p>}
       {busy && <p role="status" className="text-sm text-muted-foreground">{t('Démarrage du bureau. Une session en pause reprend sans relancer le navigateur.')}</p>}
-      {status?.running && <><p className="text-xs text-muted-foreground">{t(control ? 'Tu contrôles le bureau. Les captures et actions des modèles sont suspendues.' : status.manualControl ? 'Les modèles sont suspendus. Reprends la main ou autorise-les à nouveau.' : 'Vue seule. Les modèles agissent selon les permissions de chaque compagnon.')}</p><div ref={target} aria-label={t('Bureau distant')} className="h-[min(70vh,800px)] min-h-80 overflow-hidden rounded-xl border bg-black" /></>}
-      <section className="space-y-3 rounded-xl border p-4"><h2 className="text-sm font-medium">{t('Accès des compagnons au bureau')}</h2><p className="text-xs text-muted-foreground">{t('Les captures sont envoyées au fournisseur du modèle. Choisis un modèle qui comprend les images. Saisis tes mots de passe directement après avoir pris la main.')}</p>
+      {status?.running && <><p className="text-xs text-muted-foreground">{t(control ? 'Tu contrôles le bureau. Les captures et actions des modèles sont suspendues.' : status.manualControl ? 'Les modèles sont suspendus. Reprends la main ou autorise-les à nouveau.' : 'Vue seule. Les modèles agissent selon les permissions de chaque compagnon.')}</p><div ref={target} aria-label={t('Bureau distant')} className="relative h-[min(70vh,800px)] min-h-80 overflow-hidden rounded-xl border bg-black" /></>}
+      <section className="space-y-3 rounded-xl border p-4"><h2 className="text-sm font-medium">{t('Accès des compagnons au bureau')}</h2><p className="text-xs text-muted-foreground">{t('Les éléments accessibles se pilotent sans vision. Les captures nécessitent un modèle vision et sont envoyées à son fournisseur. Prends la main pour saisir tes mots de passe directement.')}</p>
         <p className="text-xs text-muted-foreground">{t('L’accès au bureau autorise les actions sans confirmation par défaut. Tu peux demander une validation pour tout ou seulement certaines actions.')}</p>
         {agents.map((agent) => {
           const policy = permissions[agent.id] ?? DEFAULT_DESKTOP_PERMISSIONS;

@@ -42,7 +42,7 @@ const agentLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const SILENCE = /^\s*<(silence|no[_-]?reply)\s*\/?>\s*$/i;
-const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|computer_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+|computer_action)$/;
+const VISIBLE_EFFECT_TOOLS = /^(activity_(create|update|delete)|mail_prepare|ask_user|connection_request_setup|computer_request_setup|agent_create|skill_save|team_send_message|mcp_.+|svc_.+|computer_action|computer_target|computer_keyboard)$/;
 
 /** Le tour s'arrête dès qu'un formulaire a été présenté à l'utilisateur. */
 const formShown: StopCondition<any> = ({ steps }) =>
@@ -236,7 +236,7 @@ async function executeTurn(
     try { await requireDesktopVision(modelCfg); }
     catch (error) {
       delete tools.computer_screenshot; delete tools.computer_action;
-      capabilities.info.connectors.push(`Bureau indisponible : ${errorMessage(error)} Explique cette limite si l’utilisateur demande de piloter le bureau et propose un modèle vision.`);
+      capabilities.info.connectors.push(`Captures et actions par coordonnées indisponibles : ${errorMessage(error)} Utilise computer_inspect, browser_inspect et computer_target pour les éléments nommés, puis computer_keyboard pour la saisie sans vision. Pour les captures, propose un modèle vision.`);
     }
   }
 

@@ -7,12 +7,19 @@ import sys
 import time
 from urllib.parse import urlsplit
 
+bus = Path(os.environ['XDG_RUNTIME_DIR']) / 'session-bus'
+if bus.exists():
+    os.environ['DBUS_SESSION_BUS_ADDRESS'] = bus.read_text().strip()
+os.environ['NO_AT_BRIDGE'] = '0'
+
 url = sys.argv[1] if len(sys.argv) == 2 else 'about:blank'
 if Path(url).is_absolute():
     # Desktop MIME launchers may expand a file URI to a local absolute path.
     url = Path(url).as_uri()
 if len(sys.argv) > 2 or urlsplit(url).scheme not in ('http', 'https', 'file', 'about'):
     raise SystemExit('Usage: opendots-open-browser [http(s)://… | file://… | about:blank]')
+import runpy
+runpy.run_path('/usr/local/share/opendots/configure-browser-user.py')
 log = Path.home() / '.vnc' / 'chromium.log'
 log.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
 with log.open('ab') as output:

@@ -26,7 +26,10 @@ Après le choix du modèle, le premier compagnon engage lui-même la conversatio
 Son accueil est une tâche persistante, reprise après redémarrage et protégée
 contre les doublons ; aucun message utilisateur ni prompt suggéré n’est nécessaire.
 Ouvrir **Ordinateur → Démarrer le bureau**, activer l’accès au bureau pour le
-compagnon voulu et choisir un modèle avec images et outils. Les actions sont
+compagnon voulu et choisir un modèle avec outils. Le pilotage des éléments
+accessibles Linux/navigateur fonctionne sans vision ; les captures et clics par
+coordonnées nécessitent un modèle qui accepte les images. Voir
+[le pilotage sémantique et Cursor Motion](computer-use.md#semantic-control-open-computer-use-and-open-browser-use). Les actions sont
 autorisées directement par défaut ; le panneau permet de demander une validation
 pour tout ou pour certains types d’actions, par compagnon.
 **Prendre la main** suspend captures et actions
@@ -54,7 +57,7 @@ fournisseur. Voir [les instructions OAuth](accounts-and-connectors.md).
 | `app` | Serveur Node, interface, authentification, bases par compte, courtier Git | HTTP sur `127.0.0.1:3000`, données dans le bind mount |
 | `search-init` | Génère la configuration et un secret aléatoire, puis termine | Volume `search-config`, secret réutilisé aux redémarrages |
 | `searxng` | Moteur OSS local, interroge DuckDuckGo/Brave/Wikipedia | JSON sur `127.0.0.1:18080`, jamais public |
-| `computer-image` | Construit `opendots/computer:6`, puis termine avec succès | Prépare ensemble shell et bureaux |
+| `computer-image` | Construit `opendots/computer:7`, puis termine avec succès | Prépare ensemble shell et bureaux |
 | `*-computer-*` | Un conteneur **par compte**, créé à la demande, mis en pause après inactivité | Un UID, écran, presse-papiers, home et profil Chromium par bot ; aucun port VNC publié |
 | `caddy` (profil `https`) | Reverse proxy et certificats automatiques | Ports 80/443 ; volumes de certificats persistants |
 

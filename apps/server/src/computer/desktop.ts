@@ -145,19 +145,42 @@ export const desktopActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('move'), ...point }).strict(),
 ]);
 export type DesktopAction = z.infer<typeof desktopActionSchema>;
+export async function semanticOperation(input: { engine: 'native' | 'browser'; action: string; [key: string]: unknown }, signal?: AbortSignal) {
+  return actions.run(desktopKey(), async () => {
+    await assertModelControl(); signal?.throwIfAborted();
+    await startDesktop(); await assertModelControl();
+    const controller = new AbortController(); typing.set(desktopKey(), controller);
+    const abort = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    try {
+      if (input.engine === 'browser' && input.action === 'open') {
+        const running = await desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true']);
+        if (!running.toString().trim()) await desktopExec(['opendots-open-browser', 'about:blank'], undefined, { signal: abort });
+      }
+      abort.throwIfAborted(); await assertModelControl();
+      return JSON.parse((await desktopExec(['python3', '/usr/local/share/opendots/semantic-bridge.py'], JSON.stringify(input)+'\n', { signal: abort, keepStdinOpen: true, timeoutMs: 30_000 })).toString());
+    } finally { if (typing.get(desktopKey()) === controller) typing.delete(desktopKey()); }
+  });
+}
 export async function desktopAction(input: unknown, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const action = desktopActionSchema.parse(input);
   return actions.run(desktopKey(), async () => {
     await assertModelControl();
+    signal?.throwIfAborted();
     await startDesktop();
     await assertModelControl();
     signal?.throwIfAborted();
-    // --sync waits for a motion event even if the pointer is already there.
-    // Queue motion and button events on the same X11 connection instead.
+    if ('x' in action) {
+      const controller = new AbortController(); typing.set(desktopKey(), controller);
+      const abort = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+      try {
+        await desktopExec(['python3', '/usr/local/share/opendots/cursor-motion.py', String(action.x), String(action.y)], undefined, { signal: abort, keepStdinOpen: true });
+        abort.throwIfAborted(); await assertModelControl();
+      } finally { if (typing.get(desktopKey()) === controller) typing.delete(desktopKey()); }
+    }
     switch (action.action) {
-      case 'click': await desktopExec(['xdotool', 'mousemove', String(action.x), String(action.y), 'click', '--clearmodifiers', '--repeat', action.double ? '2' : '1', String({ left: 1, middle: 2, right: 3 }[action.button])]); break;
-      case 'move': await desktopExec(['xdotool', 'mousemove', String(action.x), String(action.y)]); break;
+      case 'click': await desktopExec(['xdotool', 'click', '--clearmodifiers', '--repeat', action.double ? '2' : '1', String({ left: 1, middle: 2, right: 3 }[action.button])]); break;
+      case 'move': break;
       case 'type': {
         const controller = new AbortController(); typing.set(desktopKey(), controller);
         const abort = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -169,7 +192,7 @@ export async function desktopAction(input: unknown, signal?: AbortSignal) {
         break;
       }
       case 'key': await desktopExec(['xdotool', 'key', '--clearmodifiers', action.key]); break;
-      case 'scroll': await desktopExec(['xdotool', 'mousemove', String(action.x), String(action.y), 'click', '--clearmodifiers', '--repeat', String(action.amount), String({ up: 4, down: 5, left: 6, right: 7 }[action.direction])]); break;
+      case 'scroll': await desktopExec(['xdotool', 'click', '--clearmodifiers', '--repeat', String(action.amount), String({ up: 4, down: 5, left: 6, right: 7 }[action.direction])]); break;
     }
     return { ok: true, action: action.action, note: 'Action exécutée. Prends une nouvelle capture pour vérifier le résultat.' };
   });

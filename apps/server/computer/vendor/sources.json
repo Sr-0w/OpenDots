@@ -1,0 +1,27 @@
+[
+  {
+    "name": "open-computer-use",
+    "url": "https://github.com/iFurySt/open-computer-use",
+    "revision": "43eb4b53de7a15b3f99ec2c9922bedeb95602266",
+    "license": "MIT",
+    "paths": [
+      "LICENSE",
+      "apps/OpenComputerUseLinux/runtime.py",
+      "packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift"
+    ]
+  },
+  {
+    "name": "open-browser-use",
+    "url": "https://github.com/iFurySt/open-browser-use",
+    "revision": "b136cac71a3c497b5696aefd871dd15cba7d7559",
+    "license": "MIT",
+    "paths": [
+      "LICENSE",
+      "go.mod",
+      "go.sum",
+      "cmd/open-browser-use",
+      "internal",
+      "apps/chrome-extension"
+    ]
+  }
+]

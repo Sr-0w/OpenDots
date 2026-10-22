@@ -38,7 +38,7 @@ it('applique immédiatement les permissions par compagnon et isole les comptes',
 }));
 it('démarre à la demande pour le bon compagnon et respecte sa désactivation', async () => withAccount(account, async () => {
   const bot = await ctx(true);
-  expect(Object.keys(await desktopTools(bot)).sort()).toEqual(['computer_action', 'computer_screenshot']);
+  expect(Object.keys(await desktopTools(bot)).sort()).toEqual(['browser_inspect', 'computer_action', 'computer_inspect', 'computer_keyboard', 'computer_screenshot', 'computer_target']);
   await setSetting(`desktop.bot.${bot.agent.id}`, { enabled: false });
   expect(await desktopTools(bot)).toEqual({});
   expect(await desktopTools(await ctx(false))).toEqual({});

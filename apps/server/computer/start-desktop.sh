@@ -4,6 +4,7 @@ umask 077
 : "${HOME:?}" "${DISPLAY:?}" "${XDG_RUNTIME_DIR:?}" "${OPENDOTS_VNC_PASSWORD:?}"
 mkdir -p "$XDG_RUNTIME_DIR" "$HOME/.pki/nssdb" "$HOME/.vnc" "$HOME/.config/chromium"
 chmod 700 "$HOME" "$XDG_RUNTIME_DIR"
+python3 /usr/local/share/opendots/configure-browser-user.py
 exec >>"$HOME/.vnc/session.log" 2>&1
 if [ -f /usr/local/share/ca-certificates/opendots-proxy.crt ]; then
   if [ ! -f "$HOME/.pki/nssdb/cert9.db" ]; then certutil -N --empty-password -d "sql:$HOME/.pki/nssdb"; fi
@@ -31,7 +32,7 @@ dbus-run-session -- /usr/local/bin/opendots-session &
 session_pid=$!
 port=$((5900 + ${DISPLAY#:}))
 # Password + X cookie are private per bot, even inside this account's container.
-x11vnc -display "$DISPLAY" -rfbport "$port" -localhost -rfbauth "$HOME/.vnc/passwd" -forever -shared -quiet >"$HOME/.vnc/vnc.log" 2>&1 &
+x11vnc -display "$DISPLAY" -rfbport "$port" -localhost -rfbauth "$HOME/.vnc/passwd" -forever -shared -noxfixes -cursor arrow -quiet >"$HOME/.vnc/vnc.log" 2>&1 &
 vnc_pid=$!
 rm -f "$HOME/.config/chromium/SingletonLock" "$HOME/.config/chromium/SingletonCookie" "$HOME/.config/chromium/SingletonSocket"
 mkdir -p "$HOME/.config/xfce4"

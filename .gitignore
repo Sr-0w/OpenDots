@@ -9,3 +9,5 @@ data/
 .DS_Store
 opendots-data*.tgz
 backups/
+
+**/__pycache__/

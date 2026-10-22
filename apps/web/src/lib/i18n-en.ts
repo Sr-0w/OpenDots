@@ -85,7 +85,7 @@ export const EN: Record<string, string> = {
   "Bureau distant": "Remote desktop",
   "Accès des compagnons au bureau": "Companion desktop access",
   "Accès au bureau": "Desktop access",
-  "Les captures sont envoyées au fournisseur du modèle. Choisis un modèle qui comprend les images. Saisis tes mots de passe directement après avoir pris la main.": "Screenshots are sent to the model provider. Choose a model that understands images. Take control before entering passwords directly.",
+  "Les éléments accessibles se pilotent sans vision. Les captures nécessitent un modèle vision et sont envoyées à son fournisseur. Prends la main pour saisir tes mots de passe directement.": "Accessible elements can be controlled without vision. Screenshots require a vision model and are sent to its provider. Take control to enter passwords directly.",
   "Voir et piloter le bureau graphique": "View and control the graphical desktop",
   "Comprend les images": "Understands images",
   "Observe le bureau graphique": "Views the desktop",
