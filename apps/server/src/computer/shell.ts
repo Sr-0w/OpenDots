@@ -2,7 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { config } from '../config.ts';
+import { config, repoRoot } from '../config.ts';
 import { BUILTIN_COMPUTER_IMAGE, getShellSettings, type ShellSettings } from '../settings.ts';
 import { truncate } from '../util.ts';
 import { createHash } from 'node:crypto';
@@ -86,28 +86,19 @@ function ensureHostDirs(agentId: string) {
 
 // --- Conteneur ----------------------------------------------------------------
 
-async function inspect(): Promise<{ running: boolean; image: string; network: string; workspaces: string; revision: string } | null> {
+async function inspect(): Promise<{ running: boolean; image: string; network: string; workspaces: string; revision: string; imageId: string } | null> {
   try {
     const { stdout } = await run(
       'docker',
-      ['inspect', '-f', '{{.State.Running}}|{{index .Config.Labels "opendots.image"}}|{{index .Config.Labels "opendots.network"}}|{{index .Config.Labels "opendots.workspaces"}}|{{index .Config.Labels "opendots.revision"}}', container()],
+      ['inspect', '-f', '{{.State.Running}}|{{index .Config.Labels "opendots.image"}}|{{index .Config.Labels "opendots.network"}}|{{index .Config.Labels "opendots.workspaces"}}|{{index .Config.Labels "opendots.revision"}}|{{.Image}}', container()],
       { timeout: 10_000 },
     );
-    const [running, image, network, workspaces, revision] = stdout.trim().split('|');
-    return { running: running === 'true', image, network, workspaces, revision };
+    const [running, image, network, workspaces, revision, imageId] = stdout.trim().split('|');
+    return { running: running === 'true', image, network, workspaces, revision, imageId };
   } catch {
     return null;
   }
 }
-
-/** Image par défaut : Debian avec les outils courants d'un poste de travail en ligne de commande. */
-const BUILTIN_DOCKERFILE = `FROM debian:stable-slim
-ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PIP_BREAK_SYSTEM_PACKAGES=1
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    python3 python3-pip python3-venv nodejs npm git curl wget jq ca-certificates \\
-    unzip zip xz-utils sqlite3 less nano file procps sudo tzdata locales bc \\
-  && rm -rf /var/lib/apt/lists/*
-`;
 
 async function ensureImage(image: string) {
   try {
@@ -123,12 +114,11 @@ async function ensureImage(image: string) {
       const proxyArgs = proxy
         ? ['--build-arg', `http_proxy=${proxy}`, '--build-arg', `https_proxy=${proxy}`, ...(/127\.0\.0\.1|localhost/.test(proxy) ? ['--network', 'host'] : [])]
         : [];
-      const child = spawn('docker', ['build', ...proxyArgs, '-t', image, '-'], { stdio: ['pipe', 'ignore', 'pipe'] });
+      const child = spawn('docker', ['build', ...proxyArgs, ...(process.env.SSL_CERT_FILE || process.env.CODEX_PROXY_CERT ? ['--secret', `id=opendots_ca,src=${process.env.SSL_CERT_FILE ?? process.env.CODEX_PROXY_CERT}`] : []), '-t', image, '-f', join(repoRoot, 'apps/server/computer/shell.Dockerfile'), join(repoRoot, 'apps/server/computer')], { stdio: ['ignore', 'ignore', 'pipe'] });
       let err = '';
       child.stderr.on('data', (d) => (err = (err + d.toString()).slice(-4000)));
       child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Construction de l’image impossible : ${err.trim().split('\n').pop()}`))));
       child.on('error', reject);
-      child.stdin.end(BUILTIN_DOCKERFILE);
     });
   } else {
     await run('docker', ['pull', image], { timeout: 600_000 });
@@ -144,9 +134,12 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
     const s = settings ?? (await getShellSettings());
     mkdirSync(join(workspacesDir(), 'shared'), { recursive: true });
     chmodSync(workspacesDir(), 0o755);
+    await ensureImage(s.image);
+    const imageId = (await run('docker', ['image', 'inspect', '--format', '{{.Id}}', s.image], { timeout: 15_000 })).stdout.trim();
+    const revision = `${CONTAINER_REVISION}:${process.env.OPENDOTS_COMPUTER_MEMORY ?? '2g'}:${process.env.OPENDOTS_COMPUTER_CPUS ?? '2'}`;
     const state = await inspect();
     const network = s.network ? 'on' : 'off';
-    if (state && (state.image !== s.image || state.network !== network || state.workspaces !== workspacesDir() || state.revision !== CONTAINER_REVISION)) {
+    if (state && (state.image !== s.image || state.imageId !== imageId || state.network !== network || state.workspaces !== workspacesDir() || state.revision !== revision)) {
       await run('docker', ['rm', '-f', container()], { timeout: 30_000 }).catch(() => {});
     } else if (state?.running) {
       return;
@@ -154,7 +147,6 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
       await run('docker', ['start', container()], { timeout: 30_000 });
       return;
     }
-    await ensureImage(s.image);
     await run(
       'docker',
       [
@@ -172,10 +164,12 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
         `opendots.network=${network}`,
         '--label',
         `opendots.workspaces=${workspacesDir()}`,
-        '--label', `opendots.revision=${CONTAINER_REVISION}`,
+        '--label', `opendots.revision=${revision}`,
         ...(s.network ? [] : ['--network', 'none']),
         '--memory',
         process.env.OPENDOTS_COMPUTER_MEMORY ?? '2g',
+        '--cpus',
+        process.env.OPENDOTS_COMPUTER_CPUS ?? '2',
         '--pids-limit',
         '512',
         '-v',

@@ -110,6 +110,14 @@ async function start(): Promise<string> {
 }
 
 export async function ensureLocalSearch(): Promise<string> {
+  // A trusted deployment can own SearXNG through Compose instead of the app.
+  if (process.env.OPENDOTS_SEARXNG_URL) {
+    const url = new URL(process.env.OPENDOTS_SEARXNG_URL);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('OPENDOTS_SEARXNG_URL invalide.');
+    const external = url.href.replace(/\/$/, '');
+    if (!await healthy(external)) throw new Error('SearXNG du déploiement n’est pas prêt. Vérifie docker compose ps/logs searxng.');
+    return external;
+  }
   if (endpoint && await healthy(endpoint)) return endpoint;
   starting ??= start();
   try { endpoint = await starting; return endpoint; }

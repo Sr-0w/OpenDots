@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+**/node_modules
+**/dist
+data
+*.log
+**/__pycache__
+**/.npmrc
+**/.ssh
+**/.aws
+**/*.tgz
+**/*.tar.gz
+backups

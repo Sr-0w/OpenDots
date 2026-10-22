@@ -17,6 +17,7 @@ export function createApplication(activate: (account: AccountContext) => Promise
     if (c.req.path.startsWith('/api/')) c.header('Cache-Control', 'no-store');
     await next();
   });
+  app.get('/healthz', (c) => c.json({ ok: true }));
   app.route('/api/auth', authRoutes());
   app.use('/api/*', requireAccount(activate));
   app.route('/api', createApi());

@@ -7,3 +7,5 @@ data/
 !.env.example
 *.tsbuildinfo
 .DS_Store
+opendots-data*.tgz
+backups/

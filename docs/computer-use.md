@@ -1,12 +1,15 @@
 # Graphical computer use
 
+For the complete Linux container deployment, volumes, HTTPS, backup and upgrade
+commands, see [Docker Compose](docker-compose.md).
+
 The **Computer / Ordinateur** page starts a private Linux desktop for the signed-in
 account: XFCE, Xvfb, Chromium, xdotool and a noVNC viewer. These components are
 free/open-source; there is no desktop service subscription or API key. The model
 provider still charges its usual image/input token usage.
 
 Install Docker on the OpenDots server. Open **Computer → Start desktop**. The
-first start automatically builds `opendots/desktop:1` from the repository's
+first start automatically builds `opendots/desktop:2` from the repository's
 Dockerfile and may take several minutes. You can pre-build it with
 `pnpm desktop:build`, or rebuild after changing its Dockerfile/start script with
 `pnpm desktop:build -- --rebuild`. Allow access to Debian package repositories and
@@ -20,6 +23,21 @@ viewer scales the display without changing its resolution. A persistent home and
 Chromium profile are mounted from `data/users/<id>/desktop`; closing/stopping the
 desktop preserves them. Do not share or copy one account's browser profile into
 another account. The GUI is shared by companions within that account.
+
+## Dynamic wallpaper
+
+The desktop includes five project-provided JPEGs. A local Python/Pillow process
+smoothly blends them according to the account timezone (Settings → timezone):
+midnight/night, dawn at 06:00, morning at 09:00, day at 13:00, dusk at 18:00,
+night at 22:00. It updates every minute, including on all XFCE workspaces.
+Only two disposable 1280 × 800 PNGs are retained under
+`~/.cache/opendots-wallpaper`; no network request or AI call is involved.
+
+Set `OPENDOTS_DESKTOP_WALLPAPER=off` in the **server** environment to keep a
+manually selected background. Timezone/wallpaper mode changes take effect when
+the desktop is next started/accessed, recreating its container while preserving
+its home and browser profile. An image rebuild is required after changing the
+bundled assets: `pnpm desktop:build -- --rebuild` or `docker compose build desktop-image`.
 
 ## Models and approvals
 

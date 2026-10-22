@@ -18,7 +18,7 @@ Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac &
 xvfb_pid=$!
 trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT INT TERM
 while ! xdotool getdisplaygeometry >/dev/null 2>&1; do sleep 0.1; done
-dbus-run-session -- startxfce4 >/tmp/xfce.log 2>&1 &
+dbus-run-session -- /usr/local/bin/opendots-session &
 # VNC is only published on the host loopback and relayed after session checks.
 x11vnc -display :99 -rfbport 5900 -listen 0.0.0.0 -forever -shared -nopw -quiet >/tmp/vnc.log 2>&1 &
 vnc_pid=$!

@@ -1,0 +1,41 @@
+# Optional: -f compose.yml -f deploy/compose.proxy.example.yml
+# .env: HTTP_PROXY/HTTPS_PROXY, OPENDOTS_CA_FILE (combined trust bundle),
+# OPENDOTS_EXTRA_CA_FILE (the extra public CA certificate, PEM).
+services:
+  app:
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost}
+      SSL_CERT_FILE: /run/opendots-ca.pem
+      NODE_EXTRA_CA_CERTS: /run/opendots-ca.pem
+      CODEX_PROXY_CERT: /run/opendots-extra-ca.crt
+    volumes:
+      - ${OPENDOTS_CA_FILE:?Set OPENDOTS_CA_FILE}:/run/opendots-ca.pem:ro,z
+      - ${OPENDOTS_EXTRA_CA_FILE:?Set OPENDOTS_EXTRA_CA_FILE}:/run/opendots-extra-ca.crt:ro,z
+  search-init:
+    build:
+      args:
+        http_proxy: ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      SSL_CERT_FILE: /run/opendots-ca.pem
+    volumes:
+      - ${OPENDOTS_CA_FILE:?Set OPENDOTS_CA_FILE}:/run/opendots-ca.pem:ro,z
+  desktop-image:
+    build:
+      args:
+        http_proxy: ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+  searxng:
+    environment:
+      SSL_CERT_FILE: /etc/searxng/opendots-ca.pem
+      CURL_CA_BUNDLE: /etc/searxng/opendots-ca.pem
+      REQUESTS_CA_BUNDLE: /etc/searxng/opendots-ca.pem
+  shell-image:
+    build:
+      args:
+        http_proxy: ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}

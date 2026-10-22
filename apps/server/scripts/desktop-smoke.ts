@@ -51,6 +51,37 @@ try {
   console.log('PASS API et WebSocket privés, origine tierce et bureau désactivé refusés.');
   await asA(async () => { await setSetting('desktop.config', { enabled: true }); await startDesktop(); });
   assert.equal((await asA(desktopStatus)).running, true);
+  await until(
+    () => asA(async () => (await desktopExec(['sh', '-c', 'cat /tmp/wallpaper.log 2>/dev/null || true'])).toString()),
+    (value) => value.includes('Wallpaper ready:'),
+  );
+  const wallpaper = JSON.parse((await asA(() => desktopExec(['sh', '-c', `export DBUS_SESSION_BUS_ADDRESS="$(cat /tmp/runtime-opendots/session-bus)"
+python3 - <<'PY'
+import runpy, tempfile, json
+from pathlib import Path
+from PIL import Image, ImageStat
+module = runpy.run_path('/usr/local/bin/opendots-wallpaper')
+assert module['frame_at'](0) == module['frame_at'](24)
+for hour in [0, 6, 9, 13, 18, 22]:
+    first, second, weight = module['frame_at'](hour)
+    assert 0 <= weight <= 1
+cache = Path.home()/'.cache/opendots-wallpaper'
+night, day = cache/'wallpaper-0.png', cache/'wallpaper-1.png'
+module['render'](0, night)
+module['render'](13, day)
+with Image.open(night) as n, Image.open(day) as d:
+    assert n.size == d.size == (1280, 800)
+    assert ImageStat.Stat(d).mean[0] > ImageStat.Stat(n).mean[0] + 20
+assert module['apply'](night)
+targets = [p for p in module['query']('-l').splitlines() if p.endswith('/last-image')]
+assert targets and all(module['query']('-p', p).strip() == str(night) for p in targets)
+assert module['apply'](day)
+assert all(module['query']('-p', p).strip() == str(day) for p in targets)
+assert len(list(cache.glob('*.png'))) <= 2
+print(json.dumps({'phases':6, 'targets':len(targets), 'files':2}))
+PY`]))).toString());
+  assert.equal(wallpaper.phases, 6); assert(wallpaper.targets >= 1); assert.equal(wallpaper.files, 2);
+  console.log('PASS fond dynamique : six étapes jour/nuit, transition à minuit, images originales, application XFCE réelle et cache borné.');
   // Load a controlled offline page. Its title records real browser events.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
 Path('/home/opendots/fixture.html').write_text('''<!doctype html><meta charset="utf-8"><title>OpenDots GUI fixture</title><style>body{height:3000px;background:#fafafa;font:20px sans-serif}textarea{position:fixed;left:40px;top:40px;width:600px;height:100px}button{position:fixed;left:40px;top:240px;width:300px;height:80px;background:rgb(11,203,79);border:0}</style><textarea autofocus oninput="document.title='Typed:'+this.value"></textarea><button onclick="document.title='Clicked'">Vérifier le clic</button><script>onscroll=()=>document.title='Scrolled:'+scrollY</script>''',encoding='utf-8')`]));
@@ -140,6 +171,9 @@ print(json.dumps({'x':sum(v[0] for v in p)//len(p),'y':sum(v[1] for v in p)//len
   console.log('PASS arrêt du conteneur quand le réseau de l’ordinateur est désactivé.');
   console.log('PASS noVNC dans Chromium : canvas 1280×800, reprise manuelle et WebSocket révoqué à la déconnexion.');
 } catch (error) {
+  try {
+    await writeFile('/tmp/opendots-desktop-failure.png', await asA(() => desktopExec(['python3', '-c', 'from PIL import ImageGrab; import sys; ImageGrab.grab(xdisplay=":99").save(sys.stdout.buffer,"PNG")'])));
+  } catch { /* The container may have failed before X11 was available. */ }
   console.error(error); process.exitCode = 1;
 } finally {
   await browser?.close(); closeSockets(); await new Promise<void>((resolve) => server.close(() => resolve()));

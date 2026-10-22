@@ -7,11 +7,11 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { config, repoRoot, systemDataDir } from '../config.ts';
 import { accountKey } from '../auth/context.ts';
-import { getSetting, getShellSettings, setSetting } from '../settings.ts';
+import { getSetting, getShellSettings, getTimezone, setSetting } from '../settings.ts';
 import { dockerAvailable } from './shell.ts';
 import { KeyedMutex } from '../util.ts';
 
-export const DESKTOP_IMAGE = 'opendots/desktop:1';
+export const DESKTOP_IMAGE = 'opendots/desktop:2';
 export const WIDTH = 1280, HEIGHT = 800;
 const run = promisify(execFile);
 const name = () => `opendots-desktop-${createHash('sha256').update(`${systemDataDir}:${accountKey()}`).digest('hex').slice(0, 16)}`;
@@ -84,15 +84,18 @@ export async function startDesktop(): Promise<number> {
     await buildDesktopImage();
     const latest = await getShellSettings();
     if (!await desktopEnabled() || latest.mode === 'off' || !latest.network) throw new DesktopError('Démarrage du bureau annulé.');
+    const timezone = await getTimezone();
+    const wallpaper = process.env.OPENDOTS_DESKTOP_WALLPAPER === 'off' ? 'off' : 'dynamic';
+    const revision = `${timezone}:${wallpaper}:${process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g'}:${process.env.OPENDOTS_DESKTOP_CPUS ?? '2'}`;
     let state = await inspect();
     const image = (await docker(['image', 'inspect', '--format', '{{.Id}}', DESKTOP_IMAGE])).stdout.trim();
-    if (state && state.Image !== image) { await docker(['rm', '-f', name()]); state = null; }
+    if (state && (state.Image !== image || state.Config.Labels?.['opendots.desktop.config'] !== revision)) { await docker(['rm', '-f', name()]); state = null; }
     const launched = !state?.State.Running;
     if (!state) {
       const home = join(config.dataDir, 'desktop');
       await mkdir(home, { recursive: true, mode: 0o700 });
       const network = await proxyArgs(), ca = await trust();
-      await docker(['run', '-d', '--name', name(), '--label', `opendots.desktop.owner=${systemDataDir}:${accountKey()}`, '--restart', 'unless-stopped', '--memory', process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g', '--pids-limit', '512', '--shm-size', '256m', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--security-opt', 'no-new-privileges', '-p', '127.0.0.1::5900', '--mount', `type=bind,src=${home},dst=/home/opendots`, ...network.extra, ...(network.proxy ? ['-e', `HTTPS_PROXY=${network.proxy}`, '-e', `HTTP_PROXY=${network.proxy}`, '-e', `https_proxy=${network.proxy}`, '-e', `http_proxy=${network.proxy}`] : []), ...(ca.proxyFile ? ['--mount', `type=bind,src=${ca.proxyFile},dst=/usr/local/share/ca-certificates/opendots-proxy.crt,readonly`] : []), DESKTOP_IMAGE]);
+      await docker(['run', '-d', '--name', name(), '--label', `opendots.desktop.owner=${systemDataDir}:${accountKey()}`, '--label', `opendots.desktop.config=${revision}`, '-e', `TZ=${timezone}`, '-e', `OPENDOTS_DESKTOP_WALLPAPER=${wallpaper}`, '--restart', 'unless-stopped', '--memory', process.env.OPENDOTS_DESKTOP_MEMORY ?? '2g', '--cpus', process.env.OPENDOTS_DESKTOP_CPUS ?? '2', '--pids-limit', '512', '--shm-size', '256m', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--security-opt', 'no-new-privileges', '-p', '127.0.0.1::5900', '-v', `${home}:/home/opendots:Z`, ...network.extra, ...(network.proxy ? ['-e', `HTTPS_PROXY=${network.proxy}`, '-e', `HTTP_PROXY=${network.proxy}`, '-e', `https_proxy=${network.proxy}`, '-e', `http_proxy=${network.proxy}`] : []), ...(ca.proxyFile ? ['-v', `${ca.proxyFile}:/usr/local/share/ca-certificates/opendots-proxy.crt:ro,z`] : []), DESKTOP_IMAGE]);
     } else if (!state.State.Running) await docker(['start', name()]);
     state = await inspect();
     const binding = state.NetworkSettings.Ports['5900/tcp']?.find((p: any) => p.HostIp === '127.0.0.1');

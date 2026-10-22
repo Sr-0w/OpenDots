@@ -113,6 +113,10 @@ Graphical desktop and model control: [computer use setup and tests](docs/compute
 
 ## Quick start
 
+For a Linux server, use the official [Docker Compose deployment](docs/docker-compose.md)
+(`docker compose up -d --build`). It includes SearXNG, desktop/shell image builds,
+private dynamically created computers, and an optional HTTPS reverse proxy.
+
 Requirements: **Node.js 22+**, **pnpm**, and **Docker** for the built-in search engine
 and the companions' shared computer. Without Docker the app still starts; choose
 Mwmbl in search settings to use its smaller hosted index.

@@ -1,0 +1,106 @@
+name: opendots
+services:
+  search-init:
+    image: opendots/server:local
+    build:
+      context: .
+      secrets: [opendots_ca]
+    command: [node, /app/deploy/init-search.mjs]
+    volumes:
+      - search-config:/etc/searxng
+    restart: "no"
+
+  searxng:
+    image: searxng/searxng@sha256:5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271
+    depends_on:
+      search-init: { condition: service_completed_successfully }
+    volumes:
+      - search-config:/etc/searxng
+    ports:
+      - "127.0.0.1:${OPENDOTS_SEARCH_PORT:-18080}:8080"
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:8080/healthz | grep -qx OK"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  desktop-image:
+    image: opendots/desktop:2
+    build:
+      context: apps/server/computer
+      secrets: [opendots_ca]
+    entrypoint: [/bin/true]
+    restart: "no"
+
+  shell-image:
+    image: opendots/computer:1
+    build:
+      context: apps/server/computer
+      dockerfile: shell.Dockerfile
+      secrets: [opendots_ca]
+    entrypoint: [/bin/true]
+    restart: "no"
+
+  app:
+    image: opendots/server:local
+    # Linux host networking keeps the private host-loopback VNC relay reachable.
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPENDOTS_HOST: 127.0.0.1
+      OPENDOTS_PORT: ${OPENDOTS_PORT:-3000}
+      OPENDOTS_DATA_DIR: ${OPENDOTS_DATA_DIR:-/var/lib/opendots}
+      OPENDOTS_SEARXNG_URL: http://127.0.0.1:${OPENDOTS_SEARCH_PORT:-18080}
+      OPENDOTS_CONTAINER: ${COMPOSE_PROJECT_NAME:-opendots}-computer
+    volumes:
+      # Identical absolute paths are mandatory: the host daemon resolves child binds.
+      - ${OPENDOTS_DATA_DIR:-/var/lib/opendots}:${OPENDOTS_DATA_DIR:-/var/lib/opendots}:z
+      - /var/run/docker.sock:/var/run/docker.sock
+    # The trusted controller manages sibling SELinux labels; children keep theirs.
+    security_opt: [label=disable]
+    depends_on:
+      searxng: { condition: service_healthy }
+      desktop-image: { condition: service_completed_successfully }
+      shell-image: { condition: service_completed_successfully }
+    restart: unless-stopped
+    init: true
+    mem_limit: ${OPENDOTS_APP_MEMORY:-2g}
+    cpus: ${OPENDOTS_APP_CPUS:-2.0}
+    pids_limit: 1024
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:'+process.env.OPENDOTS_PORT+'/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: [https]
+    network_mode: host
+    environment:
+      OPENDOTS_DOMAIN: ${OPENDOTS_DOMAIN:-localhost}
+      OPENDOTS_PORT: ${OPENDOTS_PORT:-3000}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app: { condition: service_healthy }
+    restart: unless-stopped
+
+secrets:
+  opendots_ca:
+    file: ${OPENDOTS_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
+volumes:
+  search-config:
+  caddy-data:
+  caddy-config:
