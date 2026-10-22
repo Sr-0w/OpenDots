@@ -36,7 +36,7 @@ vnc_pid=$!
 rm -f "$HOME/.config/chromium/SingletonLock" "$HOME/.config/chromium/SingletonCookie" "$HOME/.config/chromium/SingletonSocket"
 mkdir -p "$HOME/.config/xfce4"
 printf '[Configuration]\nWebBrowser=opendots-chromium\n' > "$HOME/.config/xfce4/helpers.rc"
-if [ ! -f "$HOME/.config/mimeapps.list" ]; then
-  printf '[Default Applications]\nx-scheme-handler/http=chromium.desktop\nx-scheme-handler/https=chromium.desktop\ntext/html=chromium.desktop\n' > "$HOME/.config/mimeapps.list"
+if [ ! -f "$HOME/.config/mimeapps.list" ] || grep -q "=chromium.desktop" "$HOME/.config/mimeapps.list"; then
+  printf '[Default Applications]\nx-scheme-handler/http=opendots-browser.desktop\nx-scheme-handler/https=opendots-browser.desktop\ntext/html=opendots-browser.desktop\n' > "$HOME/.config/mimeapps.list"
 fi
 wait "$vnc_pid"

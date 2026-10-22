@@ -70,6 +70,7 @@ export function ComputerPage() {
       </div></div>
       {agents.length > 0 && <Select value={agentId} onValueChange={setSelectedId} disabled={busy}><SelectTrigger aria-label={t('Bureau du compagnon')} className="w-full sm:max-w-sm"><SelectValue /></SelectTrigger><SelectContent>{agents.map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectContent></Select>}
       {error && <p role="alert" className="rounded-xl border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
+      {status?.restartRequired && <p role="status" className="rounded-xl border p-3 text-sm">{t('L’ordinateur a redémarré après une mise à jour. Relance le bureau et les applications nécessaires ; les fichiers et profils sont conservés.')}</p>}
       {status && !status.available && <p className="text-sm text-muted-foreground">{t('Docker doit être installé et démarré sur le serveur.')}</p>}
       {busy && <p role="status" className="text-sm text-muted-foreground">{t('Démarrage du bureau. Une session en pause reprend sans relancer le navigateur.')}</p>}
       {status?.running && <><p className="text-xs text-muted-foreground">{t(control ? 'Tu contrôles le bureau. Les captures et actions des modèles sont suspendues.' : status.manualControl ? 'Les modèles sont suspendus. Reprends la main ou autorise-les à nouveau.' : 'Vue seule. Les modèles agissent selon les permissions de chaque compagnon.')}</p><div ref={target} aria-label={t('Bureau distant')} className="h-[min(70vh,800px)] min-h-80 overflow-hidden rounded-xl border bg-black" /></>}

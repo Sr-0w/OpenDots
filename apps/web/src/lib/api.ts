@@ -99,7 +99,7 @@ export interface ComputerStatus {
   workspaces: string;
 }
 
-export interface DesktopStatus { agentId: string; suspended: boolean; vncPassword?: string; enabled: boolean; manualControl: boolean; available: boolean; running: boolean; width: number; height: number }
+export interface DesktopStatus { agentId: string; suspended: boolean; restartRequired?: boolean; vncPassword?: string; enabled: boolean; manualControl: boolean; available: boolean; running: boolean; width: number; height: number }
 
 export const api = {
   uploadImage: async (file: File) => {

@@ -15,7 +15,7 @@ The Docker socket, account databases and OAuth tokens are never mounted inside.
 
 These are containers sharing the host kernel, not full virtual machines. The
 components are free/open-source; model providers still charge their usual token
-usage. Install Docker and prepare `opendots/computer:5` using `pnpm desktop:build`
+usage. Install Docker and prepare `opendots/computer:6` using `pnpm desktop:build`
 or `docker compose build computer-image` before accepting users. Compose does this
 automatically. A missing image can also build at first use, taking minutes; this
 is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
@@ -160,7 +160,7 @@ recognition with one provider and no fallback.
 
 ### Browser launchers and upgrades
 
-The built-in computer image is `opendots/computer:5`. Pull the application changes
+The built-in computer image is `opendots/computer:6`. Pull the application changes
 and run `pnpm desktop:build -- --rebuild` on the Docker host (or rebuild using the
 Compose instructions). The old built-in image setting migrates automatically;
 custom image names remain unchanged and must include the equivalent launcher
@@ -171,11 +171,19 @@ Neither the account container nor the XFCE desktop automatically opens Chromium.
 The desktop becomes ready when XFCE is visible, independently of any browser.
 Use the terminal, file manager or another application as needed. To browse, open
 Xfce's Web Browser launcher or run
-`chromium about:blank >"$HOME/chromium.log" 2>&1 &` through `shell_exec`, after
-opening the desktop. Redirect output and launch graphical applications in the
-background so the shell tool returns without waiting for their window to close.
+`opendots-open-browser https://example.com` through `shell_exec`, after
+opening the desktop. This helper detaches Chromium, redirects its output to the
+bot's private `.vnc/chromium.log`, and raises the visible window, returning within
+five seconds. Xfce and `xdg-open` use the same helper. The shell runner collects
+output through temporary files, so background commands such as `sleep 999 &` or
+`chromium --new-window … &` no longer keep Docker's output pipe open. Their output
+is a snapshot; redirect durable logs explicitly. Foreground commands still have
+their timeout and process group. Old custom images retain the legacy runner with
+an upgrade notice until they include `opendots-shell-run`.
 Closing/restarting the desktop does not
 require a browser window; Chromium profiles remain persistent.
+After a container recreation the UI shows that the desktop must be restarted;
+the next desktop action starts its session again and observes a fresh screen.
 
 Terminal launches, Xfce's Web Browser launcher, and `xdg-open`
 share `/etc/chromium.d/opendots`. It applies the existing `--no-sandbox` choice,

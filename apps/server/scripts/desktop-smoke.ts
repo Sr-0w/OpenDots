@@ -101,7 +101,12 @@ print(json.dumps({'phases':6, 'targets':len(targets), 'files':2}))
 PY`]))).toString());
   assert.equal(wallpaper.phases, 6); assert(wallpaper.targets >= 1); assert.equal(wallpaper.files, 2);
   console.log('PASS fond dynamique : six étapes jour/nuit, transition à minuit, images originales, application XFCE réelle et cache borné.');
-  assert.equal((await asA(() => execShell(botA.id, 'chromium about:blank >"$HOME/.vnc/chromium.log" 2>&1 &'))).exitCode, 0);
+  const opened = await asA(() => execShell(botA.id, 'opendots-open-browser about:blank'));
+  assert.equal(opened.exitCode, 0, opened.stderr); assert(opened.durationMs < 5000, `Lancement trop lent : ${opened.durationMs} ms`);
+  const background = await asA(() => execShell(botA.id, 'sleep 999 &', { timeoutSeconds: 2 }));
+  assert.equal(background.timedOut, false); assert(background.durationMs < 5000); assert(background.stderr.includes('arrière-plan'));
+  await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -f "^sleep 999$" || true']));
+  console.log('PASS navigateur détaché via le shell en moins de 5 s et retour immédiat pour sleep 999 &.');
   await until(() => asA(async () => (await desktopExec(['sh', '-c', 'window=$(xdotool search --onlyvisible --class chromium | head -n 1); test -n "$window" && xdotool windowactivate --sync "$window" && echo ready || true'])).toString()), value => value.includes('ready'));
   // Load a controlled offline page. Its title records real browser events.
   await asA(() => desktopExec(['python3', '-c', `from pathlib import Path
@@ -139,8 +144,13 @@ import os
   for (const launch of [['chromium', formUrl], ['exo-open', '--launch', 'WebBrowser', formUrl], ['xdg-open', formUrl]]) {
     await asA(() => desktopExec(['sh', '-c', 'pkill -u "$(id -u)" -x chromium || true']));
     await asA(screenshot); // A closed browser must not prevent screenshot/actions.
-    await asA(() => desktopExec(['sh', '-c', '"$@" >/tmp/browser-launch.log 2>&1 &', 'launch', ...launch]));
-    await until(title, (value) => value.includes('Form test'));
+    if (launch[0] === 'chromium') {
+      const raw = await asA(() => execShell(botA.id, `chromium --no-sandbox --new-window ${formUrl} &`, { timeoutSeconds: 3 }));
+      assert(!raw.timedOut); assert(raw.durationMs < 5000);
+    } else await asA(() => desktopExec(['sh', '-c', '"$@" >/tmp/browser-launch.log 2>&1 &', 'launch', ...launch]));
+    try { await until(title, (value) => value.includes('Form test')); }
+    catch (error) { console.error('Lanceur en échec:', launch[0], (await asA(() => desktopExec(['sh', '-c', 'cat /tmp/browser-launch.log 2>/dev/null || true']))).toString()); throw error; }
+    console.log('PASS relance navigateur :', launch[0]);
   }
   console.log('PASS saisie sans Entrée par défaut, submit:true explicite, formulaire non envoyé, relance terminal/Exo/xdg-open après fermeture.');
 
@@ -233,6 +243,7 @@ import os
   assert.equal(await browserPid(), preservedPid);
   await run('docker', ['restart', '--time', '2', nameA]);
   assert.equal((await asA(desktopStatus)).running, false);
+  assert.equal((await asA(desktopStatus)).restartRequired, true);
   await asC(startDesktop); await asA(startDesktop);
   for (const context of [asA, asC]) assert.equal((await context(() => desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true']))).toString().trim(), '');
   assert.equal((await asA(() => desktopExec(['id', '-u']))).toString().trim(), uidA);

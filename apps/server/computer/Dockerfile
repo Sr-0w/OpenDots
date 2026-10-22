@@ -10,14 +10,17 @@ RUN --mount=type=secret,id=opendots_ca,target=/run/opendots-ca.pem \
     python3-pip python3-venv nodejs npm git wget jq unzip zip xz-utils sqlite3 less nano file sudo locales bc \
  && rm -rf /var/lib/apt/lists/*
 COPY . /usr/local/share/opendots/
-RUN mkdir -p /etc/chromium.d /usr/share/xfce4/helpers \
+RUN mkdir -p /etc/chromium.d /usr/share/xfce4/helpers /usr/share/applications \
+ && ln -s /usr/local/share/opendots/browser.desktop /usr/share/applications/opendots-browser.desktop \
  && ln -s /usr/local/share/opendots/chromium-flags.sh /etc/chromium.d/opendots \
  && ln -s /usr/local/share/opendots/chromium-helper.desktop /usr/share/xfce4/helpers/opendots-chromium.desktop \
- && chmod a+r /usr/local/share/opendots/chromium-helper.desktop \
+ && chmod a+r /usr/local/share/opendots/*.desktop \
  && chmod 755 /usr/local/share/opendots /usr/local/share/opendots/*.sh /usr/local/share/opendots/*.py \
  && chmod -R a+rX /usr/local/share/opendots/wallpapers \
  && ln -s /usr/local/share/opendots/account-entrypoint.sh /usr/local/bin/opendots-account \
  && ln -s /usr/local/share/opendots/bot-session.py /usr/local/bin/opendots-bot-session \
+ && ln -s /usr/local/share/opendots/open-browser.py /usr/local/bin/opendots-open-browser \
+ && ln -s /usr/local/share/opendots/shell-run.py /usr/local/bin/opendots-shell-run \
  && ln -s /usr/local/share/opendots/start-desktop.sh /usr/local/bin/opendots-desktop \
  && ln -s /usr/local/share/opendots/desktop-session.sh /usr/local/bin/opendots-session \
  && ln -s /usr/local/share/opendots/wallpaper.py /usr/local/bin/opendots-wallpaper

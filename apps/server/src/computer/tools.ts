@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { createApproval, registerApprovalAction } from '../approvals/service.ts';
 import { getAgent } from '../agents/repo.ts';
 import type { ToolContext } from '../agents/tools.ts';
-import { desktopAction, desktopActionSchema, desktopEnabled, humanControl, readScreenshot, screenshot } from './desktop.ts';
+import { desktopAction, desktopEnabled, humanControl, readScreenshot, screenshot } from './desktop.ts';
+import { computerInputSchema, normalizeComputerInput } from './action-input.ts';
 import { withDesktopAgent } from './session.ts';
 import { desktopActionNeedsApproval } from './permissions.ts';
 
@@ -50,8 +51,11 @@ export async function desktopTools(ctx: ToolContext): Promise<ToolSet> {
     }),
     computer_action: tool({
       description: 'Exécute un clic, une saisie, une touche ou un défilement sur ton bureau privé selon les permissions choisies par l’utilisateur. Par défaut, les actions sont exécutées directement. Si une validation est requise, le résultat pending_approval signifie que rien n’a été exécuté. Utilise les coordonnées de la dernière capture et explique le résultat attendu. Une capture est jointe après exécution. type colle le texte sans Entrée par défaut : garde submit:false pour remplir un formulaire sans l’envoyer. Pour ouvrir une URL : key ctrl+l puis type avec submit:true. Vérifie le résultat visible ; ne répète pas une saisie pour valider, utilise Return.',
-      inputSchema: z.object({ action: desktopActionSchema, reason: z.string().min(1).max(300) }).strict(),
-      execute: async ({ action, reason }, options) => {
+      inputSchema: computerInputSchema,
+      execute: async (input, options) => {
+        const parsed = normalizeComputerInput(input);
+        if (!parsed.ok) return parsed;
+        const { action, reason } = parsed;
         const agent = await getAgent(ctx.agent.id);
         if (!agent?.permissions.computer || agent.archived || !await withDesktopAgent(ctx.agent.id, desktopEnabled)) return { ok: false, error: 'Accès au bureau retiré.' };
         if (await withDesktopAgent(agent.id, humanControl)) throw new Error('L’utilisateur a pris la main. Actions suspendues.');

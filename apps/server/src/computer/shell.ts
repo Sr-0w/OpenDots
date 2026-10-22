@@ -304,7 +304,8 @@ async function executeShell(agentId: string, command: string, opts: { timeoutSec
     if (!(await dockerAvailable())) throw new Error('Docker n’est pas disponible : choisis le mode « machine hôte » dans les paramètres.');
     await ensureContainer(settings);
     const { user, home, slot } = await ensureComputerUser(agentId, settings.sudo);
-    const child = spawn('docker', ['exec', '-i', '-u', user, '-w', home, '-e', `HOME=${home}`, '-e', `DISPLAY=:${slot}`, '-e', `XAUTHORITY=${home}/.Xauthority`, '-e', `XDG_RUNTIME_DIR=/tmp/runtime-${user}`, '-e', 'TERM=dumb', computerName(), 'timeout', '-k', '1', String(timeoutMs / 1000), 'bash', '-lc', command], {
+    const runner = ['sh', '-c', 'if command -v opendots-shell-run >/dev/null 2>&1; then exec opendots-shell-run "$1" "$2"; else printf "[OpenDots] Image personnalisée ancienne : mets-la à jour pour les processus graphiques en arrière-plan.\\n" >&2; exec timeout -k 1 "$1" bash -lc "$2"; fi', 'opendots-shell', String(timeoutMs / 1000), command];
+    const child = spawn('docker', ['exec', '-i', '-u', user, '-w', home, '-e', `HOME=${home}`, '-e', `DISPLAY=:${slot}`, '-e', `XAUTHORITY=${home}/.Xauthority`, '-e', `XDG_RUNTIME_DIR=/tmp/runtime-${user}`, '-e', 'TERM=dumb', computerName(), ...runner], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const r = await collect(child, timeoutMs + 2000, () => {

@@ -49,7 +49,7 @@ export async function desktopStatus() {
   const state = available ? await computerState() : null;
   const saved = await getSetting(settingKey());
   const running = Boolean(state?.running && saved?.runtimeId === state.generation);
-  return { agentId: desktopAgentId(), enabled: await desktopEnabled(), manualControl: await humanControl(), available, running, suspended: state?.paused ?? false, width: WIDTH, height: HEIGHT, ...(running ? { vncPassword: saved?.password } : {}) };
+  return { agentId: desktopAgentId(), enabled: await desktopEnabled(), manualControl: await humanControl(), available, running, restartRequired: Boolean(saved?.runtimeId && state && saved.runtimeId !== state.generation), suspended: state?.paused ?? false, width: WIDTH, height: HEIGHT, ...(running ? { vncPassword: saved?.password } : {}) };
 }
 export async function startDesktop(): Promise<number> {
   if (!await desktopEnabled()) throw new DesktopError('Active le bureau de ce compagnon depuis la page Ordinateur.');
