@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
@@ -9,7 +9,7 @@ import { config } from '../src/config.ts';
 import { setSetting } from '../src/settings.ts';
 import { createAgent, getAgent, mainConversationId } from '../src/agents/repo.ts';
 import { desktopTools } from '../src/computer/tools.ts';
-import { desktopActionSchema, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
+import { desktopActionSchema, desktopRunArgs, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
 const account: AccountContext = { id: 'desktop-unit', email: 'desktop@example.com', role: 'user', dataDir: `${config.dataDir}/desktop-unit` };
 beforeAll(async () => { await withAccount(account, () => openDatabase({ memory: true })); });
 afterAll(closeAllDatabases);
@@ -52,3 +52,12 @@ it('sérialise la capture en image OpenRouter réelle, jamais en texte base64', 
   const result = sent.messages.find((m: any) => m.role === 'tool');
   expect(result.content).toContainEqual({ type: 'image_url', image_url: { url: `data:image/png;base64,${bytes.toString('base64')}` } });
 }));
+
+describe('lancement du conteneur du bureau', () => {
+  it('monte le dossier et le certificat avec des étiquettes SELinux', () => {
+    const args = desktopRunArgs({ name: 'd', owner: 'o', home: '/data/desktop', extra: [], proxy: 'http://p:1', proxyCa: '/data/ca.pem', memory: '1g', cpus: '1.5', revision: 'test-config', timezone: 'Europe/Brussels', wallpaper: 'dynamic' });
+    expect(args).toEqual(expect.arrayContaining(['-v', '/data/desktop:/home/opendots:Z', '/data/ca.pem:/usr/local/share/ca-certificates/opendots-proxy.crt:ro,z', '--memory', '1g', '--cpus', '1.5', 'opendots.desktop.config=test-config', 'TZ=Europe/Brussels', 'OPENDOTS_DESKTOP_WALLPAPER=dynamic']));
+    expect(args).not.toContain('--mount');
+    expect(() => desktopRunArgs({ name: 'd', owner: 'o', home: '/data/a:b', extra: [] })).toThrow('invalide');
+  });
+});
