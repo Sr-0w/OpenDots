@@ -10,6 +10,8 @@ import { setSetting } from '../src/settings.ts';
 import { createAgent, getAgent, mainConversationId } from '../src/agents/repo.ts';
 import { desktopTools } from '../src/computer/tools.ts';
 import { desktopActionSchema, desktopRunArgs, readScreenshot, screenshot, setHumanControl } from '../src/computer/desktop.ts';
+import { COMPUTER_ACTION_TYPES } from '@opendots/shared';
+import { desktopActionNeedsApproval, getDesktopPermissions, setDesktopPermissions } from '../src/computer/permissions.ts';
 const account: AccountContext = { id: 'desktop-unit', email: 'desktop@example.com', role: 'user', dataDir: `${config.dataDir}/desktop-unit` };
 beforeAll(async () => { await withAccount(account, () => openDatabase({ memory: true })); });
 afterAll(closeAllDatabases);
@@ -17,6 +19,22 @@ const ctx = async (computer: boolean) => {
  const created = await createAgent({ name: 'Vision', permissions: { computer } });
  return { agent: (await getAgent(created.id))!, conversationId: await mainConversationId(created.id), userTurn: true, isMain: true, depth: 0, tz: 'UTC' };
 };
+it('applique immédiatement les permissions par compagnon et isole les comptes', async () => withAccount(account, async () => {
+  const first = (await ctx(true)).agent.id, second = (await ctx(true)).agent.id;
+  expect((await getDesktopPermissions(first)).mode).toBe('auto');
+  for (const action of COMPUTER_ACTION_TYPES) expect(await desktopActionNeedsApproval(first, action)).toBe(false);
+  await setDesktopPermissions(first, { mode: 'ask', actions: ['click'] });
+  for (const action of COMPUTER_ACTION_TYPES) expect(await desktopActionNeedsApproval(first, action)).toBe(true);
+  await setDesktopPermissions(first, { mode: 'custom', actions: ['click', 'scroll'] });
+  for (const action of COMPUTER_ACTION_TYPES) expect(await desktopActionNeedsApproval(first, action)).toBe(!['click', 'scroll'].includes(action));
+  expect(await desktopActionNeedsApproval(second, 'type')).toBe(false);
+  await withAccount({ ...account, id: 'permissions-other', dataDir: `${config.dataDir}/permissions-other` }, async () => {
+    await openDatabase({ memory: true });
+    expect((await getDesktopPermissions(first)).mode).toBe('auto');
+  });
+  await expect(setDesktopPermissions(first, { mode: 'custom', actions: ['exec'] } as any)).rejects.toThrow();
+  expect((await getDesktopPermissions(first)).mode).toBe('custom');
+}));
 it('n’expose aucun outil graphique sans accord du compte et du compagnon', async () => withAccount(account, async () => {
   expect(await desktopTools(await ctx(true))).toEqual({});
   await setSetting('desktop.config', { enabled: true });

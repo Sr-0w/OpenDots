@@ -4,6 +4,7 @@ import { createApproval, registerApprovalAction } from '../approvals/service.ts'
 import { getAgent } from '../agents/repo.ts';
 import type { ToolContext } from '../agents/tools.ts';
 import { desktopAction, desktopActionSchema, desktopEnabled, readScreenshot, screenshot } from './desktop.ts';
+import { desktopActionNeedsApproval } from './permissions.ts';
 
 registerApprovalAction('computer.action', async (input: { agentId: string; action: unknown }) => {
   const agent = await getAgent(input.agentId);
@@ -30,11 +31,15 @@ export async function desktopTools(ctx: ToolContext): Promise<ToolSet> {
       },
     }),
     computer_action: tool({
-      description: 'Prépare un clic, une saisie, une touche ou un défilement sur le bureau privé. Chaque action attend une validation humaine, même en mode shell automatique. Utilise les coordonnées de la dernière capture et explique le résultat attendu. Une action en attente n’a PAS été exécutée. Après exécution, reprends une capture pour vérifier.',
+      description: 'Exécute un clic, une saisie, une touche ou un défilement sur ton bureau privé selon les permissions choisies par l’utilisateur. Par défaut, les actions sont exécutées directement. Si une validation est requise, le résultat pending_approval signifie que rien n’a été exécuté. Utilise les coordonnées de la dernière capture et explique le résultat attendu. Après exécution, reprends une capture pour vérifier.',
       inputSchema: z.object({ action: desktopActionSchema, reason: z.string().min(1).max(300) }).strict(),
       execute: async ({ action, reason }, options) => {
         const agent = await getAgent(ctx.agent.id);
         if (!agent?.permissions.computer || agent.archived || !await desktopEnabled()) return { ok: false, error: 'Accès au bureau retiré.' };
+        if (!await desktopActionNeedsApproval(agent.id, action.action)) {
+          const result = await desktopAction(action);
+          return { ...result, status: 'executed' as const };
+        }
         const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.action', summary: `Bureau · ${action.action} · ${reason}`, input: { agentId: agent.id, action } });
         return { ok: true, status: 'pending_approval', approvalId: approval.id, note: 'Action préparée, PAS exécutée. Attends la validation humaine.' };
       },

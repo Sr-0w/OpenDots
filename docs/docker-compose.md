@@ -23,8 +23,10 @@ peut prendre plusieurs minutes. Les prochains builds utilisent le cache Docker.
 
 L’interface nécessite inscription/connexion puis une clé OpenRouter personnelle.
 Ouvrir **Ordinateur → Démarrer le bureau**, activer l’accès au bureau pour le
-compagnon voulu et choisir un modèle avec images et outils. Chaque action du
-modèle attend une validation. **Prendre la main** suspend captures et actions
+compagnon voulu et choisir un modèle avec images et outils. Les actions sont
+autorisées directement par défaut ; le panneau permet de demander une validation
+pour tout ou pour certains types d’actions, par compagnon.
+**Prendre la main** suspend captures et actions
 des modèles pour saisir soi-même les identifiants dans le navigateur distant.
 
 Pour promouvoir un compte déjà inscrit, arrêter l’application pendant l’accès

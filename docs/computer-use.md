@@ -54,10 +54,21 @@ The model receives:
   small private artifact references are stored in chat tool outputs; PNG bytes
   are sent through the AI SDK's image content format.
 - `computer_action`: click/double-click, move, Unicode text paste, whitelisted
-  keys/shortcuts and scrolling. **Every model input action requires human
-  approval**, even if shell approval is automatic. The approval card shows the
-  actual action and input, and rechecks permission and desktop settings before
-  execution. Rejected/disabled/replayed approvals cannot execute the action.
+  keys/shortcuts and scrolling. **Once desktop access is granted, actions execute
+  directly by default.** This also applies to previously enabled companions.
+  On the Computer page, choose per companion: **Always allow**, **Always ask**,
+  or **Custom**. Custom mode lets clicks, typing, keys, scrolling and pointer
+  movement be independently allowed without confirmation; unchecked actions ask
+  for approval. Settings persist privately per account and take effect on the
+  next action, including in an ongoing conversation. Models cannot change these
+  approval settings themselves. Desktop access remains off by default.
+
+When approval is required, the card shows the actual input and rechecks access
+and desktop settings before execution. Changing to Always allow affects future
+actions; existing pending cards still need approval or rejection.
+Rejected/disabled/replayed approvals cannot execute the action. Shell command
+approval is configured separately in **Settings → Tools → Computer**; the default
+executes directly in the isolated Docker container.
 
 After an action executes, the model takes another screenshot to verify it. Screen
 contents are untrusted external data. Service connectors remain preferable for
@@ -112,7 +123,7 @@ If Chromium is installed system-wide:
 `OPENDOTS_CHROMIUM_PATH=/usr/bin/chromium pnpm test:computer:live`.
 
 The separate live smoke builds/starts actual Docker desktops, drives Chromium,
-verifies Unicode typing and click/scroll events, private PNGs, approval enforcement,
+verifies Unicode typing and click/scroll events, private PNGs, direct/custom/ask permissions,
 account filesystem separation, the actual noVNC canvas and WebSocket logout.
 `OPENDOTS_DESKTOP_LIVE_WEB=1` additionally verifies a real HTTPS page. Tests do not
 make a paid model call: a separate provider serialization test checks that the

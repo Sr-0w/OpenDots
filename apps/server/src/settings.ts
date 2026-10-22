@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
-import type { ModelConfig } from '@opendots/shared';
+import type { DesktopPermissions, ModelConfig } from '@opendots/shared';
 import { db, schema } from './db/client.ts';
 import { decryptSecret, encryptSecret } from './secrets.ts';
 import { publish } from './bus.ts';
 import { currentAccount } from './auth/context.ts';
 
 interface SettingsShape {
+  [key: `desktop.permissions.${string}`]: DesktopPermissions;
   'openrouter.key': string; // chiffré
   'models.default': ModelConfig;
   'ollama.url': string;

@@ -1,4 +1,5 @@
 import type {
+  DesktopPermissions,
   ActivityDTO,
   ActivityMailFilter,
   ActivitySchedule,
@@ -109,6 +110,8 @@ export const api = {
     return value as { id: string; url: string; filename: string; mediaType: 'image/jpeg'; width: number; height: number; size: number };
   },
   desktop: () => request<DesktopStatus>('GET', '/computer/desktop'),
+  desktopPermissions: () => request<Record<string, DesktopPermissions>>('GET', '/computer/desktop/permissions'),
+  setDesktopPermissions: (agentId: string, permissions: DesktopPermissions) => request<DesktopPermissions>('PUT', `/computer/desktop/permissions/${agentId}`, permissions),
   startDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/start'),
   stopDesktop: () => request<DesktopStatus>('POST', '/computer/desktop/stop'),
   desktopControl: (enabled: boolean) => request<{ok: boolean}>('POST', '/computer/desktop/control', { enabled }),

@@ -36,6 +36,14 @@ export interface ModelConfig {
 
 export type CreateAgentsPolicy = 'allow' | 'ask' | 'deny';
 
+export const COMPUTER_ACTION_TYPES = ['click', 'type', 'key', 'scroll', 'move'] as const;
+export type ComputerActionType = typeof COMPUTER_ACTION_TYPES[number];
+export interface DesktopPermissions {
+  mode: 'auto' | 'ask' | 'custom';
+  /** In custom mode, these actions execute directly; the others ask for approval. */
+  actions: ComputerActionType[];
+}
+
 export interface AgentPermissions {
   /** Lire des pages web publiques. */
   web: boolean;
