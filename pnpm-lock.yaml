@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@novnc/novnc@1.7.0':
+    hash: 3bccc10507466121c1e9c06bf8a59f95956db47e98762f507a6fdb50ce12b6da
+    path: patches/@novnc__novnc@1.7.0.patch
+
 importers:
 
   .:
@@ -119,7 +124,7 @@ importers:
         version: 4.0.152(react@19.3.1)(zod@4.6.7)
       '@novnc/novnc':
         specifier: ^1.7.0
-        version: 1.7.0
+        version: 1.7.0(patch_hash=3bccc10507466121c1e9c06bf8a59f95956db47e98762f507a6fdb50ce12b6da)
       '@opendots/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -4067,7 +4072,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@novnc/novnc@1.7.0': {}
+  '@novnc/novnc@1.7.0(patch_hash=3bccc10507466121c1e9c06bf8a59f95956db47e98762f507a6fdb50ce12b6da)': {}
 
   '@openrouter/ai-sdk-provider@3.1.0(ai@7.0.148(zod@4.6.7))(zod@4.6.7)':
     dependencies:

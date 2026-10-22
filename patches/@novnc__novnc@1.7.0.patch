@@ -1,0 +1,25 @@
+diff --git a/core/util/browser.js b/core/util/browser.js
+index 63596d211bc3f2ac0c1853d58488dcbb18bd8949..31d1de5d7f21d595b5f4d18163905776072e1922 100644
+--- a/core/util/browser.js
++++ b/core/util/browser.js
+@@ -74,7 +74,7 @@ export const hasScrollbarGutter = _hasScrollbarGutter;
+ export let supportsWebCodecsH264Decode = false;
+ 
+ async function _checkWebCodecsH264DecodeSupport() {
+-    if (!('VideoDecoder' in window)) {
++    if (!('VideoDecoder' in window) || !('isConfigSupported' in VideoDecoder)) {
+         return false;
+     }
+ 
+@@ -149,7 +149,10 @@ async function _checkWebCodecsH264DecodeSupport() {
+ 
+     return true;
+ }
+-supportsWebCodecsH264Decode = await _checkWebCodecsH264DecodeSupport();
++// FIXME: VideoDecoder.flush() can hang forever on some Android Chromium
++// browsers; a top-level await would then block module evaluation (blank
++// page). Upstream fix: https://github.com/novnc/noVNC/pull/2053
++_checkWebCodecsH264DecodeSupport().then((supported) => { supportsWebCodecsH264Decode = supported; }).catch(() => {});
+ 
+ /*
+  * The functions for detection of platforms and browsers below are exported
