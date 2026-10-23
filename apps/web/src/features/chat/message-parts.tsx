@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import {
   BellRingIcon,
   BotIcon,
@@ -30,9 +30,11 @@ import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, 
 import { DotAvatar } from "../dot-avatar";
 import { openDialog } from "@/lib/dialogs";
 import { ComputerSetupCard, WelcomeSetupCards } from './setup-cards';
+import { Worked } from "./worked";
 import { DesktopScreenshot } from './desktop-screenshot';
 
 import { t } from "@/lib/i18n";
+const LiveComputer = lazy(() => import('./live-computer').then(m => ({ default: m.LiveComputer })));
 const SILENCE = /^\s*<silence\s*\/?>\s*$/i;
 
 function host(url: unknown) {
@@ -125,7 +127,7 @@ function ToolPart({ part }: { part: ToolUIPart }) {
   return (
     <Tool>
       <ToolHeader title={title} state={part.state} failed={failed} icon={icon} />
-      <ToolContent className="w-[min(36rem,78vw)]">
+      <ToolContent className="w-[min(36rem,78vw)] max-w-full">
         <ToolInput input={part.input} />
         <ToolOutput output={output} errorText={part.errorText ?? (output?.ok === false ? output.error : undefined)} />
       </ToolContent>
@@ -237,12 +239,16 @@ function ToolCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string;
   if (name === "connection_request_setup") return <ConnectionRequestCard kind={out.kind} provider={out.provider} permissions={out.permissions} reason={out.reason} agentId={agentId} />;
   if (name === 'computer_request_setup' && agentId) return <ComputerSetupCard agentId={agentId} reason={out.reason} />;
   if (name === "mail_prepare" && out.draftId) return <MailDraftCard draftId={out.draftId} approvalId={out.approvalId} />;
-  if ((name === "computer_screenshot" || name === "computer_action") && out.screenshotId && out.url) return <DesktopScreenshot output={out} afterAction={name === 'computer_action'} />;
   if (name === "shell_exec" && "exit_code" in out) return <TerminalCard command={input.command} output={out} />;
   if (name === "web_search" && Array.isArray(out.results)) return <SearchResultsCard results={out.results} />;
   if (name === "activity_create" && out.activity) return <ActivityCreatedCard title={out.activity.title} when={out.activity.when} kind={out.activity.kind} />;
   if (out.status === "pending_approval" && out.approvalId) return <ApprovalCard approvalId={out.approvalId} fallbackSummary={out.summary} />;
   return null;
+}
+
+function isActionCard(part: ToolUIPart) {
+  const out = (part as any).output;
+  return part.state === 'output-available' && out?.ok !== false && (isSentTeam(part) || ['tool-ask_user', 'tool-connection_request_setup', 'tool-computer_request_setup', 'tool-mail_prepare'].includes(part.type) || out?.status === 'pending_approval');
 }
 
 type Group =
@@ -274,56 +280,44 @@ function groupParts(parts: ODMessage["parts"], streaming: boolean): Group[] {
 export function MessageView({ message, streaming, agentId }: { message: ODMessage; streaming: boolean; agentId?: string }) {
   if (message.metadata?.kind === "event") return <EventChip message={message} agentId={agentId} />;
 
-  const groups = groupParts(message.parts, streaming);
-  if (!groups.length && !streaming) return null;
+  const assistant = message.role === 'assistant';
+  const lastWork = assistant ? message.parts.findLastIndex(p => p.type === 'reasoning' || p.type.startsWith('tool-')) : -1;
+  const workParts = lastWork < 0 ? [] : message.parts.slice(0, lastWork+1);
+  const groups = groupParts(message.parts.slice(lastWork+1), streaming);
+  const workGroups = groupParts(workParts, streaming);
+  const tools = workParts.filter(p => p.type.startsWith('tool-')) as ToolUIPart[];
+  const owner = message.metadata?.agentId ?? agentId;
+  const failures = tools.filter(p => p.state === 'output-error' || (p as any).output?.ok === false).length;
+  const computerUse = tools.some(p => /^tool-(computer_(action|screenshot|target|keyboard|inspect)|browser_inspect)$/.test(p.type));
+  const lastShot = [...tools].reverse().find(p => ['tool-computer_screenshot', 'tool-computer_action'].includes(p.type) && (p as any).output?.screenshotId && (p as any).output?.url);
+  if (!groups.length && !workGroups.length && !streaming) return null;
   const lastGroup = groups[groups.length - 1];
-
-  return (
-    <Message from={message.role} className={cn(message.role === "assistant" && "max-w-full")}>
-      <MessageContent>
-        {groups.map((g) => {
-          const key = `${message.id}-${g.index}`;
-          if (g.kind === "text") {
-            if (message.role === "user" && message.metadata?.answer) return <AnswerBubble key={key} text={g.text} />;
-            return message.role === "user" ? (
-              <p key={key} className="whitespace-pre-wrap">{g.text}</p>
-            ) : (
-              <MessageResponse key={key} isAnimating={streaming && g === lastGroup}>
-                {g.text}
-              </MessageResponse>
-            );
-          }
-          if (g.kind === "file") {
-            return g.part.mediaType?.startsWith("image/") ? (
-              <a key={key} href={g.part.url} target="_blank" rel="noreferrer"><img src={g.part.url} alt={g.part.filename ?? t("Image jointe")} className="max-h-64 max-w-full rounded-xl border" loading="lazy" /></a>
-            ) : (
-              <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? t("Fichier")}</span>
-            );
-          }
-          const thinking = streaming && g === lastGroup && g.open;
-          return (
-            <div key={key} className="flex flex-col gap-2">
-              {(g.reasoning.trim() || thinking) && (
-                <Reasoning isStreaming={thinking} defaultOpen={false}>
-                  <ReasoningTrigger />
-                  <ReasoningContent>{g.reasoning}</ReasoningContent>
-                </Reasoning>
-              )}
-              {g.tools.some((t) => !isSentTeam(t)) && (
-                <div className="flex flex-wrap items-start gap-1.5">
-                  {g.tools.filter((t) => !isSentTeam(t)).map((t) => (
-                    <ToolPart key={t.toolCallId} part={t} />
-                  ))}
-                </div>
-              )}
-              {g.tools.map((t) => (
-                <ToolCard key={`card-${t.toolCallId}`} part={t} agentId={message.metadata?.agentId ?? agentId} date={message.metadata?.createdAt} />
-              ))}
-            </div>
-          );
-        })}
-        {message.role === 'assistant' && message.metadata?.setup && (message.metadata.agentId ?? agentId) && <WelcomeSetupCards agentId={(message.metadata.agentId ?? agentId)!} />}
-      </MessageContent>
-    </Message>
-  );
+  const renderGroup = (g: Group) => {
+    const key = `${message.id}-${g.index}`;
+    if (g.kind === 'text') {
+      if (message.role === 'user' && message.metadata?.answer) return <AnswerBubble key={key} text={g.text} />;
+      return message.role === 'user' ? <p key={key} className="whitespace-pre-wrap">{g.text}</p> : <MessageResponse key={key} isAnimating={streaming && g === lastGroup}>{g.text}</MessageResponse>;
+    }
+    if (g.kind === 'file') return g.part.mediaType?.startsWith('image/')
+      ? <a key={key} href={g.part.url} target="_blank" rel="noreferrer"><img src={g.part.url} alt={g.part.filename ?? t('Image jointe')} className="max-h-64 max-w-full rounded-xl border" loading="lazy" /></a>
+      : <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? t('Fichier')}</span>;
+    const thinking = streaming && g.open;
+    return <div key={key} className="flex flex-col gap-2">
+      {(g.reasoning.trim() || thinking) && <Reasoning isStreaming={thinking} defaultOpen={false}><ReasoningTrigger /><ReasoningContent>{g.reasoning}</ReasoningContent></Reasoning>}
+      <div className="flex flex-wrap items-start gap-1.5">{g.tools.filter(p => !isSentTeam(p)).map(p => <ToolPart key={p.toolCallId} part={p} />)}</div>
+      {g.tools.filter(p => !isActionCard(p)).map(p => <ToolCard key={`card-${p.toolCallId}`} part={p} agentId={owner} date={message.metadata?.createdAt} />)}
+    </div>;
+  };
+  return <Message from={message.role} className={cn(assistant && 'max-w-full')}>
+    <MessageContent>
+      {streaming && computerUse && owner && <Suspense fallback={null}><LiveComputer key={owner} agentId={owner} /></Suspense>}
+      {workGroups.length > 0 && <Worked streaming={streaming} count={tools.length} failures={failures}>
+        {workGroups.map(renderGroup)}
+        {!streaming && lastShot && <DesktopScreenshot output={(lastShot as any).output} afterAction={lastShot.type === 'tool-computer_action'} />}
+      </Worked>}
+      {tools.filter(isActionCard).map(p => <ToolCard key={`action-${p.toolCallId}`} part={p} agentId={owner} date={message.metadata?.createdAt} />)}
+      {groups.map(renderGroup)}
+      {assistant && message.metadata?.setup && owner && <WelcomeSetupCards agentId={owner} />}
+    </MessageContent>
+  </Message>;
 }

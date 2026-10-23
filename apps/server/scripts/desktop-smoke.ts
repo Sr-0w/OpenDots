@@ -550,10 +550,18 @@ import os
   await asA(() => imageTools.computer_screenshot.execute!({}, { toolCallId: 'before', messages: [] } as any));
   const actionShot: any = await asA(() => imageTools.computer_action.execute!({ action: 'move', x: 1039, y: 110, reason: 'Observer le pointeur réel' }, { toolCallId: 'real-action', messages: [] } as any));
   assert.equal(actionShot.status, 'executed'); assert.equal(actionShot.cursor.x, 1039); assert.equal(actionShot.cursor.y, 110);
-  await asA(async () => saveMessage(await mainConversationId(botA.id), { id: 'real-post-action', role: 'assistant', parts: [{ type: 'tool-computer_action', toolCallId: 'real-action', state: 'output-available', input: { action: 'move', x: actionShot.cursor?.x ?? 0, y: actionShot.cursor?.y ?? 0, reason: 'Observer le pointeur réel' }, output: actionShot }], metadata: { agentId: botA.id } } as any, { author: 'agent', agentId: botA.id }));
+  await asA(async () => saveMessage(await mainConversationId(botA.id), { id: 'real-post-action', role: 'assistant', parts: [...Array.from({ length: 45 }, (_, i) => ({ type: 'tool-computer_action', toolCallId: `real-action-${i}`, state: 'output-available', input: { action: 'move', x: actionShot.cursor?.x ?? 0, y: actionShot.cursor?.y ?? 0, reason: 'Observer le pointeur réel' }, output: actionShot })), { type: 'tool-shell_exec', toolCallId: 'real-shell', state: 'output-available', input: { command: 'echo command-details-only' }, output: { ok: true, exit_code: 0, stdout: 'command-details-only', stderr: '' } }, { type: 'text', text: 'Réponse finale sans encombrement.' }], metadata: { agentId: botA.id } } as any, { author: 'agent', agentId: botA.id }));
   await page.goto(`${origin}/#/agent/${botA.id}`);
+  await page.getByRole('log').getByText('Réponse finale sans encombrement.', { exact: true }).waitFor();
+  const worked = page.locator('[data-worked]').last();
+  assert.equal(await worked.getAttribute('data-state'), 'closed');
+  assert.equal(await page.getByRole('img', { name: 'Capture du bureau privé', exact: true }).count(), 0);
+  assert.equal(await page.getByText('command-details-only', { exact: true }).count(), 0);
+  await worked.getByRole('button', { name: /Worked/ }).click();
   const chatShot = page.getByRole('img', { name: 'Capture du bureau privé', exact: true });
+  assert.equal(await chatShot.count(), 1, '45 captures must become one optional final preview');
   await chatShot.waitFor();
+  await chatShot.scrollIntoViewIfNeeded();
   await page.waitForFunction(() => { const img = document.querySelector('img[alt="Capture du bureau privé"]') as HTMLImageElement; return img?.complete && img.naturalWidth === 1280; });
   await page.getByText('Après action — vérifie le résultat visible', { exact: false }).waitFor();
   if (actionShot.visualChange === 'unchanged') await page.getByText('Écran inchangé', { exact: false }).waitFor();
@@ -578,6 +586,51 @@ import os
     await page.keyboard.press('Escape');
   }
   console.log('PASS inspecteur desktop/mobile : la miniature renvoie les coordonnées natives (1039,110), sans modifier le bureau.');
+  // Actual UI stream + private RFB socket, no model or paid API.
+  const { ActiveStream, beginStream, finishStream } = await import('../src/agents/streams.ts');
+  const conversationId = await asA(() => mainConversationId(botA.id));
+  const live = await asA(() => new ActiveStream(conversationId)); await asA(() => beginStream(live));
+  live.push({ type: 'start', messageId: 'live-worked-fixture', messageMetadata: { agentId: botA.id } });
+  live.push({ type: 'start-step' });
+  const liveParts: any[] = [];
+  for (let i = 0; i < 45; i++) {
+    const toolCallId = `live-action-${i}`, input = { action: 'move', x: 1039, y: 110, reason: 'Live test' };
+    live.push({ type: 'tool-input-available', toolCallId, toolName: 'computer_action', input });
+    live.push({ type: 'tool-output-available', toolCallId, output: actionShot });
+    liveParts.push({ type: 'tool-computer_action', toolCallId, state: 'output-available', input, output: actionShot });
+  }
+  let liveSocket: import('playwright').WebSocket | undefined;
+  page.on('websocket', ws => { if (ws.url().includes('/api/computer/vnc')) liveSocket = ws; });
+  let screenshotRequests = 0;
+  const countShot = (req: import('playwright').Request) => { if(req.url().includes('/api/computer/screenshots/')) screenshotRequests++; };
+  page.on('request', countShot);
+  await page.reload();
+  const feed = page.getByRole('region', { name: 'Ordinateur en direct', exact: true });
+  const feedCanvas = feed.locator('canvas:not([data-remote-pointer])'); await feedCanvas.waitFor();
+  assert.equal(await feed.count(), 1); assert.equal(await feedCanvas.count(), 1);
+  await until(async () => Boolean(liveSocket), value => value);
+  await asA(() => desktopAction({ action: 'move', x: 811, y: 477 }));
+  await page.waitForFunction(() => { const cursor=document.querySelector('[data-live-computer] [data-remote-pointer]') as HTMLElement; return cursor?.dataset.x === '811' && cursor?.dataset.y === '477'; });
+  for (const viewport of [{width:1440,height:1080},{width:390,height:844}]) {
+    await page.setViewportSize(viewport);
+    const box=await feed.boundingBox(); assert(box && box.width <= viewport.width);
+    await page.screenshot({ path: `/tmp/opendots-live-chat-${viewport.width}.png`, fullPage: true });
+  }
+  assert.equal(await page.getByRole('img', { name: 'Capture du bureau privé', exact: true }).count(), 0);
+  assert.equal(screenshotRequests, 0, 'The live chat must not download 45 historical PNGs');
+  liveParts.push({ type: 'text', text: 'Réponse finale après le direct.' });
+  await asA(() => saveMessage(conversationId, { id: 'live-worked-fixture', role: 'assistant', parts: liveParts, metadata: { agentId: botA.id } } as any, { author: 'agent', agentId: botA.id }));
+  live.push({ type: 'text-start', id: 'final' }); live.push({ type: 'text-delta', id: 'final', delta: 'Réponse finale après le direct.' }); live.push({ type: 'text-end', id: 'final' });
+  live.push({ type: 'finish-step' }); live.push({ type: 'finish' }); await asA(() => finishStream(live));
+  await page.getByRole('log').getByText('Réponse finale après le direct.', { exact: true }).waitFor();
+  await feed.waitFor({ state: 'detached' });
+  await until(async () => liveSocket?.isClosed() ?? false, value => value);
+  assert.equal(await page.locator('[data-worked]').last().getAttribute('data-state'), 'closed');
+  await page.reload(); await page.getByRole('log').getByText('Réponse finale après le direct.', { exact: true }).waitFor();
+  assert.equal(await page.locator('[data-worked]').last().getAttribute('data-state'), 'closed');
+  page.off('request', countShot);
+  console.log('PASS Worked : 45 captures et commandes repliées, réponse finale visible, une seule capture facultative ; RFB réel mobile/desktop pendant le tour, aucune PNG en rafale et socket fermé à la fin.');
+
   assert.deepEqual(errors, []);
   // An established websocket must be revoked immediately on logout.
   const ws = new WebSocket(origin.replace('http:', 'ws:') + `/api/computer/vnc?agentId=${botA.id}`, { headers: { cookie: cookieA, origin } });

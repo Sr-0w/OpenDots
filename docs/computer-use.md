@@ -411,3 +411,19 @@ inspections accumulating unbounded UI trees in the model's context.
 Identical desktop actions and keyboard typing are not blocked automatically.
 The prompt still recommends checking results and switching to accessibility
 targets when coordinate clicks fail. Submission remains explicit.
+
+### Computer use in the conversation
+
+Each assistant turn groups its tool calls, intermediate commentary, command
+output, search cards and reasoning in one collapsed **Worked** block. It can be
+expanded while the agent works, and closes when the turn finishes. Final answer
+text remains visible. Approval, question, connection, mail-draft and team cards
+stay outside the block so users can act on them.
+
+During computer use the active turn shows one read-only private noVNC feed for
+the correct bot, including its real remote pointer. It does not start the
+computer or take over input. The feed reconnects while the turn is active and
+its socket/polling are disposed when the turn ends or the user navigates away.
+Historical screenshots are not rendered in a growing list: only the latest
+capture is available when the user expands Worked. Tool results and model
+images remain unchanged; this only changes their presentation in the chat.

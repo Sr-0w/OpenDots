@@ -1,5 +1,14 @@
 /** Dictionnaire anglais : clé = texte français. */
 export const EN: Record<string, string> = {
+  "Ordinateur en direct": "Live computer",
+  "Bureau en direct": "Live desktop",
+  "Bureau indisponible": "Desktop unavailable",
+  "Vue seule": "View only",
+  "Connexion au bureau…": "Connecting to desktop…",
+  "Reconnexion au bureau…": "Reconnecting to desktop…",
+  "Travaille…": "Working…",
+  "{count} actions": "{count} actions",
+  "{count} erreurs": "{count} errors",
   "Limite d’étapes par tour": "Step limit per turn",
   "Aucune limite": "No limit",
   "Aucune limite par défaut. Laisse vide pour laisser les agents poursuivre leur travail ; tu peux les arrêter avec Stop.": "No limit by default. Leave blank to let agents continue working; you can interrupt them with Stop.",
