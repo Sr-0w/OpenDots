@@ -1,3 +1,4 @@
+import { CodexConnection } from './codex-connection';
 import { useEffect, useState } from "react";
 import { LoaderIcon } from "lucide-react";
 import type { ReasoningEffort } from "@opendots/shared";
@@ -16,6 +17,7 @@ import { notificationsEnabled, notificationsSupported, setNotifications } from "
 import { t } from "@/lib/i18n";
 /** Account and runtime controls embedded in the full settings screen. */
 export function SettingsPanel({ section }: { section: "general" | "models" | "tools" | "credentials" }) {
+  const [modelProvider, setModelProvider] = useState<"openrouter" | "ollama" | "codex">("openrouter");
   const [failure, setFailure] = useState("");
   const [revision, setRevision] = useState(0);
   const [settings, setSettings] = useState<SettingsDTO | null>(null);
@@ -30,6 +32,7 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
   useEffect(() => {
     api.settings().then((s) => {
       setSettings(s);
+      setModelProvider(s.defaultModel?.provider ?? "openrouter");
       setOllamaUrl(s.ollamaUrl ?? "");
     }).catch(e => setFailure(e.message));
   }, [revision]);
@@ -67,7 +70,8 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
                 <Label className="text-xs">{t("Modèle par défaut")}</Label>
                 <p className="font-mono text-sm">{model?.model}</p>
               </div>
-              <ModelPicker
+              <select aria-label="Fournisseur de modèles" value={modelProvider} onChange={e => setModelProvider(e.target.value as typeof modelProvider)} className="rounded border p-2"><option value="openrouter">OpenRouter</option><option value="codex">Codex · ChatGPT</option><option value="ollama">Ollama</option></select>
+              <ModelPicker provider={modelProvider}
                 className="h-64"
                 value={model?.model ?? null}
                 onChange={(m) =>
@@ -115,7 +119,7 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
                 )}
               </div>
             </section>}
-{section === "credentials" && <section className="space-y-5 pt-2">
+{section === "credentials" && <section className="space-y-5 pt-2"><CodexConnection />
               <div className="space-y-1.5">
                 <Label className="text-xs">{t("Clé OpenRouter")}</Label>
                 <p className="font-mono text-muted-foreground text-xs">{settings.openrouterKey ?? t("non configurée")}</p>

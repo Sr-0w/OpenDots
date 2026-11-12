@@ -1,3 +1,4 @@
+import { closeCodexClients, codexHome, codexAccount, codexClient, codexModels } from '../models/codex.ts';
 import { bodyLimit } from 'hono/body-limit';
 import { attachmentRoutes } from '../attachments/routes.ts';
 import { AttachmentError, validateMessageParts } from '../attachments/service.ts';
@@ -55,7 +56,7 @@ import { computerStatus, resetContainer } from '../computer/shell.ts';
 import { getSearchSettings, getShellSettings, setSearchSettings } from '../settings.ts';
 
 const modelSchema = z.object({
-  provider: z.enum(['openrouter', 'ollama']),
+  provider: z.enum(['openrouter', 'ollama', 'codex']),
   model: z.string().min(1),
   reasoning: z.enum(['low', 'medium', 'high']).nullable().optional(),
   providerOrder: z.array(z.string()).nullable().optional(),
@@ -134,7 +135,7 @@ export function createApi() {
   api.post('/onboarding/complete', async (c) => onboardingLock.run(accountKey(), async () => {
     const body = z.object({ model: modelSchema, timezone: z.string().optional() }).parse(await c.req.json());
     if (await getSetting('onboarding.done')) return c.json({ ok: true });
-    if (!(await getOpenRouterKey())) return c.json({ error: "La clé OpenRouter n'est pas configurée." }, 400);
+    if (body.model.provider === 'openrouter' && !(await getOpenRouterKey())) return c.json({ error: "La clé OpenRouter n'est pas configurée." }, 400);
     const check = await checkModel(body.model as ModelConfig);
     if (!check.ok) return c.json({ error: check.error }, 400);
     await setSetting('models.default', body.model as ModelConfig);
@@ -148,6 +149,11 @@ export function createApi() {
     await setSetting('onboarding.done', true);
     return c.json({ ok: true, warning: check.warning });
   }));
+
+  api.get('/codex/account', async c => c.json({ account: await codexAccount(), error: (await codexClient()).loginError }));
+  api.post('/codex/login', async c => c.json(await (await codexClient()).call('account/login/start', { type: 'chatgptDeviceCode' })));
+  api.post('/codex/logout', async c => { await (await codexClient()).call('account/logout'); closeCodexClients(await codexHome()); return c.json({ ok: true }); });
+  api.get('/models/codex', async c => c.json(await codexModels()));
 
   // --- Modèles -------------------------------------------------------------
 

@@ -319,3 +319,7 @@ still need to read sources and verify the requested place, date and units.
 - [ ] **Phase 7**: 3D mascots (Three.js / React Three Fiber) driven by each companion's real state
 
 Inspired by Grok Bot, OpenAI Dots and Meta Muse.
+
+### Codex avec l’abonnement ChatGPT
+
+Connexion officielle par code d’appareil, disponible pendant l’onboarding ou dans les paramètres. Voir le [guide Codex / ChatGPT](docs/codex-chatgpt.md) pour le déploiement, les quotas et les limites de cette première intégration.

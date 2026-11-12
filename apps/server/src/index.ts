@@ -1,3 +1,4 @@
+import { closeCodexClients } from './models/codex.ts';
 import { reportUnhandledRejection } from './agents/interruption.ts';
 import { attachDesktopWebSocket } from './computer/websocket.ts';
 import { serve } from '@hono/node-server';
@@ -25,6 +26,7 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.hos
 });
 const closeDesktopSockets = attachDesktopWebSocket(server as import("node:http").Server);
 async function shutdown() {
+  closeCodexClients();
   closeDesktopSockets();
   console.log('Arrêt d’OpenDots…');
   server.close();

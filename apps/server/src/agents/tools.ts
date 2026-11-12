@@ -283,7 +283,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
       inputSchema: z.object({
         scope: z.enum(['self', 'agent', 'default']),
         agent: z.string().optional().describe('Nom ou id du compagnon si scope=agent'),
-        provider: z.enum(['openrouter', 'ollama']).optional(),
+        provider: z.enum(['openrouter', 'ollama', 'codex']).optional(),
         model: z.string().optional(),
         reasoning: z.enum(['low', 'medium', 'high']).optional(),
         provider_order: z.array(z.string()).optional().describe('Fournisseurs OpenRouter préférés, ex. ["Cerebras"]'),

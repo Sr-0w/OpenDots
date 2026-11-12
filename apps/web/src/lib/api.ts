@@ -64,7 +64,7 @@ export interface ActivityInput {
 export interface ModelInfo {
   id: string;
   name: string;
-  provider: "openrouter" | "ollama";
+  provider: "openrouter" | "ollama" | "codex";
   contextLength: number | null;
   tools: boolean;
   reasoning: boolean;
@@ -132,6 +132,10 @@ export const api = {
   completeOnboarding: (model: ModelConfig, timezone: string) =>
     request<{ ok: boolean; warning?: string }>("POST", "/onboarding/complete", { model, timezone }),
 
+  codexAccount: () => request<{ error?: string | null; account: { email?: string; planType?: string } | null }>("GET", "/codex/account"),
+  codexLogin: () => request<{ verificationUrl: string; userCode: string }>("POST", "/codex/login"),
+  codexLogout: () => request("POST", "/codex/logout"),
+  codexModels: () => request<ModelInfo[]>("GET", "/models/codex"),
   openrouterModels: () => request<ModelInfo[]>("GET", "/models/openrouter"),
   openrouterEndpoints: (id: string) => request<string[]>("GET", `/models/openrouter/endpoints?id=${encodeURIComponent(id)}`),
   ollamaModels: (url?: string) => request<ModelInfo[]>("GET", `/models/ollama${url ? `?url=${encodeURIComponent(url)}` : ""}`),

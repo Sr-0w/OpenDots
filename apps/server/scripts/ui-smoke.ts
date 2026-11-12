@@ -1,3 +1,4 @@
+import { closeCodexClients } from '../src/models/codex.ts';
 /** Browser + real HTTP smoke; no external account or paid API calls. */
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
@@ -187,6 +188,21 @@ try {
   for (const [tab, heading] of [['Modèles','Modèles'],['Clés et modèles locaux','Clés et modèles locaux'],['Recherche et outils','Recherche et outils'],['Tâches planifiées','Tâches planifiées'],['Skills','Skills'],['Ordinateur','Ordinateur'],['Validations','Validations']] as const) {
     await page.getByRole('tab', { name: tab, exact: true }).click();
     await page.getByRole('heading', { name: heading, exact: true }).waitFor();
+    if (tab === 'Clés et modèles locaux') {
+      let authorized = false;
+      await page.route('**/api/codex/account', route => route.fulfill({ json: { account: authorized ? { email: 'fixture@example.test', planType: 'plus' } : null } }));
+      await page.route('**/api/codex/login', route => route.fulfill({ json: { verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'TEST-1234' } }));
+      await page.route('**/api/codex/logout', route => { authorized = false; return route.fulfill({ json: { ok: true } }); });
+      const card = page.getByRole('region', { name: 'ChatGPT Codex' });
+      await card.getByRole('button', { name: 'Connecter ChatGPT', exact: true }).click();
+      await card.getByText('TEST-1234', { exact: true }).waitFor();
+      assert.equal(await card.getByRole('link', { name: 'Ouvrir ChatGPT' }).getAttribute('href'), 'https://auth.openai.com/codex/device');
+      authorized = true;
+      await card.getByText('ChatGPT connecté', { exact: true }).waitFor();
+      await card.getByRole('button', { name: 'Déconnecter ChatGPT' }).click();
+      await card.getByRole('button', { name: 'Connecter ChatGPT', exact: true }).waitFor();
+    }
+
   }
   await page.goto(`${origin}/#connectors`); await page.getByRole('heading', { name: 'Magasin de connecteurs', exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Général', exact: true }).click();
@@ -200,6 +216,7 @@ try {
   if (page) { await page.screenshot({ path: '/tmp/opendots-ui-failure.png', fullPage: true }); console.error((await page.locator('body').innerText()).slice(-2500)); }
   throw error;
 } finally {
+  closeCodexClients();
   await browser.close(); await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeAllDatabases(); await closeAuthStore(); await rm(dir, { recursive: true, force: true });
 }

@@ -1,3 +1,4 @@
+import { CodexConnection } from './codex-connection';
 import { useState } from "react";
 import { ArrowRightIcon, ExternalLinkIcon, KeyRoundIcon, LoaderIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { t } from "@/lib/i18n";
  * Tout le reste se fait ensuite en parlant au premier compagnon.
  */
 export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; onDone: () => void }) {
+  const [provider, setProvider] = useState<"openrouter" | "codex">("openrouter");
   const [step, setStep] = useState<"key" | "model">(keyConfigured ? "model" : "key");
   const [key, setKey] = useState("");
   const [model, setModel] = useState<ModelInfo | null>(null);
@@ -38,7 +40,7 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
     setError(null);
     try {
       await api.completeOnboarding(
-        { provider: "openrouter", model: model.id, reasoning: model.reasoning ? "medium" : null },
+        { provider: model.provider, model: model.id, reasoning: model.reasoning ? "medium" : null },
         Intl.DateTimeFormat().resolvedOptions().timeZone,
       );
       onDone();
@@ -64,13 +66,14 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
         </div>
 
         <div className="flex w-full items-center gap-2 text-muted-foreground text-xs">
-          <span className={step === "key" ? "font-medium text-foreground" : ""}>{t("1. Clé OpenRouter")}</span>
+          <span className={step === "key" ? "font-medium text-foreground" : ""}>{"1. Connexion au fournisseur"}</span>
           <span className="h-px flex-1 bg-border" />
           <span className={step === "model" ? "font-medium text-foreground" : ""}>{t("2. Modèle")}</span>
         </div>
 
         {step === "key" ? (
           <form onSubmit={submitKey} className="flex w-full flex-col gap-3">
+            <CodexConnection onConnected={() => { setProvider("codex"); setStep("model"); }} />
             <div className="relative">
               <KeyRoundIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -99,7 +102,7 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
           </form>
         ) : (
           <div className="flex w-full flex-col gap-3">
-            <ModelPicker value={model?.id ?? null} onChange={setModel} className="h-80" />
+            <ModelPicker provider={provider} value={model?.id ?? null} onChange={setModel} className="h-80" />
             {model && !model.tools && (
               <p className="text-foreground font-medium text-xs">{t("Ce modèle ne sait pas utiliser d’outils : ton compagnon pourra parler, mais pas agir.")}</p>
             )}

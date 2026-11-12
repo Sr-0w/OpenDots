@@ -16,6 +16,7 @@ const RECOMMENDED = [
 ];
 
 function price(m: ModelInfo) {
+  if (m.provider === "codex") return "Abonnement ChatGPT";
   if (m.provider === "ollama") return t("local");
   if (m.promptPrice === null) return "";
   if (m.promptPrice === 0 && m.completionPrice === 0) return t("gratuit");
@@ -31,7 +32,7 @@ export function ModelPicker({
 }: {
   value: string | null;
   onChange: (model: ModelInfo) => void;
-  provider?: "openrouter" | "ollama";
+  provider?: "openrouter" | "ollama" | "codex";
   className?: string;
 }) {
   const [models, setModels] = useState<ModelInfo[] | null>(null);
@@ -41,7 +42,7 @@ export function ModelPicker({
   useEffect(() => {
     setModels(null);
     setError(null);
-    (provider === "ollama" ? api.ollamaModels() : api.openrouterModels())
+    (provider === "codex" ? api.codexModels() : provider === "ollama" ? api.ollamaModels() : api.openrouterModels())
       .then(setModels)
       .catch((e) => setError(e.message));
   }, [provider]);
@@ -64,7 +65,7 @@ export function ModelPicker({
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={provider === "ollama" ? t("Rechercher un modèle local…") : t("Rechercher parmi les modèles OpenRouter…")}
+          placeholder={provider === "codex" ? "Rechercher un modèle Codex…" : provider === "ollama" ? t("Rechercher un modèle local…") : t("Rechercher parmi les modèles OpenRouter…")}
           className="pl-9"
         />
       </div>

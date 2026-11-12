@@ -23,7 +23,7 @@ export const AGENT_STATE_LABELS: Record<AgentState, string> = {
   error: 'En erreur',
 };
 
-export type ModelProvider = 'openrouter' | 'ollama';
+export type ModelProvider = 'openrouter' | 'ollama' | 'codex';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface ModelConfig {

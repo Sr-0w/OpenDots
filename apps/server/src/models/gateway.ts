@@ -1,3 +1,4 @@
+import { codexAccount, codexHome, codexModel, codexModels } from './codex.ts';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
@@ -17,6 +18,10 @@ export interface ResolvedModel {
 export class ModelUnavailableError extends Error {}
 
 export async function resolveModel(cfg: ModelConfig): Promise<ResolvedModel> {
+  if (cfg.provider === 'codex') {
+    if (!(await codexAccount())) throw new ModelUnavailableError('Connecte ton compte ChatGPT dans les paramètres.');
+    return { model: codexModel(cfg.model, await codexHome(), cfg.reasoning), providerOptions: {}, label: `codex/${cfg.model}` };
+  }
   if (cfg.provider === 'ollama') {
     const url = (await getSetting('ollama.url')) ?? 'http://127.0.0.1:11434';
     const ollama = createOpenAICompatible({ name: 'ollama', baseURL: `${url.replace(/\/$/, '')}/v1` });
@@ -48,7 +53,7 @@ export async function resolveModel(cfg: ModelConfig): Promise<ResolvedModel> {
 export interface ModelInfo {
   id: string;
   name: string;
-  provider: 'openrouter' | 'ollama';
+  provider: 'openrouter' | 'ollama' | 'codex';
   contextLength: number | null;
   tools: boolean;
   reasoning: boolean;
@@ -125,6 +130,7 @@ export async function listOllamaModels(url?: string): Promise<ModelInfo[]> {
 /** Vérifie qu'un modèle existe et sait appeler des outils. */
 export async function checkModel(cfg: ModelConfig): Promise<{ ok: boolean; warning?: string; error?: string }> {
   try {
+    if (cfg.provider === 'codex') return (await codexModels()).some((m: any) => m.id === cfg.model) ? { ok: true } : { ok: false, error: 'Modèle Codex indisponible.' };
     if (cfg.provider === 'ollama') {
       const models = await listOllamaModels();
       return models.some((m) => m.id === cfg.model || m.id === `${cfg.model}:latest`)
@@ -139,12 +145,14 @@ export async function checkModel(cfg: ModelConfig): Promise<{ ok: boolean; warni
     }
     return { ok: true };
   } catch (err) {
+    if (cfg.provider === 'codex') return { ok: false, error: (err as Error).message };
     return { ok: true, warning: `Vérification impossible : ${(err as Error).message}` };
   }
 }
 
 /** Desktop tools require advertised image input, including on local Ollama. */
 export async function requireDesktopVision(cfg: ModelConfig): Promise<void> {
+  if (cfg.provider === 'codex') { if (!(await codexModels()).some((m: any) => m.id === cfg.model && m.vision)) throw new ModelUnavailableError('Modèle Codex sans vision.'); return; }
   if (cfg.provider === 'openrouter') {
     const model = (await listOpenRouterModels()).find((model) => model.id === cfg.model);
     if (!model?.vision) throw new ModelUnavailableError(`Le bureau nécessite un modèle vision avec entrée image : ${cfg.model}.`);
