@@ -442,3 +442,41 @@ its socket/polling are disposed when the turn ends or the user navigates away.
 Historical screenshots are not rendered in a growing list: only the latest
 capture is available when the user expands Worked. Tool results and model
 images remain unchanged; this only changes their presentation in the chat.
+
+### Bounded browser inspection
+
+`browser_inspect({tabId})` now requests an AX tree limited to depth 3 and
+returns up to 100 non-ignored nodes. Chromium's extension projects the response
+before native messaging: names are capped at 300 characters, values and child
+ID arrays are omitted, and at most 400 nodes can cross the bridge. The 4 MB
+socket guard remains unchanged; inspection failures remain real tool errors.
+
+Use `depth` (1–8), `limit` (1–400), and `offset` / returned `nextOffset` to
+explore a wide tree. `partial` / `truncated` report omitted nodes or descendants.
+`totalAtDepth` counts nodes at the requested depth, not the complete document.
+For details around a target pass `tabId`, `snapshot`, and `ref`; then repeat on
+a returned child to descend further. Every inspection replaces the previous
+snapshot. References preserve backend DOM identity, loader checks and live AX
+validation before clicks/focus. Field values remain excluded.
+
+Real regression command: `pnpm --filter @opendots/server exec tsx
+scripts/browser-inspect-smoke.ts`. It exercises a 12,000-control page, pagination,
+target details, verified click/focus, a small page, French Wikipedia IPv6,
+browser reuse and separate bot sessions. Rebuild with `pnpm desktop:build --
+--rebuild` after changes to the Python bridge or extension. Existing account
+containers must be recreated against the new image ID. The bundled extension
+uses a content-derived version and service-worker filename so persistent
+profiles load the updated code instead of cached `background.js`; the extension
+ID and per-bot profile remain stable.
+
+Validated on 2026-11-12 with the rebuilt computer image:
+- 12,000 buttons with 500-character names: bounded inspection, pagination,
+  target detail, click/title and focus-state verification; a name mutation beyond
+  the displayed prefix is rejected before clicking.
+- Small-page click/title verification, Wikipedia IPv6 detail and link navigation,
+  browser PID reuse, distinct bot UIDs/homes and cross-bot tab rejection.
+- Real existing OpenDots/Codex conversation: five successful OpenDots tool calls
+  (open IPv6, inspect 400 nodes, inspect IPv4 target, click, inspect IPv4 URL).
+  Its persistent profile runs the content-addressed worker, verified via CDP.
+- Docker autostart regression, semantic/controller unit tests, Codex adapter tests
+  and server TypeScript checks passed. Native competing Codex tools stay disabled.

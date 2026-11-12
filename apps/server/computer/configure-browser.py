@@ -14,6 +14,14 @@ extension = root / 'browser-extension'
 shutil.copytree(source / 'apps/chrome-extension', extension, dirs_exist_ok=True)
 manifest = json.loads((extension / 'manifest.json').read_text())
 manifest['key'] = key
+# A persistent Chromium profile caches extension service-worker scripts. Give
+# each bundled implementation a deterministic version so image upgrades reload
+# the worker while preserving the public key/extension ID and private profile.
+code_hash = hashlib.sha256((extension / 'background.js').read_bytes()).hexdigest()
+manifest['version'] = f'1.1.{int(code_hash[:4], 16)}.{int(code_hash[4:8], 16)}'
+worker = f'background-{code_hash[:16]}.js'
+shutil.copy2(extension / 'background.js', extension / worker)
+manifest['background']['service_worker'] = worker
 (extension / 'manifest.json').write_text(json.dumps(manifest))
 digest = hashlib.sha256(base64.b64decode(key)).digest()[:16]
 extension_id = ''.join(chr(97 + int(n, 16)) for n in digest.hex())

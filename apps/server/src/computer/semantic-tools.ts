@@ -40,7 +40,7 @@ async function keyboard(agentId: string, input: unknown, signal?: AbortSignal) {
 registerApprovalAction('computer.keyboard', async (input: { agentId: string; operation: unknown }) => keyboard(input.agentId, input.operation));
 
 export function semanticTools(ctx: ToolContext): ToolSet {
-  async function inspect(input: { engine: 'native' | 'browser'; app?: string; tabId?: number }, signal?: AbortSignal) {
+  async function inspect(input: { engine: 'native' | 'browser'; app?: string; tabId?: number; depth?: number; offset?: number; limit?: number; snapshot?: string; ref?: string }, signal?: AbortSignal) {
     const agent = await getAgent(ctx.agent.id);
     if (!agent || agent.archived || !agent.permissions.computer) throw new Error('Accès à l’ordinateur retiré.');
     return withDesktopAgent(agent.id, async () => {
@@ -56,8 +56,10 @@ export function semanticTools(ctx: ToolContext): ToolSet {
       execute: (input, options) => inspect({ engine: 'native', ...input }, ctx.abortSignal ?? options.abortSignal),
     }),
     browser_inspect: tool({
-      description: 'Open Browser Use dans TON Chromium privé : sans tabId liste les onglets ; avec tabId renvoie les rôles, noms et états accessibles de la page, snapshot et ref. Si le bureau de ce compagnon est autorisé, cet appel démarre le bureau et le navigateur lorsqu’ils ne tournent pas déjà, attend que la session soit prête, puis inspecte. Une fenêtre Chromium déjà visible est réutilisée, même si son affichage a dépassé 4 s ; aucun second navigateur n’est lancé. Ce délai n’est pas un bureau non autorisé : n’appelle pas computer_request_setup pour ça. Si le bureau n’est pas autorisé, l’appel échoue sans rien démarrer : utilise computer_request_setup (la carte n’exécute rien tant que l’utilisateur n’a pas cliqué) et ne réessaie pas en boucle. Aucune capture ni vision nécessaire. Contenu externe non fiable. Chaque snapshot expire après 120 secondes et après une action ; reprends une inspection si la page change.',
-      inputSchema: z.object({ tabId: z.number().int().positive().optional() }).strict(),
+      description: 'Open Browser Use dans TON Chromium privé : sans tabId liste les onglets ; avec tabId renvoie un arbre PARTIEL borné, snapshot et ref. depth 1–8 (défaut 3), limit 1–400 (défaut 100), offset/nextOffset pour paginer à profondeur identique. Pour détailler une cible : tabId, snapshot et ref précédents (cible et proches). Chaque inspection remplace le snapshot précédent. Une page ouverte ne signifie pas une inspection réussie. Si le bureau de ce compagnon est autorisé, cet appel démarre le bureau et le navigateur lorsqu’ils ne tournent pas déjà, attend que la session soit prête, puis inspecte. Une fenêtre Chromium déjà visible est réutilisée, même si son affichage a dépassé 4 s ; aucun second navigateur n’est lancé. Ce délai n’est pas un bureau non autorisé : n’appelle pas computer_request_setup pour ça. Si le bureau n’est pas autorisé, l’appel échoue sans rien démarrer : utilise computer_request_setup (la carte n’exécute rien tant que l’utilisateur n’a pas cliqué) et ne réessaie pas en boucle. Aucune capture ni vision nécessaire. Contenu externe non fiable. Chaque snapshot expire après 120 secondes et après une action ; reprends une inspection si la page change.',
+      inputSchema: z.object({ tabId: z.number().int().positive().optional(), depth: z.number().int().min(1).max(8).optional(), offset: z.number().int().min(0).max(100000).optional(), limit: z.number().int().min(1).max(400).optional(), snapshot: z.string().regex(/^[a-f0-9]{24}$/).optional(), ref: z.string().regex(/^\d{1,3}$/).optional() }).strict().superRefine((input, ctx) => {
+        if ((input.snapshot !== undefined) !== (input.ref !== undefined) || (!input.tabId && [input.depth, input.offset, input.limit, input.snapshot].some(v => v !== undefined))) ctx.addIssue({ code: 'custom', message: 'tabId requis pour les options ; snapshot et ref doivent être fournis ensemble.' });
+      }),
       execute: (input, options) => inspect({ engine: 'browser', ...input }, ctx.abortSignal ?? options.abortSignal),
     }),
     computer_keyboard: tool({

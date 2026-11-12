@@ -584,7 +584,35 @@ class BrowserBackend {
       if (typeof params.method !== "string") {
         throw new Error("executeCdp requires method");
       }
-      return await chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {});
+      const result = await chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {});
+      // Project AX data inside Chromium, BEFORE native messaging/socket framing.
+      // CDP depth limits traversal; this projection also bounds wide trees, names
+      // and properties. Never send childIds, raw values or arbitrary AX payloads.
+      if (params.boundedAX) {
+        if (!["Accessibility.getFullAXTree", "Accessibility.getPartialAXTree"].includes(params.method)) {
+          throw new Error("boundedAX requires an AX tree command");
+        }
+        const offset = Math.max(0, Math.min(100000, Math.trunc(params.boundedAX.offset || 0)));
+        const limit = Math.max(1, Math.min(400, Math.trunc(params.boundedAX.limit || 100)));
+        const ids = new Set((result.nodes || []).map(n => n.nodeId));
+        const depthLimited = (result.nodes || []).some(n => (n.childIds || []).some(id => !ids.has(id)));
+        const nodes = (result.nodes || []).filter(n => !n.ignored);
+        return {
+          nodes: await Promise.all(nodes.slice(offset, offset + limit).map(async n => ({
+            nodeId: n.nodeId, backendDOMNodeId: n.backendDOMNodeId,
+            nameHash: Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(n.name?.value || "")))), b => b.toString(16).padStart(2, "0")).join(""),
+            role: {value: String(n.role?.value || "").slice(0, 100)},
+            name: {value: String(n.name?.value || "").slice(0, 300)},
+            properties: (n.properties || []).filter(p =>
+              ["focused", "disabled", "checked", "expanded", "required", "readonly"].includes(p.name)
+            ).slice(0, 6).map(p => ({name: p.name, value: {value:
+              typeof p.value?.value === "boolean" ? p.value.value : String(p.value?.value || "").slice(0, 20)}}))
+          }))),
+          nextOffset: offset + limit < nodes.length ? offset + limit : null,
+          total: nodes.length, depthLimited
+        };
+      }
+      return result;
     });
   }
 

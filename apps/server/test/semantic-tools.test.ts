@@ -77,3 +77,9 @@ it('autorise les frappes répétées sans ajouter Entrée automatiquement', asyn
   expect(state.keyboard).toHaveBeenCalledTimes(4);
   expect(state.keyboard.mock.calls.every((c: any) => c[0].submit === false)).toBe(true);
 });
+it('transmet profondeur, pagination et cible sans perdre le contexte privé', async () => {
+  const tools = semanticTools(ctx);
+  const input = { tabId: 7, depth: 8, offset: 100, limit: 50, snapshot: 'a'.repeat(24), ref: '3' };
+  await tools.browser_inspect.execute!(input, options);
+  expect(state.semantic).toHaveBeenCalledWith({ engine: 'browser', action: 'inspect', ...input }, controller.signal);
+});

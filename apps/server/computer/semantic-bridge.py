@@ -185,6 +185,11 @@ def cdp(tab, method, params=None):
     return browser_rpc('executeCdp', {'target': {'tabId': tab}, 'method': method, 'commandParams': params or {}})
 
 
+def ax_tree(tab, method, params, offset=0, limit=100):
+    return browser_rpc('executeCdp', {'target': {'tabId': tab}, 'method': method,
+        'commandParams': params, 'boundedAX': {'offset': offset, 'limit': limit}})
+
+
 def hit_test(tab, x, y):
     # getContentQuads/Input events use viewport CSS pixels, whereas this CDP
     # hit-test uses document CSS pixels. Scrolled pages need their page offset.
@@ -193,7 +198,7 @@ def hit_test(tab, x, y):
 
 
 def identity(node):
-    return (node.get('role', {}).get('value'), node.get('name', {}).get('value'))
+    return (node.get('role', {}).get('value'), node.get('name', {}).get('value'), node.get('nameHash'))
 
 
 def browser(request):
@@ -223,12 +228,36 @@ def browser(request):
         tab = request['tabId']
         browser_rpc('claimUserTab', {'tabId': tab})
         browser_rpc('attach', {'tabId': tab})
-        tree = cdp(tab, 'Accessibility.getFullAXTree')['nodes']
+        depth = max(1, min(8, int(request.get('depth', 3))))
+        offset = max(0, min(100000, int(request.get('offset', 0))))
+        limit = max(1, min(400, int(request.get('limit', 100))))
         frame = cdp(tab, 'Page.getFrameTree')['frameTree']['frame']
-        nodes = [n for n in tree if not n.get('ignored')][:400]
-        # AX values are intentionally excluded, including password field values.
+        if request.get('snapshot') is not None:
+            previous = load('browser', request['snapshot'])
+            if previous['tab'] != tab or previous['loader'] != frame['loaderId']:
+                raise RuntimeError('Page navigated or wrong tab: inspect again')
+            index = int(request['ref'])
+            if not 0 <= index < len(previous['nodes']):
+                raise RuntimeError('Unknown element ref')
+            target = previous['nodes'][index]
+            backend = target.get('backendDOMNodeId')
+            if not backend:
+                raise RuntimeError('This accessible node has no DOM target')
+            live = ax_tree(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': False})['nodes']
+            if not live or identity(live[0]) != identity(target):
+                raise RuntimeError('Element changed: inspect again')
+            tree = ax_tree(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': True}, offset, limit)
+        else:
+            tree = ax_tree(tab, 'Accessibility.getFullAXTree', {'depth': depth}, offset, limit)
+        if cdp(tab, 'Page.getFrameTree')['frameTree']['frame']['loaderId'] != frame['loaderId']:
+            raise RuntimeError('Page navigated during inspection: inspect again')
+        nodes = tree['nodes']
         token = store('browser', {'tab': tab, 'loader': frame['loaderId'], 'nodes': nodes})
-        return {'snapshot': token, 'tabId': tab, 'url': frame['url'], 'elements': [{'ref': str(i), 'role': identity(n)[0], 'name': str(identity(n)[1] or '')[:300], 'properties': [p for p in n.get('properties', []) if p['name'] in ('focused', 'disabled', 'checked', 'expanded', 'required', 'readonly')]} for i, n in enumerate(nodes)], 'truncated': len(nodes) >= 400}
+        return {'snapshot': token, 'tabId': tab, 'url': frame['url'],
+            'elements': [{'ref': str(i), 'role': identity(n)[0], 'name': identity(n)[1], 'properties': n.get('properties', [])} for i, n in enumerate(nodes)],
+            'partial': tree['depthLimited'] or offset > 0 or tree['nextOffset'] is not None, 'depth': depth, 'offset': offset, 'nextOffset': tree['nextOffset'],
+            'totalAtDepth': tree['total'], 'truncated': tree['depthLimited'] or offset > 0 or tree['nextOffset'] is not None,
+            'note': 'Partial AX tree. Increase depth (max 8), paginate with offset/nextOffset, or inspect snapshot/ref for target and relatives. New inspection replaces previous snapshot.'}
     if action not in ('click', 'focus'):
         raise RuntimeError('Unsupported browser action')
     data = load('browser', request['snapshot'])
@@ -242,7 +271,7 @@ def browser(request):
     backend = node.get('backendDOMNodeId')
     if not backend:
         raise RuntimeError('This accessible node has no DOM target')
-    live = cdp(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': False})['nodes']
+    live = ax_tree(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': False})['nodes']
     if not live or identity(live[0]) != identity(node):
         raise RuntimeError('Element changed: inspect again')
     cdp(tab, 'Page.bringToFront')
@@ -282,7 +311,7 @@ def browser(request):
     # Hover can open overlays or navigate. Hit-test again before the action.
     if cdp(tab, 'Page.getFrameTree')['frameTree']['frame']['loaderId'] != data['loader']:
         raise RuntimeError('Page navigated during pointer movement: inspect again')
-    after_hover = cdp(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': False})['nodes']
+    after_hover = ax_tree(tab, 'Accessibility.getPartialAXTree', {'backendNodeId': backend, 'fetchRelatives': False})['nodes']
     if not after_hover or identity(after_hover[0]) != identity(node):
         raise RuntimeError('Element changed during pointer movement: inspect again')
     if hit_test(tab, x, y).get('backendNodeId') != hit.get('backendNodeId'):
