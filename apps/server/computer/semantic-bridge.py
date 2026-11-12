@@ -140,14 +140,33 @@ def receive(sock, count):
     return parts
 
 
+class BrowserNotReady(RuntimeError):
+    pass
+
+
 def browser_rpc(method, params=None):
-    record = json.loads((RUNTIME / 'obu/active.json').read_text())
-    path = Path(record['socketPath'])
-    if path.parent != RUNTIME / 'obu' or path.stat().st_uid != os.getuid():
+    active = RUNTIME / 'obu' / 'active.json'
+    try:
+        record = json.loads(active.read_text())
+        path = Path(record['socketPath'])
+    except FileNotFoundError as error:
+        raise BrowserNotReady('Private browser is not ready: obu/active.json is missing.') from error
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise RuntimeError('Private browser state is unreadable.') from error
+    if path.parent != RUNTIME / 'obu':
+        raise RuntimeError('Browser socket outside bot session')
+    try:
+        owner = path.stat()
+    except FileNotFoundError as error:
+        raise BrowserNotReady('Private browser is not ready: the browser socket is missing.') from error
+    if owner.st_uid != os.getuid():
         raise RuntimeError('Browser socket outside bot session')
     with socket.socket(socket.AF_UNIX) as sock:
         sock.settimeout(8)
-        sock.connect(str(path))
+        try:
+            sock.connect(str(path))
+        except FileNotFoundError as error:
+            raise BrowserNotReady('Private browser is not ready: the browser socket is missing.') from error
         payload = json.dumps({'jsonrpc': '2.0', 'id': 'opendots', 'method': method, 'params': dict(params or {}, session_id='opendots', turn_id='opendots')}).encode()
         sock.sendall(struct.pack('=I', len(payload)) + payload)
         while True:
@@ -191,7 +210,7 @@ def browser(request):
             try:
                 browser_rpc('getInfo')
                 break
-            except (FileNotFoundError, ConnectionError, TimeoutError):
+            except (BrowserNotReady, FileNotFoundError, ConnectionError, TimeoutError):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('Browser extension is not ready; inspect the browser session log')
                 time.sleep(.1)

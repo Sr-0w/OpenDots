@@ -8,7 +8,8 @@ import { config } from '../config.ts';
 import { accountKey } from '../auth/context.ts';
 import { BUILTIN_COMPUTER_IMAGE, getSetting, getShellSettings, getTimezone, setSetting } from '../settings.ts';
 import { computerName, computerState, dockerAvailable, ensureContainer, ensureComputerUser, ensureImage, leaseComputer, linuxUser } from './shell.ts';
-import { KeyedMutex } from '../util.ts';
+import { KeyedMutex, singleFlight } from '../util.ts';
+import { browserPresencePy, clarifyBrowserFailure, ensureBrowserSession } from './browser-session.ts';
 import { desktopAgentId, desktopKey, withDesktopAgent, computerSlot } from './session.ts';
 import { getAgent, listAgentRows } from '../agents/repo.ts';
 
@@ -53,13 +54,12 @@ export async function desktopStatus() {
   const running = Boolean(state?.running && saved?.runtimeId === state.generation);
   return { agentId: desktopAgentId(), enabled: await desktopEnabled(), manualControl: await humanControl(), available, running, restartRequired: Boolean(saved?.runtimeId && state && saved.runtimeId !== state.generation), suspended: state?.paused ?? false, width: WIDTH, height: HEIGHT, ...(running ? { vncPassword: saved?.password } : {}) };
 }
-export async function startDesktop(): Promise<number> {
-  if (!await desktopEnabled()) throw new DesktopError('Active le bureau de ce compagnon depuis la page Ordinateur.');
-  const settings = await getShellSettings();
-  if (settings.mode === 'off' || !settings.network) throw new DesktopError('Active l’ordinateur et son réseau pour utiliser le bureau.');
+export function startDesktop(): Promise<number> {
   const key = desktopKey();
-  if (starting.has(key)) return starting.get(key)!;
-  const pending = (async () => {
+  return singleFlight(starting, key, async () => {
+    if (!await desktopEnabled()) throw new DesktopError('Active le bureau de ce compagnon depuis la page Ordinateur.');
+    const settings = await getShellSettings();
+    if (settings.mode === 'off' || !settings.network) throw new DesktopError('Active l’ordinateur et son réseau pour utiliser le bureau.');
     const release = leaseComputer();
     try {
       await ensureContainer(settings);
@@ -90,9 +90,7 @@ export async function startDesktop(): Promise<number> {
       }
       throw new DesktopError('Le bureau ne démarre pas. Consulte les logs de sa session dans son dossier personnel.');
     } finally { release(); }
-  })();
-  starting.set(key, pending);
-  try { return await pending; } finally { starting.delete(key); }
+  });
 }
 export async function stopDesktop() {
   typing.get(desktopKey())?.abort(new DesktopError('Bureau arrêté. Saisie interrompue.'));
@@ -145,19 +143,43 @@ export const desktopActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('move'), ...point }).strict(),
 ]);
 export type DesktopAction = z.infer<typeof desktopActionSchema>;
+function ensureBrowser(signal?: AbortSignal): Promise<void> {
+  return ensureBrowserSession(desktopKey(), {
+    authorized: async () => { signal?.throwIfAborted(); return desktopEnabled(); },
+    takenOver: async () => { signal?.throwIfAborted(); return humanControl(); },
+    startDesktop: async () => { signal?.throwIfAborted(); await startDesktop(); },
+    presence: () => readBrowserPresence(signal),
+    launch: () => launchPrivateBrowser(signal),
+    waitUntilReady: () => waitForActiveBrowser(signal),
+  });
+}
+async function readBrowserPresence(signal?: AbortSignal) {
+  const output = (await desktopExec(['python3', '-c', browserPresencePy, 'status'], undefined, { signal, timeoutMs: 8_000 })).toString().trim();
+  if (output === 'ready' || output === 'process' || output === 'absent') return output;
+  throw new DesktopError(`État du navigateur illisible (${output.slice(0, 160)}).`);
+}
+async function waitForActiveBrowser(signal?: AbortSignal) {
+  const output = (await desktopExec(['python3', '-c', browserPresencePy, 'wait'], undefined, { signal, timeoutMs: 30_000 })).toString().trim();
+  if (output === 'ready') return true;
+  if (output === 'missing') return false;
+  throw new DesktopError(`Attente du navigateur interrompue (${output.slice(0, 160)}).`);
+}
+async function launchPrivateBrowser(signal?: AbortSignal) {
+  // Re-check inside the container so a browser that appeared after the probe is reused.
+  await desktopExec(['sh', '-c', 'if pgrep -u "$(id -u)" -x chromium >/dev/null 2>&1; then exit 0; fi; exec opendots-open-browser about:blank'], undefined, { signal, timeoutMs: 20_000 });
+}
 export async function semanticOperation(input: { engine: 'native' | 'browser'; action: string; [key: string]: unknown }, signal?: AbortSignal) {
   return actions.run(desktopKey(), async () => {
     await assertModelControl(); signal?.throwIfAborted();
-    await startDesktop(); await assertModelControl();
     const controller = new AbortController(); typing.set(desktopKey(), controller);
     const abort = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     try {
-      if (input.engine === 'browser' && input.action === 'open') {
-        const running = await desktopExec(['sh', '-c', 'pgrep -u "$(id -u)" -x chromium || true']);
-        if (!running.toString().trim()) await desktopExec(['opendots-open-browser', 'about:blank'], undefined, { signal: abort });
-      }
+      if (input.engine === 'browser') await ensureBrowser(abort);
+      else await startDesktop();
       abort.throwIfAborted(); await assertModelControl();
-      return JSON.parse((await desktopExec(['python3', '/usr/local/share/opendots/semantic-bridge.py'], JSON.stringify(input)+'\n', { signal: abort, keepStdinOpen: true, timeoutMs: 30_000 })).toString());
+      const parsed = JSON.parse((await desktopExec(['python3', '/usr/local/share/opendots/semantic-bridge.py'], JSON.stringify(input)+'\n', { signal: abort, keepStdinOpen: true, timeoutMs: 30_000 })).toString());
+      if (parsed && typeof parsed.error === 'string') parsed.error = clarifyBrowserFailure(parsed.error);
+      return parsed;
     } finally { if (typing.get(desktopKey()) === controller) typing.delete(desktopKey()); }
   });
 }

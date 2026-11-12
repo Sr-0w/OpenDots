@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { computeNextRun, validateSchedule, describeSchedule } from '../src/activities/repo.ts';
 import { htmlToText } from '../src/tools/web.ts';
 import { decryptSecret, encryptSecret, maskSecret } from '../src/secrets.ts';
-import { KeyedMutex, truncate } from '../src/util.ts';
+import { KeyedMutex, singleFlight, truncate } from '../src/util.ts';
 import { buildSystemPrompt } from '../src/agents/prompt.ts';
 import { DEFAULT_PERMISSIONS } from '@opendots/shared';
 
@@ -80,6 +80,24 @@ describe('utilitaires', () => {
     expect(mutex.isLocked('ari')).toBe(false);
   });
 
+  it('partage un démarrage en vol et en autorise un nouveau après échec', async () => {
+    const flights = new Map<string, Promise<number>>();
+    let runs = 0;
+    const succeed = () => singleFlight(flights, 'desk', async () => ++runs);
+    const [first, second] = await Promise.all([succeed(), succeed()]);
+    expect(first).toBe(1); expect(second).toBe(1); expect(runs).toBe(1);
+    expect(await succeed()).toBe(2);
+    const fail = () => singleFlight(flights, 'boom', async () => { runs++; throw new Error('boom'); });
+    const left = fail(), right = fail();
+    await expect(left).rejects.toThrow('boom');
+    await expect(right).rejects.toThrow('boom');
+    expect(runs).toBe(3);
+    await Promise.resolve();
+    expect(flights.has('boom')).toBe(false);
+    await expect(fail()).rejects.toThrow('boom');
+    expect(runs).toBe(4);
+  });
+
   it('tronque proprement', () => {
     expect(truncate('abcdef', 3)).toMatch(/^abc… \[tronqué/);
   });
@@ -115,6 +133,13 @@ describe('prompt système', () => {
     const p = buildSystemPrompt({ ...base, mode: { kind: 'event', title: 'Mails du matin' } });
     expect(p).toContain('<silence/>');
     expect(p).not.toContain('First meeting');
+  });
+
+  it('demande à browser_inspect de réutiliser un navigateur autorisé', () => {
+    const prompt = buildSystemPrompt({ ...base, mode: { kind: 'user' }, toolNames: ['browser_inspect', 'computer_inspect'] });
+    expect(prompt).toContain('not already running');
+    expect(prompt).toContain('computer_request_setup once');
+    expect(prompt).not.toContain('Open the browser only when needed');
   });
 
   it('ne demande les méta-outils que lorsqu’ils sont réellement disponibles', () => {
