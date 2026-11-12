@@ -27,9 +27,40 @@ from pathlib import Path
 runtime = Path(os.environ['XDG_RUNTIME_DIR'])
 active = runtime / 'obu' / 'active.json'
 
+def process_running():
+    uid = str(os.getuid())
+    # Debian Chromium is usually "chromium"; a few builds truncate or brand the comm.
+    for name in ('chromium', 'chromium-browse', 'chrome', 'chromium-bin'):
+        try:
+            proc = subprocess.run(['pgrep', '-u', uid, '-x', name], capture_output=True, text=True, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if proc.stdout.strip():
+            return True
+    return False
+
+def window_open():
+    # An already mapped window is the browser, even when pgrep misses the process name.
+    # xdotool --class is case-sensitive; Chromium has shipped both casings.
+    commands = [
+        ['xdotool', 'search', '--onlyvisible', '--class', 'chromium'],
+        ['xdotool', 'search', '--onlyvisible', '--class', 'Chromium'],
+        ['xdotool', 'search', '--onlyvisible', '--name', 'Chromium'],
+    ]
+    for command in commands:
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.stdout.strip():
+            return True
+    return False
+
+def browser_up():
+    return process_running() or window_open()
+
 def presence():
-    proc = subprocess.run(['pgrep', '-u', str(os.getuid()), '-x', 'chromium'], capture_output=True, text=True)
-    running = bool(proc.stdout.strip())
+    running = browser_up()
     ready = False
     if running and active.is_file():
         try:
@@ -57,6 +88,22 @@ elif mode == 'wait':
             sys.stdout.write('missing')
             break
         time.sleep(0.25)
+elif mode == 'launch':
+    # The packaged helper gives up after 4 s. On a 1 GiB desktop the window often
+    # maps later, and a window that is already visible must not start another Chromium.
+    if browser_up():
+        raise SystemExit(0)
+    helper = subprocess.run(['opendots-open-browser', 'about:blank'], capture_output=True, text=True)
+    deadline = time.monotonic() + float(os.environ.get('OPENDOTS_BROWSER_LAUNCH_WAIT_SECONDS', '20'))
+    while True:
+        if browser_up():
+            raise SystemExit(0)
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.25)
+    detail = (helper.stderr or helper.stdout or 'Chromium ne s’affiche pas').strip().splitlines()
+    sys.stderr.write((detail[-1] if detail else 'Chromium ne s’affiche pas') + '\\n')
+    raise SystemExit(1)
 else:
     raise SystemExit('unknown browser probe')
 `;
