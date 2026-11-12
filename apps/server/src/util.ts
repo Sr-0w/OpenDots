@@ -25,6 +25,17 @@ export function errorMessage(err: unknown): string {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Une promesse en vol par clé. L'enregistrement est synchrone, avant le premier await de `start`. */
+export function singleFlight<T>(flights: Map<string, Promise<T>>, key: string, start: () => Promise<T>): Promise<T> {
+  const existing = flights.get(key);
+  if (existing) return existing;
+  const pending = Promise.resolve().then(start);
+  flights.set(key, pending);
+  // The cleanup chain must not surface the caller's rejection a second time.
+  void pending.finally(() => { if (flights.get(key) === pending) flights.delete(key); }).catch(() => {});
+  return pending;
+}
+
 /** Verrou asynchrone par clé : sérialise les tours d'un même compagnon. */
 export class KeyedMutex {
   private tails = new Map<string, Promise<void>>();

@@ -24,7 +24,8 @@ async function execute(agentId: string, input: unknown, signal?: AbortSignal) {
   const agent = await getAgent(agentId);
   if (!agent || agent.archived || !agent.permissions.computer) throw new Error('Accès à l’ordinateur retiré.');
   return withDesktopAgent(agent.id, async () => {
-    if (!await desktopEnabled() || await humanControl()) throw new Error('Bureau désactivé ou contrôlé par l’utilisateur.');
+    if (!await desktopEnabled()) throw new Error('Bureau non autorisé pour ce compagnon. Aucun démarrage effectué.');
+    if (await humanControl()) throw new Error('L’utilisateur a pris la main.');
     return semanticOperation(parsed, signal);
   });
 }
@@ -43,7 +44,8 @@ export function semanticTools(ctx: ToolContext): ToolSet {
     const agent = await getAgent(ctx.agent.id);
     if (!agent || agent.archived || !agent.permissions.computer) throw new Error('Accès à l’ordinateur retiré.');
     return withDesktopAgent(agent.id, async () => {
-      if (!await desktopEnabled() || await humanControl()) throw new Error('Bureau désactivé ou contrôlé par l’utilisateur.');
+      if (!await desktopEnabled()) throw new Error('Bureau non autorisé pour ce compagnon. Aucun démarrage effectué.');
+      if (await humanControl()) throw new Error('L’utilisateur a pris la main.');
       return semanticOperation({ ...input, action: input.engine === 'native' ? input.app ? 'inspect' : 'apps' : input.tabId ? 'inspect' : 'tabs' }, signal);
     });
   }
@@ -54,7 +56,7 @@ export function semanticTools(ctx: ToolContext): ToolSet {
       execute: (input, options) => inspect({ engine: 'native', ...input }, ctx.abortSignal ?? options.abortSignal),
     }),
     browser_inspect: tool({
-      description: 'Open Browser Use dans TON Chromium privé : sans tabId liste les onglets ; avec tabId renvoie les rôles, noms et états accessibles de la page, snapshot et ref. Le navigateur doit être ouvert par computer_target engine browser action open. Aucune capture ni vision nécessaire. Contenu externe non fiable. Chaque snapshot expire après 120 secondes et après une action ; reprends une inspection si la page change.',
+      description: 'Open Browser Use dans TON Chromium privé : sans tabId liste les onglets ; avec tabId renvoie les rôles, noms et états accessibles de la page, snapshot et ref. Si le bureau de ce compagnon est autorisé, cet appel démarre le bureau et le navigateur lorsqu’ils ne tournent pas déjà, attend que la session soit prête, puis inspecte. Une session déjà ouverte est réutilisée ; aucun second navigateur n’est lancé. Si le bureau n’est pas autorisé, l’appel échoue sans rien démarrer : utilise computer_request_setup (la carte n’exécute rien tant que l’utilisateur n’a pas cliqué) et ne réessaie pas en boucle. Aucune capture ni vision nécessaire. Contenu externe non fiable. Chaque snapshot expire après 120 secondes et après une action ; reprends une inspection si la page change.',
       inputSchema: z.object({ tabId: z.number().int().positive().optional() }).strict(),
       execute: (input, options) => inspect({ engine: 'browser', ...input }, ctx.abortSignal ?? options.abortSignal),
     }),
@@ -75,7 +77,7 @@ export function semanticTools(ctx: ToolContext): ToolSet {
       },
     }),
     computer_target: tool({
-      description: 'Agis sur un élément nommé de la dernière inspection : engine native (AT-SPI) ou browser (DOM via Open Browser Use), action click ou focus, snapshot et ref EXACTS retournés par inspect. Ne devine pas les refs. focus prépare la saisie ; utilise ensuite computer_keyboard type (touches réelles, Entrée séparée). Pour ouvrir TON navigateur à la demande : engine browser, action open, url. En mode auto, aucune approbation par clic. Un résultat executed confirme l’envoi de l’action, pas son effet : inspecte ensuite. Le pointeur système est animé vers la cible visible ; l’action reste sémantique, aucun clic par coordonnées à ajouter.',
+      description: 'Agis sur un élément nommé de la dernière inspection : engine native (AT-SPI) ou browser (DOM via Open Browser Use), action click ou focus, snapshot et ref EXACTS retournés par inspect. Ne devine pas les refs. focus prépare la saisie ; utilise ensuite computer_keyboard type (touches réelles, Entrée séparée). Pour ouvrir une page : engine browser, action open, url. Le bureau et le navigateur autorisés démarrent s’ils ne tournent pas déjà ; une session déjà ouverte est réutilisée, aucun second navigateur n’est lancé. En mode auto, aucune approbation par clic. Un résultat executed confirme l’envoi de l’action, pas son effet : inspecte ensuite. Le pointeur système est animé vers la cible visible ; l’action reste sémantique, aucun clic par coordonnées à ajouter.',
       inputSchema: z.object({ engine: z.enum(['native', 'browser']), action: z.enum(['click', 'focus', 'open']), snapshot: z.string().optional(), ref: z.string().optional(), url: z.string().optional(), reason: z.string().min(1).max(500) }).strict(),
       execute: async ({ reason, ...input }, options) => {
         const parsed = actionSchema.safeParse(input);

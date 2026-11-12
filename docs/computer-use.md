@@ -306,7 +306,8 @@ missed starts. No manual start click or first agent tool call is required.
 Each account keeps its own container; each bot keeps its private Linux UID,
 screen, home directory and browser profile. Explicitly stopped desktops,
 archived bots, revoked permissions and disabled/offline computer settings are
-respected. Chromium is still opened only on demand. Startup errors in one bot
+respected. Desktop startup still does not open Chromium. Authorized browser
+tools open it on demand; see below. Startup errors in one bot
 do not prevent other desktops or the HTTP service from starting. No credentials
 are stored in container labels or writable bot startup scripts.
 
@@ -326,6 +327,17 @@ bot home folders persist.
 
 Neither the account container nor the XFCE desktop automatically opens Chromium.
 The desktop becomes ready when XFCE is visible, independently of any browser.
+`browser_inspect` and `computer_target` (browser engine) then start Chromium
+when the desktop is authorized and no browser session is already running.
+They wait until `obu/active.json` and its socket exist, reuse a running
+browser, and do not start a second one. Concurrent calls share one start.
+A missing session file is reported as browser-not-ready, not a raw missing-file
+error. If the desktop is not authorized, these tools return that error and
+start nothing; `computer_request_setup` still only shows a card. This
+ensure-started path is in the application controller and works with the
+existing `computer:9` image. The in-guest error text changes on the next image
+rebuild; until then the controller rewrites the previous raw error.
+
 Use the terminal, file manager or another application as needed. To browse, open
 Xfce's Web Browser launcher or run
 `opendots-open-browser https://example.com` through `shell_exec`, after

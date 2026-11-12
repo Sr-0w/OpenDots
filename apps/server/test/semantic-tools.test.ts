@@ -1,12 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
-  ask: false, manual: false, allowed: true,
+  ask: false, manual: false, allowed: true, enabled: true,
   semantic: vi.fn(async () => ({ ok: true, elements: [] })),
   keyboard: vi.fn(async () => ({ ok: true })),
   approval: vi.fn(async () => ({ id: 'approval' })),
   handlers: new Map<string, Function>(),
 }));
-vi.mock('../src/computer/desktop.ts', async (original) => ({ ...await original<any>(), desktopEnabled: async () => true, humanControl: async () => state.manual, semanticOperation: state.semantic, desktopAction: state.keyboard }));
+vi.mock('../src/computer/desktop.ts', async (original) => ({ ...await original<any>(), desktopEnabled: async () => state.enabled, humanControl: async () => state.manual, semanticOperation: state.semantic, desktopAction: state.keyboard }));
 vi.mock('../src/agents/repo.ts', () => ({ getAgent: async () => ({ id: 'ag_semantic', permissions: { computer: state.allowed } }) }));
 vi.mock('../src/computer/permissions.ts', () => ({ desktopActionNeedsApproval: async () => state.ask }));
 vi.mock('../src/approvals/service.ts', () => ({ registerApprovalAction: (name: string, handler: Function) => state.handlers.set(name, handler), createApproval: state.approval }));
@@ -15,7 +15,7 @@ const controller = new AbortController();
 const ctx = { agent: { id: 'ag_semantic', permissions: { computer: true } }, conversationId: 'cv_semantic', abortSignal: controller.signal } as any;
 const options = { toolCallId: 'call', messages: [] } as any;
 const target = { engine: 'native', action: 'focus', snapshot: 'a'.repeat(24), ref: '2', reason: 'Saisir dans le champ identifié' };
-beforeEach(() => { vi.clearAllMocks(); state.ask = state.manual = false; state.allowed = true; });
+beforeEach(() => { vi.clearAllMocks(); state.ask = state.manual = false; state.allowed = state.enabled = true; });
 it('expose les inspections texte avec le contexte du bot et le signal Stop', async () => {
   const tools = semanticTools(ctx);
   await tools.computer_inspect.execute!({}, options);
@@ -26,6 +26,16 @@ it('expose les inspections texte avec le contexte du bot et le signal Stop', asy
     [{ engine: 'native', action: 'inspect', app: '123' }, controller.signal],
     [{ engine: 'browser', action: 'inspect', tabId: 7 }, controller.signal],
   ]);
+});
+it('ne démarre rien si le bureau n’est pas autorisé ou si l’utilisateur a la main', async () => {
+  const tools = semanticTools(ctx);
+  state.enabled = false;
+  await expect(tools.browser_inspect.execute!({}, options)).rejects.toThrow(/non autorisé/);
+  await expect(tools.computer_inspect.execute!({}, options)).rejects.toThrow(/Aucun démarrage/);
+  state.enabled = true;
+  state.manual = true;
+  await expect(tools.browser_inspect.execute!({}, options)).rejects.toThrow(/pris la main/);
+  expect(state.semantic).not.toHaveBeenCalled();
 });
 it('respecte auto, ask et la prise en main avant toute action sémantique', async () => {
   const tools = semanticTools(ctx);
