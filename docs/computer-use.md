@@ -330,7 +330,10 @@ The desktop becomes ready when XFCE is visible, independently of any browser.
 `browser_inspect` and `computer_target` (browser engine) then start Chromium
 when the desktop is authorized and no browser session is already running.
 They wait until `obu/active.json` and its socket exist, reuse a running
-browser, and do not start a second one. Concurrent calls share one start.
+browser or an already visible Chromium window, and do not start a second one.
+The packaged launcher still reports “window not visible” after 4 seconds;
+on a 1 GiB desktop the window often maps later, so the controller keeps
+waiting and does not fail the inspection. Concurrent calls share one start.
 A missing session file is reported as browser-not-ready, not a raw missing-file
 error. If the desktop is not authorized, these tools return that error and
 start nothing; `computer_request_setup` still only shows a card. This

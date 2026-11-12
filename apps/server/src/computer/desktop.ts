@@ -165,8 +165,9 @@ async function waitForActiveBrowser(signal?: AbortSignal) {
   throw new DesktopError(`Attente du navigateur interrompue (${output.slice(0, 160)}).`);
 }
 async function launchPrivateBrowser(signal?: AbortSignal) {
-  // Re-check inside the container so a browser that appeared after the probe is reused.
-  await desktopExec(['sh', '-c', 'if pgrep -u "$(id -u)" -x chromium >/dev/null 2>&1; then exit 0; fi; exec opendots-open-browser about:blank'], undefined, { signal, timeoutMs: 20_000 });
+  // A visible Chromium window is reused. The image helper still exits after 4 s on a slow
+  // 1 GiB cold start; the launch probe keeps waiting for that window instead of failing the tool.
+  await desktopExec(['python3', '-c', browserPresencePy, 'launch'], undefined, { signal, timeoutMs: 45_000 });
 }
 export async function semanticOperation(input: { engine: 'native' | 'browser'; action: string; [key: string]: unknown }, signal?: AbortSignal) {
   return actions.run(desktopKey(), async () => {

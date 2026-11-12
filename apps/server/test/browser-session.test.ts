@@ -133,8 +133,10 @@ it('détecte une session absente, un processus sans socket, puis une session pr�
   const sockPath = join(obu, 'browser.sock');
   await mkdir(bin);
   await writeFile(join(bin, 'pgrep'), '#!/usr/bin/env python3\nimport os,sys\nif os.environ.get("FAKE_CHROMIUM")=="1":\n    print("4242")\n    raise SystemExit(0)\nraise SystemExit(1)\n', { mode: 0o755 });
+  await writeFile(join(bin, 'xdotool'), '#!/usr/bin/env python3\nimport os,sys\nflag=os.environ.get("WINDOW_FLAG","")\nif os.environ.get("FAKE_WINDOW")=="1" or (flag and os.path.exists(flag)):\n    print("99")\n    raise SystemExit(0)\nraise SystemExit(1)\n', { mode: 0o755 });
   await chmod(join(bin, 'pgrep'), 0o755);
-  const env = { PATH: `${bin}:${process.env.PATH}`, FAKE_CHROMIUM: '0' };
+  await chmod(join(bin, 'xdotool'), 0o755);
+  const env: NodeJS.ProcessEnv = { PATH: `${bin}:${process.env.PATH}`, FAKE_CHROMIUM: '0', FAKE_WINDOW: '0' };
   try {
     expect(await probe(root, 'status', env)).toBe('absent');
     expect(await probe(root, 'wait', { ...env, OPENDOTS_BROWSER_WAIT_SECONDS: '0.3' })).toBe('missing');
@@ -152,6 +154,8 @@ it('détecte une session absente, un processus sans socket, puis une session pr�
       expect(await probe(root, 'wait', env)).toBe('ready');
       env.FAKE_CHROMIUM = '0';
       expect(await probe(root, 'status', env)).toBe('absent');
+      env.FAKE_WINDOW = '1';
+      expect(await probe(root, 'status', env)).toBe('ready');
     } finally { server.close(); }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -167,6 +171,35 @@ function runBridge(runtime: string, request: unknown) {
     child.on('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
     child.stdin.write(`${JSON.stringify(request)}\n`);
   });
+}
+
+it('réutilise une fenêtre déjà visible et survit au délai de 4 s du lanceur', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'obu-launch-'));
+  const bin = join(root, 'bin');
+  const log = join(root, 'launches');
+  const flag = join(root, 'window');
+  await mkdir(bin);
+  const env = { PATH: `${bin}:${process.env.PATH ?? ''}`, FAKE_CHROMIUM: '0', FAKE_WINDOW: '0', FAKE_LATE_WINDOW: '0', WINDOW_FLAG: flag, LAUNCH_LOG: log, OPENDOTS_BROWSER_LAUNCH_WAIT_SECONDS: '0.4' };
+  await writeFile(join(bin, 'pgrep'), '#!/usr/bin/env python3\nimport os\nraise SystemExit(0 if os.environ.get("FAKE_CHROMIUM")=="1" else 1)\n', { mode: 0o755 });
+  await writeFile(join(bin, 'xdotool'), '#!/usr/bin/env python3\nimport os\nflag=os.environ.get("WINDOW_FLAG","")\nif os.environ.get("FAKE_WINDOW")=="1" or (flag and os.path.exists(flag)):\n    print("99")\n    raise SystemExit(0)\nraise SystemExit(1)\n', { mode: 0o755 });
+  await writeFile(join(bin, 'opendots-open-browser'), '#!/usr/bin/env python3\nimport os,sys\nopen(os.environ["LAUNCH_LOG"],"a").write("launch\\n")\nif os.environ.get("FAKE_LATE_WINDOW")=="1":\n    open(os.environ["WINDOW_FLAG"],"w").write("1")\nsys.stderr.write("Fenêtre non visible après 4 s. Consulte /tmp/chromium.log, puis reprends une capture.\\n")\nraise SystemExit(1)\n', { mode: 0o755 });
+  for (const name of ['pgrep', 'xdotool', 'opendots-open-browser']) await chmod(join(bin, name), 0o755);
+  const runLaunch = (extra: NodeJS.ProcessEnv) => run('python3', ['-c', browserPresencePy, 'launch'], { env: { ...process.env, ...env, ...extra, XDG_RUNTIME_DIR: root }, timeout: 5_000 }).then(() => ({ code: 0, stderr: '' }), (error: { code?: number; stderr?: string }) => ({ code: error.code ?? 1, stderr: String(error.stderr ?? '') }));
+  try {
+    expect((await runLaunch({ FAKE_WINDOW: '1' })).code).toBe(0);
+    expect(await readLaunchCount(log)).toBe(0);
+    expect((await runLaunch({ FAKE_LATE_WINDOW: '1' })).code).toBe(0);
+    expect(await readLaunchCount(log)).toBe(1);
+    await rm(flag, { force: true });
+    const failed = await runLaunch({});
+    expect(failed.code).not.toBe(0);
+    expect(failed.stderr).toMatch(/Fenêtre non visible/);
+    expect(await readLaunchCount(log)).toBe(2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+async function readLaunchCount(log: string) {
+  try { return (await (await import('node:fs/promises')).readFile(log, 'utf8')).trim().split('\n').filter(Boolean).length; } catch { return 0; }
 }
 
 it('remplace le fichier d’état manquant par une erreur explicite', async () => {
