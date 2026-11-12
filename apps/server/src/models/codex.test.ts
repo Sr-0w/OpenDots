@@ -1,3 +1,4 @@
+import { desktopVisionMessages } from '../computer/vision.ts';
 import { streamText, tool, jsonSchema, isStepCount } from 'ai';
 import { describe, expect, it } from 'vitest';
 import { codexHome, codexModel, type CodexRpc } from './codex.ts';
@@ -13,6 +14,33 @@ function fake(event: any) {
 }
 async function read(stream: ReadableStream<any>) { const parts = []; const reader = stream.getReader(); while (true) { const { done, value } = await reader.read(); if (done) break; parts.push(value); } return parts; }
 describe('Codex adapter', () => {
+  it.each(['Tu peux utiliser ton PC ?', 'Hello Aro'])('passes an existing desktop screenshot through the real SDK: %s', async text => {
+    const { model, calls } = fake({ method: 'turn/completed', params: { turn: {} } });
+    const messages = desktopVisionMessages([
+      { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'shot', toolName: 'computer_screenshot', output: { type: 'content', value: [
+        { type: 'text', text: JSON.stringify({ screenshotId: 'historical-shot' }) },
+        { type: 'file', mediaType: 'image/png', data: { type: 'data', data: 'AQID' } },
+      ] } }] },
+      { role: 'user', content: text },
+    ]);
+    const errors: unknown[] = [];
+    const result = streamText({ model, messages, maxRetries: 0, onError: ({ error }) => { errors.push(error); } });
+    for await (const _ of result.stream) { /* real SDK normalization */ }
+    expect(errors).toEqual([]);
+    const input = calls.find(c => c.method === 'turn/start').params.input;
+    expect(input[1]).toEqual({ type: 'image', url: 'data:image/png;base64,AQID' });
+    expect(input[0].text).toContain(text);
+  });
+  it.each([
+    [{ type: 'data', data: new Uint8Array([1,2,3]) }, 'data:image/png;base64,AQID'],
+    [{ type: 'data', data: 'AQID' }, 'data:image/png;base64,AQID'],
+    [{ type: 'url', url: new URL('https://example.com/image.png') }, 'https://example.com/image.png'],
+  ])('supports SDK v4 file data %j', async (data, expected) => {
+    const { model, calls } = fake({ method: 'turn/completed', params: { turn: {} } });
+    await read((await model.doStream({ prompt: [{ role: 'user', content: [{ type: 'file', mediaType: 'image/png', data }] }] })).stream);
+    expect(calls[1].params.input[1].url).toBe(expected);
+  });
+
   it('runs an SDK tool and supplies its result to the next inference step', async () => {
     let step = 0, executed = 0;
     const prompts: any[] = [];

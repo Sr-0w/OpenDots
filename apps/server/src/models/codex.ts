@@ -71,6 +71,26 @@ export async function codexModels() {
   return data.map((m: any) => ({ id: m.model, name: m.displayName, provider: 'codex' as const, contextLength: null, tools: true, reasoning: true, vision: m.inputModalities?.includes('image') ?? false, promptPrice: null, completionPrice: null }));
 }
 
+/** SDK v4 wraps bytes/base64/URLs in a tagged file-data object. */
+function codexImageUrl(data: unknown, mediaType: string): string {
+  if (data && typeof data === 'object' && 'type' in data) {
+    const file = data as { type: string; data?: unknown; url?: unknown };
+    if (file.type === 'data') {
+      const bytes = file.data;
+      if (typeof bytes === 'string') return `data:${mediaType};base64,${bytes}`;
+      if (bytes instanceof Uint8Array) return `data:${mediaType};base64,${Buffer.from(bytes).toString('base64')}`;
+    } else if (file.type === 'url' && (file.url instanceof URL || typeof file.url === 'string')) {
+      return String(file.url);
+    }
+    throw new Error('Format d’image non pris en charge par Codex : fournis les octets, le base64 ou une URL.');
+  }
+  // Accept direct values for callers which have not gone through SDK normalization.
+  if (data instanceof URL) return data.href;
+  if (data instanceof Uint8Array) return `data:${mediaType};base64,${Buffer.from(data).toString('base64')}`;
+  if (typeof data === 'string') return /^(https?:|data:)/.test(data) ? data : `data:${mediaType};base64,${data}`;
+  throw new Error('Données d’image invalides pour Codex.');
+}
+
 /** One inference step. OpenDots remains the sole executor of dynamic tools. */
 export function codexModel(modelId: string, home: string, effort?: string | null, makeRpc = (path: string) => new CodexRpc(path)) {
   return {
@@ -115,7 +135,7 @@ export function codexModel(modelId: string, home: string, effort?: string | null
             const images: any[] = [];
             const transcript = JSON.stringify(options.prompt, (_key, value) => {
               if (value?.type === 'file' && value.mediaType?.startsWith('image/')) {
-                const url = value.data instanceof URL ? value.data.href : typeof value.data === 'string' ? value.data : `data:${value.mediaType};base64,${Buffer.from(value.data).toString('base64')}`;
+                const url = codexImageUrl(value.data, value.mediaType);
                 images.push({ type: 'image', url }); return { type: 'text', text: `[Image ${images.length} attached]` };
               }
               return value;
