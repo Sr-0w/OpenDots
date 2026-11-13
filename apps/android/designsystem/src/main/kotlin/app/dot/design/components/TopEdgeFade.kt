@@ -83,6 +83,13 @@ fun TopEdgeFade(
     height: Dp = 32.dp,
     solidUntil: Float = 0.6f,
     fadeLength: Float = 1f - solidUntil,
+    /**
+     * Fraction of the height, from the top, that is always blurred at full, uniform strength (the screen edge and the
+     * status bar). It is drawn as a plain blur on top of the progressive one and dissolves into it over [capFade], so
+     * the top of the band can never be weaker than the part below it.
+     */
+    capUntil: Float = 0f,
+    capFade: Float = 0f,
 ) {
     val reduced = rememberReducedMotion()
     val p = if (reduced) (if (progress > 0.001f) 1f else 0f) else progress.coerceIn(0f, 1f)
@@ -92,7 +99,16 @@ fun TopEdgeFade(
     if (state.canBlur()) {
         val heightPx = with(LocalDensity.current) { height.toPx() }
         val fade = BlurFade(fullUntil = heightPx * solidUntil.coerceIn(0f, 1f), clearAt = heightPx * (solidUntil + fadeLength).coerceIn(0f, 1f))
-        Box(box.backdropBlur(state!!, background = bg, tint = null, radius = HeaderBlurRadius, fade = fade))
+        Box(box) {
+            Box(Modifier.matchParentSize().backdropBlur(state!!, background = bg, tint = null, radius = HeaderBlurRadius, fade = fade))
+            if (capUntil > 0f) {
+                val cap = capUntil.coerceIn(0f, 0.98f)
+                val capMask = remember(cap, capFade) {
+                    Brush.verticalGradient(0f to Color.White, cap to Color.White, (cap + capFade.coerceAtLeast(0.01f)).coerceAtMost(1f) to Color.Transparent, 1f to Color.Transparent)
+                }
+                Box(Modifier.matchParentSize().backdropBlur(state, background = bg, tint = null, mask = capMask, radius = HeaderBlurRadius))
+            }
+        }
     } else {
         Box(box.background(maskBrush(edgeMaskStops(solidUntil, fadeLength), bg, 0.94f)))
     }

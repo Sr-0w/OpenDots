@@ -170,6 +170,18 @@ data class ServerSettings(
 )
 
 @Serializable
+data class DesktopStatus(
+    val enabled: Boolean = false,
+    val available: Boolean = false,
+    val running: Boolean = false,
+    val suspended: Boolean = false,
+    val manualControl: Boolean = false,
+    val width: Int = 1280,
+    val height: Int = 800,
+    val vncPassword: String? = null,
+)
+
+@Serializable
 data class Attachment(val id: String, val url: String, val filename: String = "image.jpg", val mediaType: String = "image/jpeg")
 
 @Immutable

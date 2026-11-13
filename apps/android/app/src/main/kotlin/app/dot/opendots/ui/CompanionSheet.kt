@@ -34,6 +34,9 @@ import app.dot.design.components.DotPrimaryButton
 import app.dot.design.components.DotSwitch
 import app.dot.design.components.DotTextField
 import app.dot.design.components.Hairline
+import app.dot.design.components.ListRow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DesktopWindows
 import app.dot.design.components.SectionLabel
 import app.dot.design.rememberDotHaptics
 import app.dot.opendots.R
@@ -45,7 +48,7 @@ import kotlinx.serialization.json.putJsonObject
 
 /** Who this companion is and what it may do. Identity normally changes by talking to it; this is the direct route. */
 @Composable
-fun CompanionSheet(agent: Agent, onDismiss: () -> Unit, onUpdate: (JsonObject) -> Unit) {
+fun CompanionSheet(agent: Agent, onDismiss: () -> Unit, onOpenComputer: () -> Unit = {}, onUpdate: (JsonObject) -> Unit) {
     val c = Dot.colors
     var name by rememberSaveable(agent.id, agent.name) { mutableStateOf(if (agent.named) agent.name else "") }
     DotBottomSheet(onDismiss) {
@@ -60,6 +63,8 @@ fun CompanionSheet(agent: Agent, onDismiss: () -> Unit, onUpdate: (JsonObject) -
             }
             if (agent.description.isNotBlank()) Text(agent.description, style = Dot.type.callout, color = c.textSecondary, modifier = Modifier.padding(horizontal = DotSpacing.gutter, vertical = DotSpacing.s))
 
+            ListRow(stringResource(R.string.computer_row), subtitle = stringResource(R.string.computer_row_note), icon = Icons.Outlined.DesktopWindows, onClick = onOpenComputer)
+            Hairline()
             Row(Modifier.padding(horizontal = DotSpacing.gutter, vertical = DotSpacing.m), verticalAlignment = Alignment.Bottom) {
                 DotTextField(name, { name = it.take(40) }, Modifier.weight(1f), label = stringResource(R.string.name), imeAction = ImeAction.Done)
                 Spacer(Modifier.width(DotSpacing.m))

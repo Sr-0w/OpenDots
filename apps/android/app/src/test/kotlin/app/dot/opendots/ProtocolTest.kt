@@ -99,6 +99,38 @@ class ProtocolTest {
         assertEquals("Validation : GitHub", app.dot.opendots.ui.shortEventTitle("Validation : GitHub · {\"a\":1}"))
     }
 
+    @Test fun decodesAVncSessionAndSendsInputOnlyWhenAsked() {
+        val server = java.io.ByteArrayOutputStream().apply {
+            write("RFB 003.008\n".toByteArray())
+            write(byteArrayOf(1, 1))                      // one security type: None
+            write(byteArrayOf(0, 0, 0, 0))                // security result: OK
+            write(byteArrayOf(0, 2, 0, 1))                // 2 x 1 framebuffer
+            write(ByteArray(16)); write(ByteArray(4))     // server pixel format, empty name
+            write(byteArrayOf(0, 0, 0, 1))                // framebuffer update, one rectangle
+            write(byteArrayOf(0, 0, 0, 0, 0, 2, 0, 1, 0, 0, 0, 0)) // x, y, w, h, Raw
+            write(byteArrayOf(0x00, 0xF8.toByte(), 0x1F, 0x00))    // RGB565 little endian: red, blue
+        }.toByteArray()
+        val sent = ArrayList<ByteArray>()
+        val rects = ArrayList<List<Int>>()
+        var size = 0 to 0
+        var frames = 0
+        app.dot.opendots.data.RfbSession(server.inputStream(), { sent += it }, "secret", object : app.dot.opendots.data.RfbSink {
+            override fun resize(width: Int, height: Int) { size = width to height }
+            override fun rect(x: Int, y: Int, width: Int, height: Int, pixels: IntArray) { rects += pixels.toList() }
+            override fun copy(srcX: Int, srcY: Int, x: Int, y: Int, width: Int, height: Int) = Unit
+            override fun frame() { frames++ }
+        }).also { it.run(); it.pointer(1, 0, 1); it.key(app.dot.opendots.data.RfbSession.keysymOf('a'.code), true) }
+        assertEquals(2 to 1, size)
+        assertEquals(listOf(listOf(0xFFFF0000.toInt(), 0xFF0000FF.toInt())), rects)
+        assertEquals(1, frames)
+        assertEquals("RFB 003.008\n", sent.first().decodeToString())
+        // Watching sends only set-up and update requests; pointer (5) and key (4) events appear only once asked for.
+        assertEquals(listOf(1, 1, 0, 2, 3, 3, 5, 4), sent.drop(1).map { it[0].toInt() })
+        assertEquals(listOf(5, 1, 0, 1, 0, 0), sent[sent.size - 2].map { it.toInt() })
+        assertEquals(0x61, sent.last()[7].toInt())
+        assertEquals(16, app.dot.opendots.data.RfbSession.vncResponse(ByteArray(16) { it.toByte() }, "secret").size)
+    }
+
     @Test fun markdownBlocksIncludingAnOpenFence() {
         val blocks = parseMarkdown("# Title\n\nSome **bold** text\nsecond line\n\n- one\n- two\n  1. nested\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```kotlin\nval x = 1")
         assertEquals(MdBlock.Heading(1, "Title"), blocks[0])

@@ -62,6 +62,7 @@ import app.dot.design.rememberReducedMotion
 import app.dot.opendots.ui.ApprovalsScreen
 import app.dot.opendots.ui.ChatScreen
 import app.dot.opendots.ui.CompanionSheet
+import app.dot.opendots.ui.DesktopScreen
 import app.dot.opendots.ui.DrawerContent
 import app.dot.opendots.ui.OnboardingScreen
 import app.dot.opendots.ui.ServerScreen
@@ -99,7 +100,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Chat, Tasks, Approvals, Settings, Catalog }
+private enum class Screen { Chat, Tasks, Approvals, Settings, Catalog, Desktop }
 
 @Composable
 fun OpenDotsRoot(app: AppState, ui: AppUiState) {
@@ -177,13 +178,14 @@ private fun MainScreens(app: AppState, ui: AppUiState) {
                 val agent = ui.currentAgent
                 if (agent == null) StartingScreen() else {
                     ChatScreen(app, ui, agent, onOpenDrawer = { keyboard?.hide(); scope.launch { drawer.open() } }, onOpenCompanion = { companionSheet = true })
-                    if (companionSheet) CompanionSheet(agent, { companionSheet = false }) { patch -> app.updateAgent(agent.id, patch) }
+                    if (companionSheet) CompanionSheet(agent, { companionSheet = false }, onOpenComputer = { companionSheet = false; screen = Screen.Desktop }) { patch -> app.updateAgent(agent.id, patch) }
                 }
             }
             Screen.Tasks -> TasksScreen(app, ui) { screen = Screen.Chat }
             Screen.Approvals -> ApprovalsScreen(app, ui) { screen = Screen.Chat }
             Screen.Settings -> SettingsScreen(app, ui, onBack = { screen = Screen.Chat }, onOpenCatalog = { screen = Screen.Catalog }, onOpenWeb = openWeb)
             Screen.Catalog -> QuietCatalogScreen(onBack = { screen = Screen.Settings })
+            Screen.Desktop -> ui.currentAgent?.let { DesktopScreen(app, it) { screen = Screen.Chat } } ?: StartingScreen()
         }
     }
 }

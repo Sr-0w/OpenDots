@@ -323,6 +323,9 @@ class AppState(private val store: SessionStore, val client: OpenDotsClient) : Vi
 
     fun notify(message: String) { _notices.tryEmit(message) }
 
+    /** Hands a companion's desktop back to it. Survives the screen that took control being closed. */
+    fun releaseDesktopControl(agentId: String) { viewModelScope.launch { runCatching { client.setDesktopControl(agentId, false) } } }
+
     private fun act(onFailure: () -> Unit = {}, block: suspend () -> Unit) {
         viewModelScope.launch {
             try { block() } catch (e: Exception) {

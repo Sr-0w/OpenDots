@@ -185,6 +185,27 @@ class OpenDotsClient(private val store: SessionStore, baseClient: OkHttpClient =
     suspend fun runActivity(id: String) { json("POST", "/activities/$id/run") }
     suspend fun deleteActivity(id: String) { json("DELETE", "/activities/$id") }
 
+    // --- Companion computer -------------------------------------------------------------------
+
+    suspend fun desktop(agentId: String): DesktopStatus = get("/computer/desktop?agentId=$agentId")
+    suspend fun startDesktop(agentId: String): DesktopStatus =
+        OdJson.decodeFromJsonElement(json("POST", "/computer/desktop/start?agentId=$agentId", buildJsonObject { put("notify", false) }))
+
+    /** Human control: while it is on, the companion's own desktop tools wait instead of acting. */
+    suspend fun setDesktopControl(agentId: String, enabled: Boolean) {
+        json("POST", "/computer/desktop/control?agentId=$agentId", buildJsonObject { put("enabled", enabled) })
+    }
+
+    /**
+     * The companion's screen as a VNC stream, relayed by the server over an authenticated WebSocket. The server only
+     * accepts it from its own origin, so the Origin header is the server's.
+     */
+    fun desktopSocket(agentId: String, listener: okhttp3.WebSocketListener): okhttp3.WebSocket {
+        val base = baseUrl ?: throw ApiException("No server", 0)
+        val origin = "${base.scheme}://${base.host}" + if (base.port == HttpUrl.defaultPort(base.scheme)) "" else ":${base.port}"
+        return streaming.newWebSocket(Request.Builder().url(url("/computer/vnc?agentId=$agentId")).header("Origin", origin).build(), listener)
+    }
+
     // --- Attachments ------------------------------------------------------------------------
 
     suspend fun uploadImage(bytes: ByteArray, filename: String, mediaType: String): Attachment {

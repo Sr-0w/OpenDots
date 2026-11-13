@@ -33,6 +33,10 @@ private val TAIL = 10.dp
 /** Share of the visible header, from the top, where the blur stays at full strength before it starts easing out. */
 private const val FULL = 0.18f
 
+/** The uniform top blur reaches a little below the status bar, then dissolves into the progressive blur over [CAP_FADE]. */
+private val CAP_BELOW_STATUS_BAR = 6.dp
+private val CAP_FADE = 28.dp
+
 /** Gap between the header and the first row of the list at rest. */
 private val LIST_INSET = 12.dp
 
@@ -63,7 +67,8 @@ fun FrostedHeaderLayout(
     content: @Composable (contentPadding: PaddingValues) -> Unit,
 ) {
     val density = LocalDensity.current
-    val initial = with(density) { WindowInsets.statusBars.getTop(this).toDp() } + 64.dp
+    val statusBar = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    val initial = statusBar + 64.dp
     val width = LocalConfiguration.current.screenWidthDp
     var headerHeight by remember(density, width) { mutableStateOf(initial) }
     var expandedHeight by remember(density, width) { mutableStateOf(initial) }
@@ -78,6 +83,9 @@ fun FrostedHeaderLayout(
             height = total,
             solidUntil = ((BLEED + visible * FULL) / total).coerceIn(0f, 1f),
             fadeLength = (visible * (1f - FULL) + TAIL) / total,
+            // The off-screen strip, the screen edge and the status bar are always fully blurred.
+            capUntil = (BLEED + statusBar + CAP_BELOW_STATUS_BAR) / total,
+            capFade = CAP_FADE / total,
         )
         CompositionLocalProvider(LocalHeaderGlass provides HeaderGlass(null)) {
             Box(
