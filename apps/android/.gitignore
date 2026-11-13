@@ -10,3 +10,6 @@ captures/
 *.keystore
 *.jks
 .DS_Store
+
+# The repository root ignores data/ (server state); the app has a Kotlin package of that name.
+!data/
