@@ -429,11 +429,14 @@ targets when coordinate clicks fail. Submission remains explicit.
 
 ### Computer use in the conversation
 
-Each assistant turn groups its tool calls, intermediate commentary, command
-output, search cards and reasoning in one collapsed **Worked** block. It can be
-expanded while the agent works, and closes when the turn finishes. Final answer
-text remains visible. Approval, question, connection, mail-draft and team cards
-stay outside the block so users can act on them.
+Each assistant turn groups its tool calls, command output, search cards and
+reasoning in one collapsed **Worked** block. Text written before or between
+those calls stays in the conversation, so a one-line status such as "Je vais
+maintenant créer ce fichier" is visible while the turn runs and after it
+finishes. The block can be expanded while the agent works, and closes when the
+turn finishes. The final answer stays visible too. Approval, question,
+connection, mail-draft and team cards stay outside the block so users can act
+on them.
 
 During computer use the active turn shows one read-only private noVNC feed for
 the correct bot, including its real remote pointer. It does not start the

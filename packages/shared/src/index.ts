@@ -395,6 +395,26 @@ export function cleanModelText(text: string): string {
     .trim();
 }
 
+/**
+ * Une phrase écrite avant ou entre des appels d'outils reste visible.
+ * Les outils et le raisonnement restent dans le bloc de travail replié.
+ * `lead` précède le premier outil ; `around` est le texte qui suit au moins un outil.
+ */
+export function partitionToolNarrative<T extends { type: string }>(parts: T[]): { lead: T[]; around: T[]; work: T[] } {
+  const lead: T[] = [];
+  const around: T[] = [];
+  const work: T[] = [];
+  let seenTool = false;
+  for (const part of parts) {
+    if (part.type === 'text' || part.type === 'file') (seenTool ? around : lead).push(part);
+    else {
+      if (part.type.startsWith('tool-')) seenTool = true;
+      work.push(part);
+    }
+  }
+  return { lead, around, work };
+}
+
 /** Limites communes aux images jointes au chat. */
 export const IMAGE_MAX_COUNT = 6;
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;

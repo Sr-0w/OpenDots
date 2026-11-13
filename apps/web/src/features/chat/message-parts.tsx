@@ -22,6 +22,7 @@ import type { ToolUIPart } from "ai";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
+import { partitionToolNarrative } from "@opendots/shared";
 import type { ODMessage } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -283,17 +284,20 @@ export function MessageView({ message, streaming, agentId }: { message: ODMessag
   const assistant = message.role === 'assistant';
   const lastWork = assistant ? message.parts.findLastIndex(p => p.type === 'reasoning' || p.type.startsWith('tool-')) : -1;
   const workParts = lastWork < 0 ? [] : message.parts.slice(0, lastWork+1);
+  const narrative = partitionToolNarrative(workParts);
   const groups = groupParts(message.parts.slice(lastWork+1), streaming);
-  const workGroups = groupParts(workParts, streaming);
+  const leadGroups = groupParts(narrative.lead, streaming);
+  const aroundGroups = groupParts(narrative.around, streaming);
+  const workGroups = groupParts(narrative.work, streaming);
   const tools = workParts.filter(p => p.type.startsWith('tool-')) as ToolUIPart[];
   const owner = message.metadata?.agentId ?? agentId;
   const failures = tools.filter(p => p.state === 'output-error' || (p as any).output?.ok === false).length;
   const computerUse = tools.some(p => /^tool-(computer_(action|screenshot|target|keyboard|inspect)|browser_inspect)$/.test(p.type));
   const lastShot = [...tools].reverse().find(p => ['tool-computer_screenshot', 'tool-computer_action'].includes(p.type) && (p as any).output?.screenshotId && (p as any).output?.url);
-  if (!groups.length && !workGroups.length && !streaming) return null;
-  const lastGroup = groups[groups.length - 1];
-  const renderGroup = (g: Group) => {
-    const key = `${message.id}-${g.index}`;
+  if (!groups.length && !leadGroups.length && !aroundGroups.length && !workGroups.length && !streaming) return null;
+  const lastGroup = [...leadGroups, ...aroundGroups, ...groups].at(-1);
+  const renderGroup = (g: Group, scope: string) => {
+    const key = `${message.id}-${scope}-${g.index}`;
     if (g.kind === 'text') {
       if (message.role === 'user' && message.metadata?.answer) return <AnswerBubble key={key} text={g.text} />;
       return message.role === 'user' ? <p key={key} className="whitespace-pre-wrap">{g.text}</p> : <MessageResponse key={key} isAnimating={streaming && g === lastGroup}>{g.text}</MessageResponse>;
@@ -311,12 +315,14 @@ export function MessageView({ message, streaming, agentId }: { message: ODMessag
   return <Message from={message.role} className={cn(assistant && 'max-w-full')}>
     <MessageContent>
       {streaming && computerUse && owner && <Suspense fallback={null}><LiveComputer key={owner} agentId={owner} /></Suspense>}
+      {leadGroups.map((g) => renderGroup(g, "lead"))}
       {workGroups.length > 0 && <Worked streaming={streaming} count={tools.length} failures={failures}>
-        {workGroups.map(renderGroup)}
+        {workGroups.map((g) => renderGroup(g, "work"))}
         {!streaming && lastShot && <DesktopScreenshot output={(lastShot as any).output} afterAction={lastShot.type === 'tool-computer_action'} />}
       </Worked>}
       {tools.filter(isActionCard).map(p => <ToolCard key={`action-${p.toolCallId}`} part={p} agentId={owner} date={message.metadata?.createdAt} />)}
-      {groups.map(renderGroup)}
+      {aroundGroups.map((g) => renderGroup(g, "around"))}
+      {groups.map((g) => renderGroup(g, "reply"))}
       {assistant && message.metadata?.setup && owner && <WelcomeSetupCards agentId={owner} />}
     </MessageContent>
   </Message>;
