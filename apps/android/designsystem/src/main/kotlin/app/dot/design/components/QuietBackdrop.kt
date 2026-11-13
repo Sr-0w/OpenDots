@@ -1,6 +1,8 @@
 package app.dot.design.components
 
 import android.os.Build
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
@@ -13,6 +15,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.HazeColorEffect
@@ -62,10 +65,17 @@ fun Modifier.backdropSource(backdrop: QuietBackdrop?): Modifier =
 val BackdropRadius: Dp = 28.dp
 
 /**
+ * A blur that weakens along the vertical axis: full strength down to [fullUntil] (px from the top of the surface), then
+ * easing to no blur at all at [clearAt]. Where the strength reaches zero the surface shows the content exactly as it is
+ * underneath, so an untinted progressive blur needs no mask and has no visible lower edge.
+ */
+@Immutable
+data class BlurFade(val fullUntil: Float, val clearAt: Float)
+
+/**
  * Draws the backdrop behind this element: blurred by [radius] over an opaque [background] (so transparent pixels of the
- * source never read as black), veiled by the neutral [tint], and shaped by the alpha [mask] when given. The mask fades
- * the blur **and** its veil with one curve, so sharp content turns progressively frosted with no darker strip ahead of
- * the blur. This element's own content stays sharp on top.
+ * source never read as black), optionally veiled by a neutral [tint], shaped by the alpha [mask] and/or weakened
+ * progressively by [fade]. This element's own content stays sharp on top.
  *
  * Edges use Haze's bounded treatment (clamped sampling): the blur never pulls transparent black in from outside the
  * source, which is what produces dark bands at a screen edge.
@@ -76,9 +86,13 @@ fun Modifier.backdropBlur(
     tint: Brush?,
     mask: Brush? = null,
     radius: Dp = BackdropRadius,
+    fade: BlurFade? = null,
 ): Modifier = composed {
     val input = remember(backdrop) { HazeInput.Sources(backdrop.haze) }
-    val style = remember(background, tint, mask, radius) {
+    val style = remember(background, tint, mask, radius, fade) {
+        val progressive = fade?.let {
+            HazeProgressive.verticalGradient(easing = FadeEasing, startY = it.fullUntil, startIntensity = 1f, endY = it.clearAt, endIntensity = 0f)
+        }
         HazeBlurStyle {
             blurEnabled(true)
             blurRadius(radius)
@@ -86,7 +100,11 @@ fun Modifier.backdropBlur(
             backgroundColor(background)
             colorEffects(if (tint != null) listOf(HazeColorEffect.tint(tint)) else emptyList())
             mask(mask)
+            progressive(progressive)
         }
     }
     hazeBlur(input = input, style = style)
 }
+
+/** Gentle S-curve: the blur lets go of the content without a knee at either end. */
+private val FadeEasing = CubicBezierEasing(0.4f, 0f, 0.6f, 1f)

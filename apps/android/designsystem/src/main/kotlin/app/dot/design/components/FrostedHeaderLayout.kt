@@ -25,8 +25,8 @@ import app.dot.design.rememberReducedMotion
 
 internal data class HeaderGlass(val backdrop: QuietBackdrop?)
 
-/** Short ease-out below the header: everything under the header itself is fully frosted. */
-private val FADE = 40.dp
+/** The blur lets go of the content over this distance below the header; behind the header itself it is at full strength. */
+private val FADE = 72.dp
 
 /** Extra top inset for the list, so at rest its first row sits past most of the fade. */
 private val LIST_INSET = 24.dp

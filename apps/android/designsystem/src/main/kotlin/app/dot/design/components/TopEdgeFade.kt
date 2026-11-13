@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -64,13 +63,16 @@ private fun maskBrush(stops: Array<Pair<Float, Float>>, color: Color, maxAlpha: 
     Brush.verticalGradient(*stops.map { (y, a) -> y to color.copy(alpha = a * maxAlpha) }.toTypedArray())
 
 /**
- * The soft frosted edge at the top of a scrolling area - the only place Quiet frosts content (never the bottom). Where
- * the platform can blur, the content under it is blurred (uniform strength, shaped by [edgeMaskStops]) with a light
- * page-colour veil for contrast; titles and buttons are drawn on top and stay crisp. Without a usable [state] (no
- * RenderEffect, reduced transparency) it is a page-coloured gradient of the same shape.
+ * The frosted edge at the top of a scrolling area - the only place Quiet frosts content (never the bottom).
+ *
+ * It is a pure, **untinted** progressive blur: content sliding under the header is blurred at full strength behind the
+ * header itself and gets progressively sharper over the fade below it, until it is simply the content. There is no
+ * veil, no darkening and no gradient band - the page keeps its exact colour and the moving content stays perceptible.
+ * Titles and buttons are drawn on top and stay crisp. Without a usable [state] (no RenderEffect, reduced transparency)
+ * it falls back to a page-coloured gradient of the same shape.
  *
  * Place it as a **sibling above** the scrolling content, and mark only that content with `backdropSource(state)`. Keep
- * its [height] stable while scrolling (it is the blur texture size) and move [solidUntil] instead: changing a mask is
+ * its [height] stable while scrolling (it is the blur texture size) and move [solidUntil] instead: changing the fade is
  * cheap, resizing the effect reallocates and flickers.
  */
 @Composable
@@ -86,14 +88,15 @@ fun TopEdgeFade(
     val p = if (reduced) (if (progress > 0.001f) 1f else 0f) else progress.coerceIn(0f, 1f)
     if (p <= 0.001f) return
     val bg = Dot.colors.background
-    val stops = edgeMaskStops(solidUntil, fadeLength)
     val box = modifier.fillMaxWidth().height(height).graphicsLayer { alpha = p }
     if (state.canBlur()) {
-        // Neutral page-colour veil only (no hue); light enough that the moving blurred content stays visible. It is part
-        // of the effect, so the mask fades it with exactly the same curve as the blur.
-        val veil = SolidColor(bg.copy(alpha = if (Dot.colors.isDark) 0.34f else 0.42f))
-        Box(box.backdropBlur(state!!, background = bg, tint = veil, mask = maskBrush(stops, Color.White)))
+        val heightPx = with(LocalDensity.current) { height.toPx() }
+        val fade = BlurFade(fullUntil = heightPx * solidUntil.coerceIn(0f, 1f), clearAt = heightPx * (solidUntil + fadeLength).coerceIn(0f, 1f))
+        Box(box.backdropBlur(state!!, background = bg, tint = null, radius = HeaderBlurRadius, fade = fade))
     } else {
-        Box(box.background(maskBrush(stops, bg, 0.94f)))
+        Box(box.background(maskBrush(edgeMaskStops(solidUntil, fadeLength), bg, 0.94f)))
     }
 }
+
+/** A little stronger than glass controls: behind the header, text must dissolve into soft shapes. */
+private val HeaderBlurRadius = 32.dp

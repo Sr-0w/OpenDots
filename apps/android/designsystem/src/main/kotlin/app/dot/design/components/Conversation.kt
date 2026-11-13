@@ -70,26 +70,37 @@ import app.dot.design.rememberDotHaptics
 import app.dot.design.rememberReducedMotion
 
 /*
- * Conversation components of Quiet UI. A conversation is flat: the other party's words are plain reading text on the
- * page, the user's own words get one subtle surface, and work (tools, reasoning, code) is tucked behind disclosures.
+ * Conversation components of Quiet UI. A conversation reads like instant messaging: both parties speak in quiet
+ * bubbles, and work (tools, reasoning, terminal output) lives in a separate panel, behind disclosures.
  * Nothing here is glass: the only frosted element of a conversation screen is its header.
  */
 
-/** The user's own message: one quiet surface, hugging the trailing edge. Shape is a card, never a pill. */
+/** The user's own message: the raised neutral surface, hugging the trailing edge. A card shape, never a pill. */
 @Composable
 fun DotUserBubble(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier
-            .clip(UserBubbleShape)
-            .background(Dot.colors.surface)
-            .border(DotSpacing.hairline, Dot.colors.border, UserBubbleShape)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+        modifier.clip(UserBubbleShape).background(Dot.colors.surfaceRaised).padding(horizontal = 14.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(DotSpacing.s),
         content = content,
     )
 }
 
-private val UserBubbleShape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 6.dp, bottomStart = 18.dp)
+/** The other party's message: the quiet `surface` with a hairline, hugging the leading edge. */
+@Composable
+fun DotReplyBubble(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier
+            .clip(ReplyBubbleShape)
+            .background(Dot.colors.surface)
+            .border(DotSpacing.hairline * 2, Dot.colors.border, ReplyBubbleShape)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(DotSpacing.s),
+        content = content,
+    )
+}
+
+private val UserBubbleShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 6.dp, bottomStart = 20.dp)
+private val ReplyBubbleShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 6.dp)
 
 /** The message a reply refers to: a hairline rule, who said it, one line of it. */
 @Composable

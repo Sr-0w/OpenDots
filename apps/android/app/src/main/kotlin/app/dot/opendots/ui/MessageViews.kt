@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.outlined.AddReaction
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -57,6 +58,7 @@ import app.dot.design.components.DotMarkdown
 import app.dot.design.components.DotMenu
 import app.dot.design.components.DotMenuItem
 import app.dot.design.components.DotQuote
+import app.dot.design.components.DotReplyBubble
 import app.dot.design.components.DotReactionChip
 import app.dot.design.components.DotSpinner
 import app.dot.design.components.DotUserBubble
@@ -102,6 +104,7 @@ class MessageEnv(
     val onNeedDraft: (String) -> Unit,
     val onOpenWeb: () -> Unit,
     val onOpenImage: (String) -> Unit,
+    val onShowWork: () -> Unit = {},
 )
 
 @Composable
@@ -163,21 +166,22 @@ private fun AssistantMessage(message: ChatMessage, env: MessageEnv, streaming: B
     var menu by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val firstText = turn.bubbles.firstOrNull { it is Bubble.Text }?.key
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DotSpacing.m)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DotSpacing.s)) {
         if (turn.bubbles.isNotEmpty()) {
             Box {
+                // Each sentence the companion sends is its own bubble, like an instant-messaging thread.
                 Column(
-                    Modifier.fillMaxWidth().combinedClickable(
+                    Modifier.fillMaxWidth(0.92f).combinedClickable(
                         interactionSource = remember { MutableInteractionSource() }, indication = null,
                         onLongClickLabel = stringResource(R.string.message_actions),
                         onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true },
                         onClick = {},
                     ),
-                    verticalArrangement = Arrangement.spacedBy(DotSpacing.m),
+                    verticalArrangement = Arrangement.spacedBy(DotSpacing.xs + 2.dp),
                 ) {
                     turn.bubbles.forEach { bubble ->
                         when (bubble) {
-                            is Bubble.Text -> {
+                            is Bubble.Text -> DotReplyBubble {
                                 if (bubble.key == firstText) message.meta.replyTo?.let { ReplyQuote(it, env) }
                                 DotMarkdown(bubble.text, onCopyCode = env.onCopy)
                             }
@@ -185,10 +189,9 @@ private fun AssistantMessage(message: ChatMessage, env: MessageEnv, streaming: B
                         }
                     }
                 }
-                MessageMenu(menu, { menu = false }, turn.plainText, message.id, "assistant", env)
+                MessageMenu(menu, { menu = false }, turn.plainText, message.id, "assistant", env, onShowWork = if (turn.hasWork) env.onShowWork else null)
             }
         }
-        if (turn.hasWork) WorkPanel(turn, streaming, message.meta.workedMs, env)
         turn.actions.forEach { part -> ActionCard(part, message, env) }
         if (message.meta.setup) SetupHint(env)
         Reactions(message.id, message.meta.reactions, env)
@@ -203,9 +206,11 @@ private fun AssistantMessage(message: ChatMessage, env: MessageEnv, streaming: B
     }
 }
 
+/** One turn's work (reasoning, tool calls, outputs) behind a disclosure. Lives in the work panel, never in the thread. */
 @Composable
-private fun WorkPanel(turn: AssistantTurn, streaming: Boolean, workedMs: Long?, env: MessageEnv) {
-    var open by rememberSaveable { mutableStateOf(false) }
+fun TurnWorkDisclosure(message: ChatMessage, turn: AssistantTurn, streaming: Boolean, env: MessageEnv, modifier: Modifier = Modifier, initiallyOpen: Boolean = false) {
+    var open by rememberSaveable(message.id) { mutableStateOf(initiallyOpen) }
+    val workedMs = message.meta.workedMs
     val label = when {
         streaming -> stringResource(R.string.working)
         turn.tools.isEmpty() -> stringResource(R.string.reasoning)
@@ -215,11 +220,13 @@ private fun WorkPanel(turn: AssistantTurn, streaming: Boolean, workedMs: Long?, 
     val detail = buildList {
         if (turn.tools.isNotEmpty()) add(pluralStringResource(R.plurals.actions, turn.tools.size, turn.tools.size))
         if (turn.failures > 0) add(pluralStringResource(R.plurals.errors, turn.failures, turn.failures))
+        formatWhen(message.meta.createdAt).takeIf { it.isNotEmpty() }?.let(::add)
     }.joinToString(" · ").ifEmpty { null }
     DotDisclosure(
         label = label,
         expanded = open,
         onToggle = { open = !open },
+        modifier = modifier,
         detail = detail,
         detailColor = if (turn.failures > 0) Dot.colors.danger else Dot.colors.textTertiary,
         leading = {
@@ -282,7 +289,7 @@ private fun EventLine(message: ChatMessage, env: MessageEnv, modifier: Modifier)
             ) {
                 if (from != null) CompanionOrb(from, size = 14.dp) else Icon(eventIcon(event?.type), null, Modifier.size(14.dp), tint = c.textTertiary)
                 Spacer(Modifier.width(DotSpacing.s))
-                Text(event?.title?.ifBlank { null } ?: stringResource(R.string.event), style = Dot.type.caption, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(shortEventTitle(event?.title) ?: stringResource(R.string.event), style = Dot.type.caption, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 formatWhen(message.meta.createdAt).takeIf { it.isNotEmpty() }?.let { Text("  ·  $it", style = Dot.type.caption, color = c.textTertiary, maxLines = 1) }
             }
         }
@@ -334,7 +341,7 @@ private fun Reactions(messageId: String, reactions: List<Reaction>, env: Message
 
 /** Long-press menu of a message: quick reactions, copy, reply. */
 @Composable
-private fun MessageMenu(expanded: Boolean, onDismiss: () -> Unit, text: String, messageId: String, role: String, env: MessageEnv) {
+private fun MessageMenu(expanded: Boolean, onDismiss: () -> Unit, text: String, messageId: String, role: String, env: MessageEnv, onShowWork: (() -> Unit)? = null) {
     DotMenu(expanded, onDismiss) {
         Row(Modifier.padding(horizontal = DotSpacing.s)) {
             QUICK_REACTIONS.forEach { emoji ->
@@ -348,5 +355,32 @@ private fun MessageMenu(expanded: Boolean, onDismiss: () -> Unit, text: String, 
             DotMenuItem(stringResource(R.string.copy), Icons.Outlined.ContentCopy) { env.onCopy(text); onDismiss() }
             DotMenuItem(stringResource(R.string.reply), Icons.AutoMirrored.Outlined.Reply) { env.onReply(ReplyRef(messageId, text.take(180), role)); onDismiss() }
         }
+        if (onShowWork != null) DotMenuItem(stringResource(R.string.show_work), Icons.Outlined.Checklist) { onShowWork(); onDismiss() }
     }
+}
+
+/** An event title fits one line: no JSON payload, no commit hash. */
+fun shortEventTitle(title: String?): String? {
+    if (title.isNullOrBlank()) return null
+    val parts = title.split(" · ").filterNot { it.trimStart().startsWith("{") || it.trimStart().startsWith("[") || COMMIT.matches(it.trim()) }
+    return (if (parts.isEmpty()) title else parts.joinToString(" · ")).take(140)
+}
+
+private val COMMIT = Regex("^commit [0-9a-f]{7,}.*", RegexOption.IGNORE_CASE)
+
+/** What the companion is doing right now, in one sentence, for the live status line. */
+@Composable
+fun liveStepLabel(message: ChatMessage?): Pair<String, Int>? {
+    if (message == null || message.isUser) return null
+    val tools = remember(message.parts) { message.parts.filterIsInstance<Part.Tool>().filter { it.name != "text_user" } }
+    val running = tools.lastOrNull { it.state.startsWith("input") }
+    val last = message.parts.lastOrNull()
+    val title = when {
+        running != null -> toolLabel(running).title
+        last is Part.Reasoning -> stringResource(R.string.state_thinking) + "…"
+        last is Part.Tool && last.name != "text_user" -> toolLabel(last).title
+        tools.isNotEmpty() -> stringResource(R.string.writing_reply)
+        else -> return null
+    }
+    return title to tools.size
 }

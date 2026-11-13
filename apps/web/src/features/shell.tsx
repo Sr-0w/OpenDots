@@ -1,3 +1,4 @@
+import { onWorkPanelRequested } from "@/lib/work-store";
 import { useEffect, useMemo, useState } from "react";
 import {
   MenuIcon,
@@ -162,6 +163,9 @@ export function Shell() {
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
   const [mobilePanel, setMobilePanel] = useState(false);
+
+  // Le fil ne montre que l'état en direct : un clic dessus ouvre le travail dans le panneau.
+  useEffect(() => onWorkPanelRequested(() => (window.matchMedia("(min-width: 1024px)").matches ? setPanelOpen(true) : setMobilePanel(true))), []);
 
   const current = useMemo(() => {
     if (route.view !== "agent") return null;

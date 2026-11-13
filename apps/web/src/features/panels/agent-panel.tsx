@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { AgentSettings } from "./agent-settings";
 import { ACTIVITY_ICONS, describeActivity, STATUS_LABELS } from "../pages/tasks-page";
 import { openDialog } from "@/lib/dialogs";
+import { onWorkPanelRequested } from "@/lib/work-store";
+import { WorkTab } from "./work-tab";
 
 import { t } from "@/lib/i18n";
 function ActivityItem({ activity }: { activity: ActivityDTO }) {
@@ -99,14 +101,22 @@ export function AgentPanel({ agent }: { agent: AgentDTO }) {
   );
   const journal = useReload<JournalEntryDTO[]>(() => api.journal(agent.id), (e) => e.type === "journal.created", [agent.id]);
 
+  const [tab, setTab] = useState("work");
+  useEffect(() => onWorkPanelRequested(() => setTab("work")), []);
+
   return (
-    <Tabs defaultValue="activities" className="flex h-full min-h-0 flex-col gap-0">
-      <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+    <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 flex-col gap-0">
+      <TabsList className="mx-3 mt-3 grid w-auto grid-cols-5">
+        <TabsTrigger value="work" className="text-xs">{t("Travail")}</TabsTrigger>
         <TabsTrigger value="activities" className="text-xs">{t("Activités")}</TabsTrigger>
         <TabsTrigger value="memory" className="text-xs">{t("Mémoire")}</TabsTrigger>
         <TabsTrigger value="journal" className="text-xs">{t("Journal")}</TabsTrigger>
         <TabsTrigger value="profile" className="text-xs">{t("Profil")}</TabsTrigger>
       </TabsList>
+
+      <TabsContent value="work" className="min-h-0 flex-1 overflow-y-auto p-3">
+        <WorkTab agent={agent} />
+      </TabsContent>
 
       <TabsContent value="activities" className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {activities?.length === 0 && (

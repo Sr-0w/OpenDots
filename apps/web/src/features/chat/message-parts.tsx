@@ -30,7 +30,6 @@ import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, 
 import { DotAvatar } from "../dot-avatar";
 import { openDialog } from "@/lib/dialogs";
 import { ComputerSetupCard, WelcomeSetupCards } from './setup-cards';
-import { Worked } from "./worked";
 import { DesktopScreenshot } from './desktop-screenshot';
 import { MessageActions, MessageQuote, ReactionPills } from './message-actions';
 
@@ -216,16 +215,23 @@ function isSentTeam(part: ToolUIPart) {
   return part.type === "tool-team_send_message" && part.state === "output-available" && out?.ok !== false && out?.status === "sent";
 }
 
+/** Un titre d'événement tient sur une ligne : sans charge utile JSON ni identifiant de commit. */
+function shortEventTitle(title: string | undefined) {
+  if (!title) return undefined;
+  const parts = title.split(' · ').filter((part) => !/^\s*[{[]/.test(part) && !/^commit [0-9a-f]{12,}/i.test(part.trim()));
+  return (parts.length ? parts.join(' · ') : title).slice(0, 140);
+}
+
 function PlainEventChip({ message }: { message: ODMessage }) {
   const event = message.metadata?.event;
   const from = useStore((s) => s.agents.find((a) => a.id === event?.fromAgentId));
   const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n");
   return (
     <details className="group/event mx-auto w-full max-w-lg text-center">
-      <summary className="mx-auto inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-dashed px-3 py-1 text-muted-foreground text-xs transition-colors hover:text-foreground">
+      <summary className="mx-auto inline-flex max-w-full cursor-pointer list-none items-center gap-1.5 rounded-full border border-dashed px-3 py-1 text-muted-foreground text-xs transition-colors hover:text-foreground">
         {from ? <DotAvatar color={from.color} size={14} /> : EVENT_ICONS[event?.type ?? "system"]}
-        <span>{event?.title ?? t("Événement")}</span>
-        <span className="opacity-60">· {formatDateTime(message.metadata?.createdAt)}</span>
+        <span className="min-w-0 truncate">{shortEventTitle(event?.title) ?? t("Événement")}</span>
+        <span className="shrink-0 opacity-60">· {formatDateTime(message.metadata?.createdAt)}</span>
       </summary>
       <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-card/60 p-3 text-left font-sans text-muted-foreground text-xs">
         {text}
@@ -293,16 +299,12 @@ export function MessageView({ message, streaming, agentId, onReply, onReact }: {
 
   const view = presentAssistantTurn(message.parts);
   const tools = view.work.filter(isToolPart);
-  const reasoning = view.work.flatMap((part) => part.type === 'reasoning' && part.text?.trim() ? [part.text.trim()] : []).join('\n\n');
   const owner = message.metadata?.agentId ?? agentId;
-  const failures = tools.filter((part) => part.state === 'output-error' || (part as { output?: { ok?: boolean } }).output?.ok === false).length;
   const computerUse = tools.some((part) => /^tool-(computer_(action|screenshot|target|keyboard|inspect)|browser_inspect)$/.test(part.type) || (part.type === 'dynamic-tool' && /^(computer_|browser_inspect)/.test(part.toolName)));
-  const lastShot = [...tools].reverse().find((part) => ['tool-computer_screenshot', 'tool-computer_action'].includes(part.type) && (part as { output?: { screenshotId?: string; url?: string } }).output?.screenshotId && (part as { output?: { url?: string } }).output?.url);
   const textBubbles = view.bubbles.filter((bubble): bubble is { key: string; text: string } => 'text' in bubble);
   const lastText = textBubbles.at(-1);
   const setup = Boolean(message.metadata?.setup && owner);
   if (!view.bubbles.length && !view.work.length && !view.actions.length && !streaming && !setup) return null;
-  const showWork = view.work.length > 0;
 
   return (
     <div id={`message-${message.id}`} className="flex scroll-mt-24 flex-col gap-2 rounded-2xl [&[data-flash]]:ring-2 [&[data-flash]]:ring-ring">
@@ -321,18 +323,48 @@ export function MessageView({ message, streaming, agentId, onReply, onReact }: {
         </a>
       ))}
       {streaming && computerUse && owner && <Suspense fallback={null}><LiveComputer key={owner} agentId={owner} /></Suspense>}
-      {showWork && <Worked streaming={streaming} count={tools.length} failures={failures} reasoningOnly={view.work.length > 0 && tools.length === 0} workedMs={message.metadata?.workedMs}>
-        {reasoning && <div className="whitespace-pre-wrap text-muted-foreground text-xs"><p className="mb-1 font-medium text-foreground">{t('Raisonnement')}</p>{reasoning}</div>}
-        <div className="flex flex-wrap items-start gap-1.5">{tools.filter((part) => !isSentTeam(part as ToolUIPart)).map((part) => <ToolPart key={part.toolCallId} part={part} />)}</div>
-        {tools.map((part) => <ToolCard key={`card-${part.toolCallId}`} part={part as ToolUIPart} agentId={owner} date={message.metadata?.createdAt} />)}
-        {!streaming && lastShot && <DesktopScreenshot output={(lastShot as { output: { url: string; screenshotId: string } }).output} afterAction={lastShot.type === 'tool-computer_action'} />}
-      </Worked>}
       {view.actions.map((part) => <ToolCard key={`action-${(part as AnyTool).toolCallId}`} part={part as ToolUIPart} agentId={owner} date={message.metadata?.createdAt} />)}
       {setup && <WelcomeSetupCards agentId={owner!} />}
       {!textBubbles.length && (view.work.length > 0 || view.actions.length > 0) && (
         <MessageActions text="" onReply={() => reply(t('Travail'))} onReact={react}><span className="sr-only">{t('Actions du message')}</span></MessageActions>
       )}
       <ReactionPills reactions={reactions} onToggle={react} />
+    </div>
+  );
+}
+
+/** Résumé du travail d'un tour : ce que le panneau latéral affiche, replié par défaut. */
+export function turnWork(message: ODMessage) {
+  const view = presentAssistantTurn(message.parts);
+  const tools = view.work.filter(isToolPart);
+  const reasoning = view.work.flatMap((part) => part.type === 'reasoning' && part.text?.trim() ? [part.text.trim()] : []).join('\n\n');
+  const failures = tools.filter((part) => part.state === 'output-error' || (part as { output?: { ok?: boolean } }).output?.ok === false).length;
+  return { tools, reasoning, failures, hasWork: view.work.length > 0 };
+}
+
+/** Ce que le compagnon fait à l'instant, en une phrase, pour l'état en direct du fil. */
+export function liveStep(message: ODMessage | undefined): { title: string; count: number } | null {
+  if (!message || message.role !== 'assistant') return null;
+  const { tools } = turnWork(message);
+  const last = message.parts.at(-1);
+  const running = [...tools].reverse().find((part) => part.state === 'input-streaming' || part.state === 'input-available');
+  if (running) return { title: describeTool(toolNameOf(running), running.input, undefined).title, count: tools.length };
+  if (last?.type === 'reasoning') return { title: t('Réfléchit…'), count: tools.length };
+  if (last && isToolPart(last)) return { title: describeTool(toolNameOf(last), last.input, (last as { output?: unknown }).output).title, count: tools.length };
+  return tools.length ? { title: t('Rédige sa réponse…'), count: tools.length } : null;
+}
+
+/** Détail du travail d'un tour (raisonnement, outils, sorties), rendu dans le panneau latéral. */
+export function TurnWork({ message, agentId, streaming }: { message: ODMessage; agentId: string; streaming: boolean }) {
+  const { tools, reasoning } = turnWork(message);
+  const owner = message.metadata?.agentId ?? agentId;
+  const lastShot = [...tools].reverse().find((part) => ['tool-computer_screenshot', 'tool-computer_action'].includes(part.type) && (part as { output?: { screenshotId?: string; url?: string } }).output?.screenshotId && (part as { output?: { url?: string } }).output?.url);
+  return (
+    <div className="space-y-3">
+      {reasoning && <div className="whitespace-pre-wrap text-muted-foreground text-xs"><p className="mb-1 font-medium text-foreground">{t('Raisonnement')}</p>{reasoning}</div>}
+      <div className="flex flex-wrap items-start gap-1.5">{tools.filter((part) => !isSentTeam(part as ToolUIPart)).map((part) => <ToolPart key={part.toolCallId} part={part} />)}</div>
+      {tools.map((part) => <ToolCard key={`card-${part.toolCallId}`} part={part as ToolUIPart} agentId={owner} date={message.metadata?.createdAt} />)}
+      {!streaming && lastShot && <DesktopScreenshot output={(lastShot as { output: { url: string; screenshotId: string } }).output} afterAction={lastShot.type === 'tool-computer_action'} />}
     </div>
   );
 }

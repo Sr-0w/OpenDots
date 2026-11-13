@@ -14,7 +14,8 @@ import type { MessageReplyRef } from "@opendots/shared";
 import { useServerEvent } from "@/lib/store";
 import { DotAvatar } from "../dot-avatar";
 import { Composer } from "./composer";
-import { MessageView } from "./message-parts";
+import { liveStep, MessageView } from "./message-parts";
+import { openWorkPanel, publishWork } from "@/lib/work-store";
 import { ChatActionsContext } from "./cards";
 
 import { t } from "@/lib/i18n";
@@ -109,6 +110,10 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
   const last = messages[messages.length - 1];
   const waiting = status === "submitted" || (status === "streaming" && last?.role === "user");
   const empty = messages.length === 0;
+  // Le travail (raisonnement, outils) se lit dans le panneau latéral, pas dans le fil.
+  useEffect(() => { publishWork(agent.id, messages, busy && last?.role === "assistant" ? last.id : null); }, [agent.id, messages, busy, last]);
+  const step = busy ? liveStep(last) : null;
+  const liveLabel = step?.title ?? agent.stateDetail ?? (agent.state === "available" ? t("En réflexion…") : `${t(AGENT_STATE_LABELS[agent.state])}…`);
 
   return (
     <ChatActionsContext.Provider value={actions}>
@@ -137,11 +142,12 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
               }}
             />
           ))}
-          {waiting && (
-            <div className="flex items-center gap-2.5 text-sm">
-              <DotAvatar color={agent.color} state="thinking" size={18} />
-              <Shimmer>{agent.stateDetail ?? (agent.state === "available" ? t("En réflexion…") : `${t(AGENT_STATE_LABELS[agent.state])}…`)}</Shimmer>
-            </div>
+          {busy && (
+            <button type="button" onClick={openWorkPanel} title={t("Voir le travail en cours")} className="flex w-fit max-w-full items-center gap-2.5 rounded-full py-1 pr-2 text-left text-sm" data-live-status>
+              <DotAvatar color={agent.color} state={waiting ? "thinking" : agent.state === "available" ? "working" : agent.state} size={18} />
+              <span className="min-w-0 truncate"><Shimmer>{liveLabel}</Shimmer></span>
+              {!!step?.count && <span className="shrink-0 text-muted-foreground text-xs">· {t("{count} actions", { count: step.count })}</span>}
+            </button>
           )}
           {error && (
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm">

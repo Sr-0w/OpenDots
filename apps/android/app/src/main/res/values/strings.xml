@@ -34,6 +34,7 @@
     <string name="copy">Copy</string>
     <string name="create_account">Create account</string>
     <string name="delete">Delete</string>
+    <string name="details">Details</string>
     <string name="discard">Discard</string>
     <string name="email">Email</string>
     <string name="empty_named_body">Talk naturally: they remember, organise themselves and act for you.</string>
@@ -116,6 +117,7 @@
     <string name="settings">Settings</string>
     <string name="setup_body">Connect a mailbox, add connectors or start a companion’s computer from the web app.</string>
     <string name="setup_title">Go further</string>
+    <string name="show_work">Show the work</string>
     <string name="sign_in">Sign in</string>
     <string name="sign_in_body">Your account on %1$s</string>
     <string name="sign_in_title">Welcome back</string>
@@ -199,10 +201,15 @@
     <string name="upload_failed">Couldn’t attach this image.</string>
     <string name="version">Version</string>
     <string name="web_only">Set this up in the web app</string>
+    <string name="work">Work</string>
+    <string name="work_empty_body">Reasoning and tools show up here, never in the conversation.</string>
+    <string name="work_empty_title">No recent work</string>
+    <string name="work_title">%1$s’s work</string>
     <string name="worked">Worked</string>
     <string name="working">Working…</string>
     <string name="write_to">Write to %1$s…</string>
     <string name="write_to_companion">Write to your companion…</string>
+    <string name="writing_reply">Writing its reply…</string>
     <string name="yes">yes</string>
     <string name="you">You</string>
     <plurals name="actions">

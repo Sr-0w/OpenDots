@@ -664,4 +664,11 @@ export const EN: Record<string, string> = {
   "Bureau du compagnon": "Companion desktop",
   "Un conteneur privé par compte, un bureau et un navigateur séparés par compagnon.": "One private container per account, with a separate desktop and browser for each companion.",
   "Démarrage du bureau. Une session en pause reprend sans relancer le navigateur.": "Starting the desktop. A paused session resumes without restarting the browser.",
+  "Réfléchit…": "Thinking…",
+  "Rédige sa réponse…": "Writing its reply…",
+  "Voir le travail en cours": "Show the work in progress",
+  "Aucun travail récent": "No recent work",
+  "Le raisonnement et les outils utilisés par {v0} apparaîtront ici, pas dans la conversation.": "The reasoning and tools {v0} uses show up here, not in the conversation.",
+  "ton compagnon": "your companion",
+  "Détails": "Details",
 };

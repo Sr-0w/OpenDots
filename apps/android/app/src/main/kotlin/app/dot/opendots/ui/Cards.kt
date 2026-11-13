@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +46,7 @@ import app.dot.design.components.ButtonStyle
 import app.dot.design.components.DotButton
 import app.dot.design.components.DotCard
 import app.dot.design.components.DotCheckbox
+import app.dot.design.components.DotDisclosure
 import app.dot.design.components.DotFilterChip
 import app.dot.design.components.DotPrimaryButton
 import app.dot.design.components.DotTextField
@@ -91,11 +93,12 @@ fun ActionCard(part: Part.Tool, message: ChatMessage, env: MessageEnv) {
 }
 
 @Composable
-private fun CardHeader(icon: ImageVector, title: String, status: String?, statusColor: Color = Dot.colors.textSecondary) {
+private fun CardHeader(icon: ImageVector, title: String, status: String?, statusColor: Color = Dot.colors.textSecondary, overline: String? = null) {
     Row(verticalAlignment = Alignment.Top) {
         Icon(icon, null, Modifier.padding(top = 2.dp).size(18.dp), tint = Dot.colors.textSecondary)
         Spacer(Modifier.width(DotSpacing.m))
         Column(Modifier.weight(1f)) {
+            if (overline != null) Text(overline, style = Dot.type.caption, color = Dot.colors.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(title, style = Dot.type.bodyStrong, color = Dot.colors.textPrimary)
             if (status != null) Text(status, style = Dot.type.caption, color = statusColor)
         }
@@ -133,12 +136,26 @@ fun approvalStatusLabel(status: String): String = stringResource(
 fun ApprovalCard(approvalId: String, fallbackSummary: String?, env: MessageEnv, modifier: Modifier = Modifier, approval: Approval? = env.approvals[approvalId], approveLabel: String = stringResource(R.string.approve), rejectLabel: String = stringResource(R.string.reject)) {
     val status = approval?.status ?: "pending"
     DotCard(modifier.fillMaxWidth(), emphasized = status == "pending") {
+        val summary = remember(approval?.summary, fallbackSummary) { splitApprovalSummary(approval?.summary?.ifBlank { null } ?: fallbackSummary.orEmpty()) }
         CardHeader(
             Icons.Outlined.Shield,
-            approval?.summary?.ifBlank { null } ?: fallbackSummary ?: stringResource(R.string.approval_title),
+            summary.title.ifBlank { stringResource(R.string.approval_title) },
             approvalStatusLabel(status),
             if (status == "failed") Dot.colors.danger else if (status == "executed") Dot.colors.success else Dot.colors.textSecondary,
+            overline = summary.context,
         )
+        if (summary.details.isNotEmpty() || summary.extra.isNotEmpty()) {
+            var open by remember(approvalId) { mutableStateOf(false) }
+            DotDisclosure(stringResource(R.string.details), open, { open = !open }, Modifier.padding(start = 30.dp)) {
+                summary.details.forEach { (key, value) ->
+                    Column {
+                        Text(key, style = Dot.type.caption, color = Dot.colors.textTertiary)
+                        Text(value.take(400), style = Dot.type.caption.copy(fontFamily = FontFamily.Monospace), color = Dot.colors.textPrimary)
+                    }
+                }
+                summary.extra.forEach { Text(it, style = Dot.type.caption, color = Dot.colors.textSecondary) }
+            }
+        }
         approval?.error?.takeIf { it.isNotBlank() }?.let {
             Spacer(Modifier.height(DotSpacing.s))
             Text(it, style = Dot.type.caption, color = Dot.colors.danger)
@@ -341,3 +358,32 @@ private fun readable(value: JsonElement): String = when (value) {
     is JsonObject -> value.toString()
 }
 
+
+class ApprovalSummary(val context: String?, val title: String, val details: List<Pair<String, String>>, val extra: List<String>)
+
+private val COMMIT_PART = Regex("^commit ([0-9a-f]{7,})$", RegexOption.IGNORE_CASE)
+
+/**
+ * An approval summary arrives as one line ("Service — account · action · commit … · {json}"). Split it the same way as
+ * the web app: the context, the action as the title, and the payload as details behind a disclosure.
+ */
+fun splitApprovalSummary(summary: String): ApprovalSummary {
+    val details = ArrayList<Pair<String, String>>()
+    val extra = ArrayList<String>()
+    val text = ArrayList<String>()
+    for (part in summary.split(" · ").map { it.trim() }.filter { it.isNotEmpty() }) {
+        val commit = COMMIT_PART.matchEntire(part)
+        when {
+            part.startsWith("{") || part.startsWith("[") -> {
+                val parsed = runCatching { OdJson.parseToJsonElement(part) }.getOrNull() as? JsonObject
+                if (parsed == null) extra += part else parsed.forEach { (key, value) -> details += key to ((value as? JsonPrimitive)?.content ?: value.toString()) }
+            }
+            commit != null -> details += "commit" to commit.groupValues[1].take(12)
+            else -> text += part
+        }
+    }
+    if (text.isEmpty()) return ApprovalSummary(null, summary, emptyList(), emptyList())
+    val context = text.first().takeIf { text.size > 1 && it.length <= 80 }
+    val rest = if (context != null) text.drop(1) else text
+    return ApprovalSummary(context, rest.first(), details, rest.drop(1) + extra)
+}

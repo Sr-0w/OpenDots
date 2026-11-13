@@ -90,6 +90,15 @@ class ProtocolTest {
         assertNull(normalizeServerUrl("   "))
     }
 
+    @Test fun approvalSummariesAreSplitIntoTitleAndDetails() {
+        val s = app.dot.opendots.ui.splitApprovalSummary("GitHub — robin@example.com · Pousser une branche · commit 100f9b4271509a9a826ac4de535d182960079cd2 · {\"repo\":\"Sr-0w/OpenDots\",\"set_upstream\":true}")
+        assertEquals("GitHub — robin@example.com", s.context)
+        assertEquals("Pousser une branche", s.title)
+        assertEquals(listOf("commit" to "100f9b427150", "repo" to "Sr-0w/OpenDots", "set_upstream" to "true"), s.details)
+        assertEquals("Send it", app.dot.opendots.ui.splitApprovalSummary("Send it").title)
+        assertEquals("Validation : GitHub", app.dot.opendots.ui.shortEventTitle("Validation : GitHub · {\"a\":1}"))
+    }
+
     @Test fun markdownBlocksIncludingAnOpenFence() {
         val blocks = parseMarkdown("# Title\n\nSome **bold** text\nsecond line\n\n- one\n- two\n  1. nested\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```kotlin\nval x = 1")
         assertEquals(MdBlock.Heading(1, "Title"), blocks[0])

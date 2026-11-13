@@ -45,6 +45,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import app.dot.design.components.DotBottomSheet
+import app.dot.design.components.DotCapsuleButton
+import app.dot.design.components.DotFloatingCapsule
+import app.dot.design.components.Hairline
+import app.dot.design.components.dotShimmer
+import app.dot.opendots.chat.presentAssistantTurn
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Menu
@@ -131,6 +140,7 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
     var draft by rememberSaveable(agent.id) { mutableStateOf("") }
     var reply by remember(agent.id) { mutableStateOf<ReplyRef?>(null) }
     val images = remember(agent.id) { mutableStateListOf<PendingImage>() }
+    var workSheet by remember(agent.id) { mutableStateOf(false) }
     val copied = stringResource(R.string.copied)
     val uploadFailed = stringResource(R.string.upload_failed)
 
@@ -165,6 +175,7 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
             onNeedDraft = app::ensureDraft,
             onOpenWeb = { ui.serverUrl.takeIf { it.isNotBlank() }?.let { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } } },
             onOpenImage = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } },
+            onShowWork = { workSheet = true },
         )
     }
 
@@ -188,7 +199,7 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
         Box(Modifier.weight(1f)) {
             FrostedHeaderLayout(
                 backdrop = backdrop,
-                header = { ChatHeader(agent, ui, onOpenDrawer, onOpenCompanion) },
+                header = { ChatHeader(agent, ui, onOpenDrawer, onOpenCompanion, onOpenWork = { workSheet = true }) },
             ) { padding ->
                 val direction = LocalLayoutDirection.current
                 // In landscape the navigation bar or a display cutout can sit beside the content.
@@ -207,15 +218,23 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
                     chat.error?.let { message ->
                         item(key = "error") { TurnError(agentDisplayName(agent), message, session::dismissError, Modifier.padding(top = DotSpacing.xl)) }
                     }
-                    if (chat.waiting) item(key = "waiting") {
-                        DotThinking(agent.stateDetail ?: (agentStateLabel(if (agent.state == "available") "thinking" else agent.state) + "…"), Modifier.padding(top = DotSpacing.xl))
+                    // The thread only shows *that* the companion works and on what; the detail lives in the work panel.
+                    if (chat.busy) item(key = "live") {
+                        val step = liveStepLabel(chat.messages.lastOrNull())
+                        LiveStatus(
+                            agent,
+                            label = step?.first ?: agent.stateDetail ?: (agentStateLabel(if (agent.state == "available") "thinking" else agent.state) + "…"),
+                            actions = step?.second ?: 0,
+                            onClick = { workSheet = true },
+                            modifier = Modifier.padding(top = DotSpacing.l),
+                        )
                     }
                     items(rows, key = { it.id }, contentType = { if (it.isUser) 0 else 1 }) { message ->
                         MessageItem(
                             message, env,
                             streaming = chat.busy && message.id == rows.firstOrNull()?.id && !message.isUser,
                             showActions = message.id == lastAssistantId,
-                            modifier = Modifier.padding(top = DotSpacing.xl).widthIn(max = 720.dp),
+                            modifier = Modifier.padding(top = DotSpacing.l).widthIn(max = 720.dp),
                         )
                     }
                     if (chat.loadingOlder) item(key = "older") {
@@ -247,6 +266,8 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
                 )
             }
         }
+
+        if (workSheet) WorkSheet(agent, chat, env) { workSheet = false }
 
         // The composer sits on the page itself: a stable surface, no blur and no gradient band underneath.
         val ready = images.all { it.attachment != null || it.failed }
@@ -293,41 +314,82 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
     }
 }
 
+/**
+ * The conversation header floats on the progressive blur: navigation on one side, the companion's own controls on the
+ * other, and in the middle the companion itself - its dot, with its name on a small glass pill underneath.
+ */
 @Composable
-private fun ChatHeader(agent: Agent, ui: AppUiState, onOpenDrawer: () -> Unit, onOpenCompanion: () -> Unit) {
+private fun ChatHeader(agent: Agent, ui: AppUiState, onOpenDrawer: () -> Unit, onOpenCompanion: () -> Unit, onOpenWork: () -> Unit) {
     val c = Dot.colors
     val elsewhere = ui.agents.any { it.id != agent.id && it.unread > 0 } || ui.pendingApprovals.isNotEmpty()
     val name = agentDisplayName(agent)
     val status = when {
         !ui.connected -> stringResource(R.string.reconnecting)
-        agent.busy -> agent.stateDetail ?: agentStateLabel(agent.state)
         agent.state == "error" -> agentStateLabel("error")
         ui.paused -> stringResource(R.string.paused_short)
         else -> null
     }
-    Row(
-        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).heightIn(min = 60.dp).padding(horizontal = DotSpacing.m, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box {
+    Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = DotSpacing.m, vertical = 6.dp)) {
+        Box(Modifier.align(Alignment.TopStart)) {
             DotIconButton(Icons.Outlined.Menu, stringResource(R.string.menu), onClick = onOpenDrawer)
             if (elsewhere) UnreadDot(Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp))
         }
-        Row(
-            Modifier.weight(1f).padding(horizontal = DotSpacing.s).clip(DotShapes.pill)
-                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.companion_details), onClick = onOpenCompanion)
-                .heightIn(min = 48.dp).padding(horizontal = DotSpacing.s),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+        Column(
+            Modifier.align(Alignment.TopCenter).padding(horizontal = 112.dp).clip(DotShapes.large)
+                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.companion_details), onClick = onOpenCompanion),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            CompanionOrb(agent, size = 28.dp)
-            Spacer(Modifier.width(DotSpacing.s + 2.dp))
-            Column(Modifier.weight(1f, fill = false)) {
-                Text(name, style = Dot.type.headline, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
-                if (status != null) Text(status, style = Dot.type.caption, color = if (agent.state == "error" && ui.connected) c.danger else c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            CompanionOrb(agent, size = 48.dp)
+            Row(
+                Modifier.padding(top = 4.dp).clip(DotShapes.pill)
+                    .background(c.surfaceRaised.copy(alpha = 0.92f))
+                    .border(DotSpacing.hairline * 2, c.border, DotShapes.pill)
+                    .padding(horizontal = DotSpacing.m, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(name, style = Dot.type.label, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() })
+                if (status != null) Text("  ·  $status", style = Dot.type.caption, color = if (agent.state == "error" && ui.connected) c.danger else c.textTertiary, maxLines = 1)
             }
         }
-        DotIconButton(Icons.Outlined.Tune, stringResource(R.string.companion_details), onClick = onOpenCompanion)
+        DotFloatingCapsule(Modifier.align(Alignment.TopEnd)) {
+            DotCapsuleButton(Icons.Outlined.Checklist, stringResource(R.string.work), onOpenWork)
+            DotCapsuleButton(Icons.Outlined.Tune, stringResource(R.string.companion_details), onOpenCompanion)
+        }
+    }
+}
+
+/** While the companion works: its dot, animated, and one sentence saying what it is doing right now. Opens the work panel. */
+@Composable
+private fun LiveStatus(agent: Agent, label: String, actions: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(DotShapes.pill).clickable(role = Role.Button, onClickLabel = stringResource(R.string.show_work), onClick = onClick)
+            .heightIn(min = 40.dp).padding(end = DotSpacing.m),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CompanionOrb(parseAgentColor(agent.color), size = 22.dp, state = if (agent.busy) agent.state else "thinking", named = agent.named)
+        Spacer(Modifier.width(DotSpacing.s + 2.dp))
+        Text(label, style = Dot.type.callout, color = Dot.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).dotShimmer())
+        if (actions > 0) Text("  ·  " + pluralStringResource(R.plurals.actions, actions, actions), style = Dot.type.caption, color = Dot.colors.textTertiary, maxLines = 1)
+    }
+}
+
+/** The work panel: what the companion reasoned and which tools it used, turn by turn, each folded by default. */
+@Composable
+private fun WorkSheet(agent: Agent, chat: ChatUiState, env: MessageEnv, onDismiss: () -> Unit) {
+    val turns = remember(chat.messages) {
+        chat.messages.filter { !it.isUser && it.meta.kind != "event" }.map { it to presentAssistantTurn(it) }.filter { it.second.hasWork }.asReversed()
+    }
+    val streamingId = if (chat.busy) chat.messages.lastOrNull()?.takeIf { !it.isUser }?.id else null
+    DotBottomSheet(onDismiss) {
+        Text(stringResource(R.string.work_title, agentDisplayName(agent)), style = Dot.type.title, color = Dot.colors.textPrimary, modifier = Modifier.padding(horizontal = DotSpacing.gutter, vertical = DotSpacing.s).semantics { heading() })
+        if (turns.isEmpty()) {
+            EmptyState(Icons.Outlined.Checklist, stringResource(R.string.work_empty_title), stringResource(R.string.work_empty_body))
+        } else LazyColumn(contentPadding = PaddingValues(start = DotSpacing.gutter, end = DotSpacing.gutter, bottom = DotSpacing.xxl)) {
+            items(turns, key = { it.first.id }) { (message, turn) ->
+                TurnWorkDisclosure(message, turn, streaming = message.id == streamingId, env = env, initiallyOpen = message.id == streamingId)
+                Hairline()
+            }
+        }
     }
 }
 
@@ -373,7 +435,7 @@ private fun ImageThumb(image: PendingImage, onRemove: () -> Unit) {
             modifier = Modifier.fillMaxSize().clip(DotShapes.medium).border(DotSpacing.hairline * 2, if (image.failed) c.danger else c.border, DotShapes.medium),
         )
         if (image.attachment == null && !image.failed) {
-            Box(Modifier.fillMaxSize().clip(DotShapes.medium).background(c.scrim), contentAlignment = Alignment.Center) { DotSpinner(size = 18.dp, color = androidx.compose.ui.graphics.Color.White) }
+            Box(Modifier.fillMaxSize().clip(DotShapes.medium).background(c.scrim), contentAlignment = Alignment.Center) { DotSpinner(size = 18.dp, color = Color.White) }
         }
         Box(
             Modifier.align(Alignment.TopEnd).size(28.dp).clip(DotShapes.circle).clickable(role = Role.Button, onClick = onRemove).semantics { contentDescription = remove },
