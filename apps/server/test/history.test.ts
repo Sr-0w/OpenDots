@@ -49,6 +49,19 @@ describe('historique envoyé au modèle', () => {
     expect(out.find((m) => m.id === 'a2')!.parts.some((p: any) => p.type === 'tool-shell_exec')).toBe(false);
     expect(compact).toContain('not an executable tool call');
   });
+
+  it('donne au modèle l’id, la citation et les réactions sans modifier le message stocké', () => {
+    const original = user('u', 'Merci');
+    original.metadata = { kind: 'chat', replyTo: { messageId: 'a1', preview: 'Noté.', role: 'assistant' }, reactions: [{ emoji: '👍', actor: 'user' }] };
+    const out = historyForModel([original, { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'Noté.' }], metadata: {} } as any], agent, new Map([['ag_self', 'Ari']]), false);
+    expect(out[0].parts[0]).toMatchObject({ type: 'text' });
+    expect((out[0].parts[0] as { text: string }).text).toContain('[message u]');
+    expect((out[0].parts[0] as { text: string }).text).toContain('[replying to a1: Noté.]');
+    expect((out[0].parts[0] as { text: string }).text).toContain('[reactions: 👍 user]');
+    expect((out[0].parts[0] as { text: string }).text).toContain('Merci');
+    expect((original.parts[0] as { text: string }).text).toBe('Merci');
+    expect((out[1].parts[0] as { text: string }).text.startsWith('[message a1]')).toBe(true);
+  });
 });
 
 

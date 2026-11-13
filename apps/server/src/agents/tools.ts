@@ -33,6 +33,7 @@ import {
   resolveApproval,
 } from '../approvals/service.ts';
 import { sendTeamMessage, TeamError } from '../team/service.ts';
+import { toggleReaction } from '../conversations/repo.ts';
 import { log } from '../journal.ts';
 import { resolveAccount } from '../mail/service.ts';
 import { errorMessage, truncate } from '../util.ts';
@@ -43,6 +44,8 @@ export interface ToolContext {
   conversationId: string;
   /** Enregistre un statut déjà détaché du tour affiché, pour qu'il reste visible. */
   onStatus?: (text: string) => Promise<void> | void;
+  /** Marque le message de ce tour comme réponse à un message précis. */
+  setReplyTo?: (messageId: string) => Promise<void>;
   /** Conversation principale avec l'utilisateur (et non un fil entre compagnons). */
   isMain: boolean;
   /** Tour déclenché directement par un message de l'utilisateur. */
@@ -214,12 +217,37 @@ export function buildTools(ctx: ToolContext): ToolSet {
 
   tools.text_user = tool({
     description:
-      "Envoie à l'utilisateur une courte phrase, dans sa langue, pour dire où en est le travail ou ce qui vient d'être fait. Le travail continue ensuite. À utiliser avant une étape utile, puis de temps en temps au cours d'un long travail. Pas pour chaque appel trivial, un réessai, ni un réveil qui doit rester silencieux.",
-    inputSchema: z.object({ text: z.string().min(1).max(400) }),
-    execute: async ({ text }) => {
+      "Envoie à l'utilisateur une courte phrase, dans sa langue, affichée comme sa propre bulle de discussion, pour dire où en est le travail ou ce qui vient d'être fait. Le travail continue ensuite. À utiliser avant une étape utile, puis de temps en temps au cours d'un long travail. Pas pour chaque appel trivial, un réessai, ni un réveil qui doit rester silencieux. reply_to : id du message auquel cette phrase répond, quand tu réponds à un message précis.",
+    inputSchema: z.object({
+      text: z.string().min(1).max(400),
+      reply_to: z.string().optional().describe("Id du message d'origine (ligne [message …] du transcript) si tu réponds à celui-là"),
+    }),
+    execute: async ({ text, reply_to }) => {
+      if (reply_to) {
+        try { await ctx.setReplyTo?.(reply_to); }
+        catch (err) { return fail(errorMessage(err)); }
+      }
       const clean = text.trim().slice(0, 400);
       await ctx.onStatus?.(clean);
       return ok({ text: clean });
+    },
+  });
+
+  tools.react_to_message = tool({
+    description:
+      "Ajoute ou retire un emoji sur un message (le tien ou celui de l'utilisateur). Préfère cet outil à une réponse complète pour un remerciement, un accord ou un accusé. Rappeler le même emoji retire la réaction.",
+    inputSchema: z.object({
+      message_id: z.string().describe("Id du message, tel qu'indiqué par [message …]"),
+      emoji: z.string().min(1).max(16).describe('Un seul emoji, par exemple 👍 ❤️ 😂 🎉'),
+    }),
+    execute: async ({ message_id, emoji }) => {
+      try {
+        const result = await toggleReaction(message_id, ctx.agent.id, emoji);
+        if (!result) return fail('Message introuvable.');
+        return ok({ added: result.added, emoji: emoji.trim(), reactions: result.reactions });
+      } catch (err) {
+        return fail(errorMessage(err));
+      }
     },
   });
 

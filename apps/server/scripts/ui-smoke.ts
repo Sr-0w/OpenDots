@@ -89,10 +89,10 @@ try {
   assert.equal(await setup.evaluate(el => Boolean(el.closest('[data-worked]'))), false);
   const worked = page.locator('[data-worked]').last(); assert.equal(await worked.getAttribute('data-state'), 'closed');
   assert.equal(await page.getByText('hidden-command-output', { exact: true }).count(), 0);
-  await worked.getByRole('button', { name: /Worked/ }).click();
+  await worked.getByRole('button', { name: /A travaillé|Worked|Raisonnement/ }).click();
   await worked.getByRole('button', { name: /echo hidden-command-output/ }).waitFor();
   assert.equal(await worked.getByText('Je vais maintenant créer ce fichier.', { exact: true }).count(), 0);
-  await worked.getByRole('button', { name: /Worked/ }).click();
+  await worked.getByRole('button', { name: /A travaillé|Worked|Raisonnement/ }).click();
   await setup.getByText('Carte toujours visible', { exact: true }).waitFor();
 
   await page.getByRole('button').filter({ hasText: 'Réponse de Expert revue' }).click();

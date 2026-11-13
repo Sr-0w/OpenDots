@@ -18,14 +18,13 @@ import {
   UserCogIcon,
   WebhookIcon,
 } from "lucide-react";
-import type { ToolUIPart } from "ai";
+import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import { isActionToolPart, presentAssistantTurn } from "@opendots/shared";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
-import { partitionToolNarrative } from "@opendots/shared";
 import type { ODMessage } from "@/lib/api";
 import { useStore } from "@/lib/store";
-import { cn, formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@/lib/utils";
 import { ApprovalCard } from "./approval-card";
 import { ActivityCreatedCard, AnswerBubble, AskUserCard, ConnectionRequestCard, MailDraftCard, SearchResultsCard, TerminalCard } from "./cards";
 import { DotAvatar } from "../dot-avatar";
@@ -33,6 +32,7 @@ import { openDialog } from "@/lib/dialogs";
 import { ComputerSetupCard, WelcomeSetupCards } from './setup-cards';
 import { Worked } from "./worked";
 import { DesktopScreenshot } from './desktop-screenshot';
+import { MessageActions, MessageQuote, ReactionPills } from './message-actions';
 
 import { t } from "@/lib/i18n";
 const LiveComputer = lazy(() => import('./live-computer').then(m => ({ default: m.LiveComputer })));
@@ -120,8 +120,14 @@ function describeTool(name: string, input: any, output: any): { title: string; i
   }
 }
 
-function ToolPart({ part }: { part: ToolUIPart }) {
-  const name = part.type.slice(5);
+type AnyTool = ToolUIPart | DynamicToolUIPart;
+
+function toolNameOf(part: { type: string; toolName?: string }) {
+  return part.type === 'dynamic-tool' ? String(part.toolName ?? 'tool') : part.type.replace(/^tool-/, '');
+}
+
+function ToolPart({ part }: { part: AnyTool }) {
+  const name = toolNameOf(part);
   const output = (part as any).output;
   const failed = part.state === "output-error" || output?.ok === false;
   const { title, icon } = describeTool(name, part.input, output);
@@ -247,87 +253,86 @@ function ToolCard({ part, agentId, date }: { part: ToolUIPart; agentId?: string;
   return null;
 }
 
-function isActionCard(part: ToolUIPart) {
-  const out = (part as any).output;
-  return part.state === 'output-available' && out?.ok !== false && (isSentTeam(part) || ['tool-ask_user', 'tool-connection_request_setup', 'tool-computer_request_setup', 'tool-mail_prepare'].includes(part.type) || out?.status === 'pending_approval');
+function isToolPart(part: { type: string }): part is AnyTool {
+  return part.type === 'dynamic-tool' || part.type.startsWith('tool-');
 }
 
-type Group =
-  | { kind: "text"; index: number; text: string }
-  | { kind: "file"; index: number; part: Extract<ODMessage["parts"][number], { type: "file" }> }
-  | { kind: "steps"; index: number; reasoning: string; tools: ToolUIPart[]; open: boolean };
-
-/** Regroupe réflexions et appels d'outils consécutifs en une seule ligne d'étapes. */
-function groupParts(parts: ODMessage["parts"], streaming: boolean): Group[] {
-  const groups: Group[] = [];
-  parts.forEach((part, index) => {
-    const last = groups[groups.length - 1];
-    if (part.type === "text") {
-      if (!SILENCE.test(part.text) && part.text.trim()) groups.push({ kind: "text", index, text: part.text });
-    } else if (part.type === "file") {
-      groups.push({ kind: "file", index, part });
-    } else if (part.type === "reasoning" || part.type.startsWith("tool-")) {
-      const steps = last?.kind === "steps" ? last : null;
-      const g = steps ?? { kind: "steps" as const, index, reasoning: "", tools: [], open: false };
-      if (part.type === "reasoning") g.reasoning += (g.reasoning ? "\n\n" : "") + part.text;
-      else g.tools.push(part as ToolUIPart);
-      g.open = streaming && index === parts.length - 1 && part.type === "reasoning";
-      if (!steps) groups.push(g);
-    }
-  });
-  return groups;
-}
-
-export function MessageView({ message, streaming, agentId }: { message: ODMessage; streaming: boolean; agentId?: string }) {
+export function MessageView({ message, streaming, agentId, onReply, onReact }: {
+  message: ODMessage;
+  streaming: boolean;
+  agentId?: string;
+  onReply?: (target: { messageId: string; preview: string; role: 'user' | 'assistant' }) => void;
+  onReact?: (messageId: string, emoji: string) => void;
+}) {
   if (message.metadata?.kind === "event") return <EventChip message={message} agentId={agentId} />;
+  const reply = (preview: string) => onReply?.({ messageId: message.id, preview: preview.slice(0, 180), role: message.role === 'assistant' ? 'assistant' : 'user' });
+  const react = (emoji: string) => onReact?.(message.id, emoji);
+  const reactions = message.metadata?.reactions ?? [];
+  const quote = message.metadata?.replyTo;
 
-  const assistant = message.role === 'assistant';
-  const lastWork = assistant ? message.parts.findLastIndex(p => p.type === 'reasoning' || p.type.startsWith('tool-')) : -1;
-  const workParts = lastWork < 0 ? [] : message.parts.slice(0, lastWork+1);
-  const narrative = partitionToolNarrative(workParts.flatMap((part) => {
-    if (part.type !== 'tool-text_user') return [part];
-    const text = typeof (part as { input?: { text?: unknown } }).input?.text === 'string' ? (part as { input: { text: string } }).input.text.trim() : '';
-    return text ? [{ type: 'text' as const, text }] : [];
-  }));
-  const groups = groupParts(message.parts.slice(lastWork+1), streaming);
-  const leadGroups = groupParts(narrative.lead, streaming);
-  const aroundGroups = groupParts(narrative.around, streaming);
-  const workGroups = groupParts(narrative.work, streaming);
-  const tools = workParts.filter(p => p.type.startsWith('tool-') && p.type !== 'tool-text_user') as ToolUIPart[];
+  if (message.role !== 'assistant') {
+    const text = message.parts.flatMap((part) => part.type === 'text' && !SILENCE.test(part.text) ? [part.text] : []).join('\n').trim();
+    const files = message.parts.filter((part): part is Extract<ODMessage['parts'][number], { type: 'file' }> => part.type === 'file');
+    return (
+      <div id={`message-${message.id}`} className="scroll-mt-24 rounded-2xl [&[data-flash]]:ring-2 [&[data-flash]]:ring-ring">
+        <MessageActions text={text} align="end" onReply={() => reply(text)} onReact={react}>
+          <Message from="user">
+            <MessageContent>
+              {quote && <MessageQuote reply={quote} />}
+              {message.metadata?.answer ? <AnswerBubble text={text} /> : text && <p className="whitespace-pre-wrap">{text}</p>}
+              {files.map((part, index) => part.mediaType?.startsWith('image/')
+                ? <a key={index} href={part.url} target="_blank" rel="noreferrer"><img src={part.url} alt={part.filename ?? t('Image jointe')} className="max-h-64 max-w-full rounded-xl border" loading="lazy" /></a>
+                : <span key={index} className="rounded-lg border px-2 py-1 text-xs">{part.filename ?? t('Fichier')}</span>)}
+            </MessageContent>
+          </Message>
+        </MessageActions>
+        <div className="flex justify-end"><ReactionPills reactions={reactions} onToggle={react} /></div>
+      </div>
+    );
+  }
+
+  const view = presentAssistantTurn(message.parts);
+  const tools = view.work.filter(isToolPart);
+  const reasoning = view.work.flatMap((part) => part.type === 'reasoning' && part.text?.trim() ? [part.text.trim()] : []).join('\n\n');
   const owner = message.metadata?.agentId ?? agentId;
-  const failures = tools.filter(p => p.state === 'output-error' || (p as any).output?.ok === false).length;
-  const computerUse = tools.some(p => /^tool-(computer_(action|screenshot|target|keyboard|inspect)|browser_inspect)$/.test(p.type));
-  const lastShot = [...tools].reverse().find(p => ['tool-computer_screenshot', 'tool-computer_action'].includes(p.type) && (p as any).output?.screenshotId && (p as any).output?.url);
-  if (!groups.length && !leadGroups.length && !aroundGroups.length && !workGroups.length && !streaming) return null;
-  const lastGroup = [...leadGroups, ...aroundGroups, ...groups].at(-1);
-  const renderGroup = (g: Group, scope: string) => {
-    const key = `${message.id}-${scope}-${g.index}`;
-    if (g.kind === 'text') {
-      if (message.role === 'user' && message.metadata?.answer) return <AnswerBubble key={key} text={g.text} />;
-      return message.role === 'user' ? <p key={key} className="whitespace-pre-wrap">{g.text}</p> : <MessageResponse key={key} isAnimating={streaming && g === lastGroup}>{g.text}</MessageResponse>;
-    }
-    if (g.kind === 'file') return g.part.mediaType?.startsWith('image/')
-      ? <a key={key} href={g.part.url} target="_blank" rel="noreferrer"><img src={g.part.url} alt={g.part.filename ?? t('Image jointe')} className="max-h-64 max-w-full rounded-xl border" loading="lazy" /></a>
-      : <span key={key} className="rounded-lg border px-2 py-1 text-xs">{g.part.filename ?? t('Fichier')}</span>;
-    const thinking = streaming && g.open;
-    return <div key={key} className="flex flex-col gap-2">
-      {(g.reasoning.trim() || thinking) && <Reasoning isStreaming={thinking} defaultOpen={false}><ReasoningTrigger /><ReasoningContent>{g.reasoning}</ReasoningContent></Reasoning>}
-      <div className="flex flex-wrap items-start gap-1.5">{g.tools.filter(p => !isSentTeam(p)).map(p => <ToolPart key={p.toolCallId} part={p} />)}</div>
-      {g.tools.filter(p => !isActionCard(p)).map(p => <ToolCard key={`card-${p.toolCallId}`} part={p} agentId={owner} date={message.metadata?.createdAt} />)}
-    </div>;
-  };
-  return <Message from={message.role} className={cn(assistant && 'max-w-full')}>
-    <MessageContent>
+  const failures = tools.filter((part) => part.state === 'output-error' || (part as { output?: { ok?: boolean } }).output?.ok === false).length;
+  const computerUse = tools.some((part) => /^tool-(computer_(action|screenshot|target|keyboard|inspect)|browser_inspect)$/.test(part.type) || (part.type === 'dynamic-tool' && /^(computer_|browser_inspect)/.test(part.toolName)));
+  const lastShot = [...tools].reverse().find((part) => ['tool-computer_screenshot', 'tool-computer_action'].includes(part.type) && (part as { output?: { screenshotId?: string; url?: string } }).output?.screenshotId && (part as { output?: { url?: string } }).output?.url);
+  const textBubbles = view.bubbles.filter((bubble): bubble is { key: string; text: string } => 'text' in bubble);
+  const lastText = textBubbles.at(-1);
+  const setup = Boolean(message.metadata?.setup && owner);
+  if (!view.bubbles.length && !view.work.length && !view.actions.length && !streaming && !setup) return null;
+  const showWork = view.work.length > 0;
+
+  return (
+    <div id={`message-${message.id}`} className="flex scroll-mt-24 flex-col gap-2 rounded-2xl [&[data-flash]]:ring-2 [&[data-flash]]:ring-ring">
+      {view.bubbles.map((bubble) => 'text' in bubble ? (
+        <MessageActions key={bubble.key} text={bubble.text} onReply={() => reply(bubble.text)} onReact={react}>
+          <Message from="assistant" data-bubble={bubble.key} className="max-w-[min(100%,36rem)]">
+            <MessageContent className="w-fit rounded-2xl rounded-bl-md bg-muted px-3.5 py-2">
+              {quote && bubble.key === textBubbles[0]?.key && <MessageQuote reply={quote} />}
+              <MessageResponse isAnimating={streaming && bubble.key === lastText?.key}>{bubble.text}</MessageResponse>
+            </MessageContent>
+          </Message>
+        </MessageActions>
+      ) : (
+        <a key={bubble.key} data-bubble={bubble.key} href={(bubble.image as { url?: string }).url} target="_blank" rel="noreferrer" className="w-fit">
+          <img src={(bubble.image as { url?: string }).url} alt={(bubble.image as { filename?: string }).filename ?? t('Image jointe')} className="max-h-64 max-w-full rounded-xl border" loading="lazy" />
+        </a>
+      ))}
       {streaming && computerUse && owner && <Suspense fallback={null}><LiveComputer key={owner} agentId={owner} /></Suspense>}
-      {leadGroups.map((g) => renderGroup(g, "lead"))}
-      {workGroups.length > 0 && <Worked streaming={streaming} count={tools.length} failures={failures}>
-        {workGroups.map((g) => renderGroup(g, "work"))}
-        {!streaming && lastShot && <DesktopScreenshot output={(lastShot as any).output} afterAction={lastShot.type === 'tool-computer_action'} />}
+      {showWork && <Worked streaming={streaming} count={tools.length} failures={failures} reasoningOnly={view.work.length > 0 && tools.length === 0} workedMs={message.metadata?.workedMs}>
+        {reasoning && <div className="whitespace-pre-wrap text-muted-foreground text-xs"><p className="mb-1 font-medium text-foreground">{t('Raisonnement')}</p>{reasoning}</div>}
+        <div className="flex flex-wrap items-start gap-1.5">{tools.filter((part) => !isSentTeam(part as ToolUIPart)).map((part) => <ToolPart key={part.toolCallId} part={part} />)}</div>
+        {tools.map((part) => <ToolCard key={`card-${part.toolCallId}`} part={part as ToolUIPart} agentId={owner} date={message.metadata?.createdAt} />)}
+        {!streaming && lastShot && <DesktopScreenshot output={(lastShot as { output: { url: string; screenshotId: string } }).output} afterAction={lastShot.type === 'tool-computer_action'} />}
       </Worked>}
-      {tools.filter(isActionCard).map(p => <ToolCard key={`action-${p.toolCallId}`} part={p} agentId={owner} date={message.metadata?.createdAt} />)}
-      {aroundGroups.map((g) => renderGroup(g, "around"))}
-      {groups.map((g) => renderGroup(g, "reply"))}
-      {assistant && message.metadata?.setup && owner && <WelcomeSetupCards agentId={owner} />}
-    </MessageContent>
-  </Message>;
+      {view.actions.map((part) => <ToolCard key={`action-${(part as AnyTool).toolCallId}`} part={part as ToolUIPart} agentId={owner} date={message.metadata?.createdAt} />)}
+      {setup && <WelcomeSetupCards agentId={owner!} />}
+      {!textBubbles.length && (view.work.length > 0 || view.actions.length > 0) && (
+        <MessageActions text="" onReply={() => reply(t('Travail'))} onReact={react}><span className="sr-only">{t('Actions du message')}</span></MessageActions>
+      )}
+      <ReactionPills reactions={reactions} onToggle={react} />
+    </div>
+  );
 }

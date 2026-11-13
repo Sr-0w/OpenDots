@@ -7,9 +7,11 @@ import { t } from '@/lib/i18n';
 
 type DraftImage = { id: string; file: File; preview: string };
 /** File selection and clipboard images share the same draft and submission path. */
-export function Composer({ onSubmit, onStop, busy, placeholder, autoFocus }: {
+export function Composer({ onSubmit, onStop, busy, placeholder, autoFocus, reply, onClearReply }: {
   onSubmit: (text: string, images: File[]) => void | Promise<void>;
   onStop: () => void; busy: boolean; placeholder: string; autoFocus?: boolean;
+  reply?: { preview: string } | null;
+  onClearReply?: () => void;
 }) {
   const [value, setValue] = useState(''), [images, setImages] = useState<DraftImage[]>([]), [uploading, setUploading] = useState(false), [error, setError] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null), picker = useRef<HTMLInputElement>(null), draft = useRef<DraftImage[]>([]), submitting = useRef(false);
@@ -43,6 +45,7 @@ export function Composer({ onSubmit, onStop, busy, placeholder, autoFocus }: {
   }
   return <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className={cn('relative flex w-full flex-col gap-2 rounded-3xl border bg-card p-2 shadow-sm transition-shadow', 'focus-within:border-ring/60 focus-within:shadow-md')}>
     <input ref={picker} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" aria-label={t('Choisir des images')} onChange={(event) => { add(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+    {reply && <div className="flex items-start gap-2 px-3 pt-2 text-xs"><div className="min-w-0 flex-1 border-l-2 border-foreground/30 pl-2"><p className="font-medium">{t('En réponse à')}</p><p className="truncate text-muted-foreground">{reply.preview || t('Message')}</p></div><Button type="button" size="icon-xs" variant="ghost" aria-label={t('Annuler la réponse')} onClick={onClearReply}><XIcon /></Button></div>}
     {images.length > 0 && <div className="flex flex-wrap gap-2 px-2 pt-2" aria-label={t('Images jointes')}>{images.map((image) => <div key={image.id} className="relative"><a href={image.preview} target="_blank" rel="noreferrer"><img src={image.preview} alt={image.file.name} className="size-20 rounded-xl border object-cover" /></a><Button type="button" size="icon" variant="secondary" disabled={uploading} className="absolute -top-1.5 -right-1.5 size-6 rounded-full" aria-label={t('Retirer {name}', { name: image.file.name })} onClick={() => remove(image.id)}><XIcon className="size-3" /></Button></div>)}</div>}
     {error && <p role="alert" className="px-3 text-xs text-destructive">{error}</p>}
     <div className="flex items-end gap-2">

@@ -192,7 +192,7 @@ export interface MessageMetadata {
   agentId?: string;
   /** Type d'événement pour les messages "event". */
   event?: {
-    type: 'schedule' | 'watch' | 'webhook' | 'mail' | 'agent_reply' | 'agent_message' | 'approval' | 'system';
+    type: 'schedule' | 'watch' | 'webhook' | 'mail' | 'agent_reply' | 'agent_message' | 'approval' | 'system' | 'reaction';
     title: string;
     activityId?: string;
     approvalId?: string;
@@ -206,6 +206,24 @@ export interface MessageMetadata {
   hidden?: boolean;
   /** Réponse de l'utilisateur à une demande d'information (ask_user). */
   answer?: { requestId: string; answers: Record<string, unknown> };
+  /** Message auquel celui-ci répond. */
+  replyTo?: MessageReplyRef;
+  /** Réactions (tapbacks), jointes à la lecture. */
+  reactions?: MessageReaction[];
+  /** Durée du tour, une fois terminé, pour le panneau « A travaillé ». */
+  workedMs?: number;
+}
+
+/** Un emoji ajouté par l'utilisateur (`actor: 'user'`) ou un compagnon (id). */
+export interface MessageReaction {
+  emoji: string;
+  actor: string;
+}
+
+export interface MessageReplyRef {
+  messageId: string;
+  preview: string;
+  role: 'user' | 'assistant';
 }
 
 export interface AccountProfileDTO {
@@ -239,6 +257,7 @@ export type ServerEvent =
       author: 'user' | 'agent' | 'event';
       preview: string;
     }
+  | { type: 'message.reaction'; conversationId: string; messageId: string; reactions: MessageReaction[] }
   | { type: 'activity.changed'; agentId: string }
   | { type: 'approval.changed'; approval: ApprovalDTO }
   | { type: 'memory.changed'; agentId: string | null }
@@ -395,11 +414,93 @@ export function cleanModelText(text: string): string {
     .trim();
 }
 
+const SILENCE_TEXT = /^\s*<(silence|no[_-]?reply)\s*\/?>\s*$/i;
+const ACTION_TOOL_TYPES = new Set([
+  'tool-ask_user',
+  'tool-connection_request_setup',
+  'tool-computer_request_setup',
+  'tool-mail_prepare',
+]);
+
+/** Un seul emoji (y compris les séquences ZWJ), pas du texte libre. */
+export function isSingleEmoji(value: string): boolean {
+  const s = value.trim();
+  if (!s || [...s].length > 16) return false;
+  if (/\p{Letter}|\p{Number}/u.test(s)) return false;
+  if (!/\p{Extended_Pictographic}|\p{Emoji_Presentation}/u.test(s)) return false;
+  const Segmenter = (Intl as { Segmenter?: typeof Intl.Segmenter }).Segmenter;
+  if (!Segmenter) return true;
+  return [...new Segmenter(undefined, { granularity: 'grapheme' }).segment(s)].length === 1;
+}
+
+type Presentable = {
+  type: string;
+  text?: string;
+  input?: unknown;
+  state?: string;
+  output?: unknown;
+  mediaType?: string;
+  toolName?: string;
+  toolCallId?: string;
+  url?: string;
+  filename?: string;
+};
+
+function toolOutput(part: Presentable): { ok?: boolean; status?: string } | null {
+  if (!part.output || typeof part.output !== 'object') return null;
+  return part.output as { ok?: boolean; status?: string };
+}
+
+function textFromInput(part: Presentable): string {
+  const input = part.input;
+  if (!input || typeof input !== 'object' || !('text' in input)) return '';
+  return typeof input.text === 'string' ? input.text : '';
+}
+
+/** Carte sur laquelle l'utilisateur doit agir : elle reste dans le fil. */
+export function isActionToolPart(part: Presentable): boolean {
+  if (part.state !== 'output-available') return false;
+  const out = toolOutput(part);
+  if (!out || out.ok === false) return false;
+  if (part.type === 'tool-team_send_message' && out.status === 'sent') return true;
+  if (ACTION_TOOL_TYPES.has(part.type)) return true;
+  return out.status === 'pending_approval';
+}
+
+export type PresentedBubble<T> = { key: string; text: string } | { key: string; image: T };
+
 /**
- * Une phrase écrite avant ou entre des appels d'outils reste visible.
- * Les outils et le raisonnement restent dans le bloc de travail replié.
- * `lead` précède le premier outil ; `around` est le texte qui suit au moins un outil.
+ * Un tour assistant est un seul message stocké. Les phrases visibles
+ * (`text_user` et le texte du modèle, y compris la réponse finale) deviennent
+ * des bulles. Le raisonnement, les outils et leurs résultats vont dans un
+ * seul panneau. Les cartes d'action restent à part.
  */
+export function presentAssistantTurn<T extends Presentable>(parts: T[]): { bubbles: PresentedBubble<T>[]; work: T[]; actions: T[] } {
+  const bubbles: PresentedBubble<T>[] = [];
+  const work: T[] = [];
+  const actions: T[] = [];
+  parts.forEach((part, index) => {
+    if (part.type === 'text' || part.type === 'tool-text_user') {
+      const raw = part.type === 'text' ? (part.text ?? '') : textFromInput(part);
+      const text = cleanModelText(raw);
+      if (text && !SILENCE_TEXT.test(text)) bubbles.push({ key: `text-${index}`, text });
+      return;
+    }
+    if (part.type === 'file' && part.mediaType?.startsWith('image/')) {
+      bubbles.push({ key: `image-${index}`, image: part });
+      return;
+    }
+    if (part.type === 'step-start') return;
+    if (isActionToolPart(part)) {
+      actions.push(part);
+      return;
+    }
+    if (part.type === 'reasoning' || part.type === 'dynamic-tool' || part.type.startsWith('tool-') || part.type === 'file') work.push(part);
+  });
+  return { bubbles, work, actions };
+}
+
+/** Découpe historique : le texte avant ou entre les outils, puis le travail. L'affichage du chat utilise `presentAssistantTurn`. */
 export function partitionToolNarrative<T extends { type: string }>(parts: T[]): { lead: T[]; around: T[]; work: T[] } {
   const lead: T[] = [];
   const around: T[] = [];

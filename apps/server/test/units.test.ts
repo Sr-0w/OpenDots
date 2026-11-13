@@ -4,7 +4,7 @@ import { htmlToText } from '../src/tools/web.ts';
 import { decryptSecret, encryptSecret, maskSecret } from '../src/secrets.ts';
 import { KeyedMutex, singleFlight, truncate } from '../src/util.ts';
 import { buildSystemPrompt } from '../src/agents/prompt.ts';
-import { DEFAULT_PERMISSIONS, partitionToolNarrative } from '@opendots/shared';
+import { DEFAULT_PERMISSIONS, isSingleEmoji, partitionToolNarrative, presentAssistantTurn } from '@opendots/shared';
 
 describe('planifications', () => {
   const from = new Date('2026-10-21T10:00:00Z');
@@ -129,6 +129,13 @@ describe('prompt système', () => {
     expect(buildSystemPrompt({ ...base, mode: { kind: 'user' } })).toContain('First meeting');
   });
 
+  it('reste discret quand l’utilisateur ajoute une réaction', () => {
+    const p = buildSystemPrompt({ ...base, mode: { kind: 'event', title: 'Réaction', eventType: 'reaction' } });
+    expect(p).toContain('<silence/>');
+    expect(p).toContain('react_to_message');
+    expect(p).not.toContain('ALWAYS end with a short message');
+  });
+
   it('autorise le silence lors des réveils autonomes', () => {
     const p = buildSystemPrompt({ ...base, mode: { kind: 'event', title: 'Mails du matin' } });
     expect(p).toContain('<silence/>');
@@ -150,6 +157,9 @@ describe('prompt système', () => {
     expect(prompt).toContain('trivial call');
     expect(prompt).toContain('ordinary reply text');
     expect(prompt).toContain('text_user');
+    expect(prompt).toContain('react_to_message');
+    expect(prompt).toContain('reply_to');
+    expect(prompt).toContain('chat bubbles');
     expect(prompt).toContain('every few steps');
   });
 
@@ -160,6 +170,37 @@ describe('prompt système', () => {
     const withTools = buildSystemPrompt({ ...base, mode: { kind: 'user' }, toolNames: ['list_capabilities', 'load_tools'] });
     expect(withTools).toContain('call list_capabilities');
     expect(withTools).toContain('load_tools');
+  });
+});
+
+describe('bulles et panneau de travail', () => {
+  it('met chaque phrase visible dans une bulle et le reste dans un seul panneau', () => {
+    const parts = [
+      { type: 'text', text: 'Je vais maintenant créer ce fichier.' },
+      { type: 'reasoning', text: 'trace interne' },
+      { type: 'tool-shell_exec', state: 'output-available', output: { ok: true, stdout: 'hidden-command-output' } },
+      { type: 'tool-text_user', input: { text: 'La copie locale est en cours.' } },
+      { type: 'dynamic-tool', toolName: 'mcp_demo', state: 'output-available', output: { ok: true } },
+      { type: 'step-start' },
+      { type: 'tool-ask_user', state: 'output-available', output: { ok: true, requestId: 'rq' } },
+      { type: 'text', text: '<silence/>' },
+      { type: 'text', text: 'Réponse finale visible.' },
+    ];
+    const view = presentAssistantTurn(parts);
+    expect(view.bubbles.flatMap((bubble) => 'text' in bubble ? [bubble.text] : [])).toEqual([
+      'Je vais maintenant créer ce fichier.',
+      'La copie locale est en cours.',
+      'Réponse finale visible.',
+    ]);
+    expect(view.work.map((part) => part.type)).toEqual(['reasoning', 'tool-shell_exec', 'dynamic-tool']);
+    expect(view.actions.map((part) => part.type)).toEqual(['tool-ask_user']);
+  });
+
+  it('n’accepte qu’un seul emoji', () => {
+    expect(isSingleEmoji('👍')).toBe(true);
+    expect(isSingleEmoji('❤️')).toBe(true);
+    expect(isSingleEmoji('👍👍')).toBe(false);
+    expect(isSingleEmoji('ok')).toBe(false);
   });
 });
 

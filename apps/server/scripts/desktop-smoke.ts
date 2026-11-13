@@ -559,7 +559,7 @@ import os
   assert.equal(await worked.getAttribute('data-state'), 'closed');
   assert.equal(await page.getByRole('img', { name: 'Capture du bureau privé', exact: true }).count(), 0);
   assert.equal(await page.getByText('command-details-only', { exact: true }).count(), 0);
-  await worked.getByRole('button', { name: /Worked/ }).click();
+  await worked.getByRole('button', { name: /A travaillé|Worked|Raisonnement/ }).click();
   const chatShot = page.getByRole('img', { name: 'Capture du bureau privé', exact: true });
   assert.equal(await chatShot.count(), 1, '45 captures must become one optional final preview');
   await chatShot.waitFor();

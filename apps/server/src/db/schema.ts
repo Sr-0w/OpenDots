@@ -84,9 +84,27 @@ export const messages = pgTable(
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     hidden: boolean('hidden').notNull().default(false),
     textContent: text('text_content').notNull().default(''),
+    replyToId: text('reply_to_id'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
-  (t) => [index('messages_conv_idx').on(t.conversationId, t.seq)],
+  (t) => [index('messages_conv_idx').on(t.conversationId, t.seq), index('messages_reply_idx').on(t.replyToId)],
+);
+
+/** Tapback : un emoji par acteur (`user` ou id de compagnon) et par message. */
+export const messageReactions = pgTable(
+  'message_reactions',
+  {
+    id: text('id').primaryKey(),
+    messageId: text('message_id').notNull(),
+    conversationId: text('conversation_id').notNull(),
+    emoji: text('emoji').notNull(),
+    actor: text('actor').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('message_reactions_unique').on(t.messageId, t.emoji, t.actor),
+    index('message_reactions_message_idx').on(t.messageId),
+  ],
 );
 
 export const memories = pgTable(
