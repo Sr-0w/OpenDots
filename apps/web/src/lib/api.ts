@@ -88,6 +88,8 @@ export interface SettingsDTO {
   timezone: string;
   paused: boolean;
   turnStepLimit: number | null;
+  teamTurnStepLimit: number;
+  teamTurnTimeoutSec: number;
   search: { provider: "auto" | "mwmbl" | "searxng"; url: string | null };
   shell: ShellSettingsDTO;
 }

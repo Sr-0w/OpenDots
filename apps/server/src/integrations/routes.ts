@@ -1,4 +1,5 @@
 import { enqueue } from '../jobs/queue.ts';
+import { resumePendingHandoff } from '../team/handoff.ts';
 import { getAgent } from '../agents/repo.ts';
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
@@ -39,7 +40,10 @@ export function integrationRoutes() {
       await updateConnector(result.connector.id, { tools: availableOperations(result.connector.config as IntegrationConfig).map((o) => ({ name: o.id, description: o.name })) });
       if (result.requestedBy) {
         const agent = await getAgent(result.requestedBy);
-        if (agent && !agent.archived) await enqueue('agent.wake', { agentId: agent.id, event: { type: 'system', title: 'Nouvelle connexion' }, text: `${result.connector.name} est connecté. Reprends la tâche qui nécessitait cette connexion. Les écritures attendent toujours la validation de l’utilisateur.`, depth: 0 }, { agentId: agent.id });
+        if (agent && !agent.archived) {
+          const text = `${result.connector.name} est connecté. Reprends la tâche qui nécessitait cette connexion. Les écritures attendent toujours la validation de l’utilisateur.`;
+          if (!(await resumePendingHandoff(agent.id, 'connection', text))) await enqueue('agent.wake', { agentId: agent.id, event: { type: 'system', title: 'Nouvelle connexion' }, text, depth: 0 }, { agentId: agent.id });
+        }
       }
       // No token, code, account contents or state are exposed to window.opener.
       return c.html(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>OpenDots — connexion établie</title><body><p>Connexion établie. Tu peux fermer cet onglet.</p><script>if(window.opener){window.opener.postMessage({type:'opendots:oauth',ok:true},${JSON.stringify(result.origin)});window.close()}</script></body></html>`);

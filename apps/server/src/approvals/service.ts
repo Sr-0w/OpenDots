@@ -4,6 +4,7 @@ import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { log } from '../journal.ts';
 import { enqueue } from '../jobs/queue.ts';
+import { resumeHandoff, takeHandoff } from '../team/handoff.ts';
 import { errorMessage, newId } from '../util.ts';
 
 /**
@@ -128,13 +129,18 @@ export async function resolveApproval(
     }
   }
 
-  if (opts.notifyAgent) {
-    const outcome =
-      row.status === 'executed'
-        ? `L'utilisateur a approuvé et l'action a été exécutée avec succès. Résultat : ${JSON.stringify(row.result)}`
-        : row.status === 'failed'
-          ? `L'utilisateur a approuvé mais l'exécution a échoué : ${row.error}`
-          : `L'utilisateur a refusé cette action. Ne la réessaie pas sans nouvelle demande.`;
+  const outcome =
+    row.status === 'executed'
+      ? `L'utilisateur a approuvé et l'action a été exécutée avec succès. Résultat : ${JSON.stringify(row.result)}`
+      : row.status === 'failed'
+        ? `L'utilisateur a approuvé mais l'exécution a échoué : ${row.error}`
+        : `L'utilisateur a refusé cette action. Ne la réessaie pas sans nouvelle demande.`;
+  // Une validation née d'un échange entre compagnons reprend ce fil, à la profondeur d'origine.
+  // Personne d'autre que l'utilisateur ne peut l'avoir décidée.
+  const handoff = await takeHandoff('approval', row.id);
+  if (handoff) {
+    await resumeHandoff(handoff, outcome);
+  } else if (opts.notifyAgent) {
     await enqueue(
       'agent.wake',
       {

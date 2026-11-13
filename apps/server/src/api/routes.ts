@@ -15,7 +15,8 @@ import { subscribe } from '../bus.ts';
 import { getAgent, listAgentRows, listAgents, mainConversationId, toAgentDTO, updateAgent, createAgent } from '../agents/repo.ts';
 import { runTurn, stopAgent } from '../agents/turn.ts';
 import { getActiveStream } from '../agents/streams.ts';
-import { getConversation, listTeamThreads, pairConversationId, loadMessages, resolveReply, toggleReaction, type OpenDotsUIMessage } from '../conversations/repo.ts';
+import { getConversation, listTeamThreads, pairConversationId, loadMessages, resolveReply, saveMessage, toggleReaction, type OpenDotsUIMessage } from '../conversations/repo.ts';
+import { finishedTextStream, resumeHandoff, resumePendingHandoff, takeHandoff } from '../team/handoff.ts';
 import {
   checkModel,
   listOllamaModels,
@@ -27,6 +28,8 @@ import {
   getDefaultModel,
   getOpenRouterKey,
   getSetting,
+  getTeamTurnStepLimit,
+  getTeamTurnTimeoutMs,
   getTimezone,
   getTurnStepLimit,
   isPaused,
@@ -40,7 +43,7 @@ import { enqueue } from '../jobs/queue.ts';
 import { ApprovalError, listApprovals, resolveApproval } from '../approvals/service.ts';
 import { forget, listMemories, listSharedMemories, remember, updateMemory } from '../memory/repo.ts';
 import { listJournal, log } from '../journal.ts';
-import { errorMessage, KeyedMutex } from '../util.ts';
+import { errorMessage, KeyedMutex, newId } from '../util.ts';
 import { createSkill, deleteSkill, listSkills, SkillError, toSkillDTO, updateSkill } from '../skills/repo.ts';
 import { ConnectorError, createConnector, deleteConnector, getConnector, listConnectors, toConnectorDTO, updateConnector } from '../connectors/repo.ts';
 import { closeMcpClient, refreshMcpConnector } from '../connectors/mcp.ts';
@@ -178,6 +181,8 @@ export function createApi() {
       timezone: await getTimezone(),
       paused: await isPaused(),
       turnStepLimit: await getTurnStepLimit(),
+      teamTurnStepLimit: await getTeamTurnStepLimit(),
+      teamTurnTimeoutSec: Math.round((await getTeamTurnTimeoutMs()) / 1000),
       search: await getSearchSettings(),
       shell: await getShellSettings(),
     });
@@ -192,6 +197,8 @@ export function createApi() {
         timezone: z.string().optional(),
         paused: z.boolean().optional(),
         turnStepLimit: z.number().int().positive().nullable().optional(),
+        teamTurnStepLimit: z.number().int().min(1).max(40).nullable().optional(),
+        teamTurnTimeoutSec: z.number().int().min(30).max(1800).nullable().optional(),
         search: z
           .object({
             provider: z.enum(['auto', 'mwmbl', 'searxng']),
@@ -230,6 +237,8 @@ export function createApi() {
     if (body.ollamaUrl !== undefined) await setSetting('ollama.url', body.ollamaUrl?.trim() || null);
     if (body.timezone) await setSetting('user.timezone', body.timezone);
     if (body.turnStepLimit !== undefined) await setSetting('engine.turnStepLimit', body.turnStepLimit);
+    if (body.teamTurnStepLimit !== undefined) await setSetting('engine.teamTurnStepLimit', body.teamTurnStepLimit);
+    if (body.teamTurnTimeoutSec !== undefined) await setSetting('engine.teamTurnTimeoutSec', body.teamTurnTimeoutSec);
     if (body.paused !== undefined) {
       await setSetting('engine.paused', body.paused);
       await log(null, 'engine.paused', body.paused ? 'Activités autonomes suspendues' : 'Activités autonomes reprises');
@@ -351,6 +360,17 @@ export function createApi() {
       const { row, summary } = await answerRequest(answer.requestId, answer.answers ?? {});
       finalParts = [{ type: 'text', text: summary }];
       metadata.answer = { requestId: row.id, answers: row.answers ?? {} };
+      const handoff = await takeHandoff('question', row.id);
+      if (handoff && handoff.agentId === agent.id) {
+        const messageId = String(message.id).slice(0, 64);
+        await saveMessage(conversationId, { id: messageId, role: 'user', parts: finalParts, metadata: { ...metadata, kind: 'chat', createdAt: new Date().toISOString() } }, { author: 'user' });
+        const peer = await getAgent(handoff.fromAgentId);
+        const note = `J’ai ta réponse. Je reprends la tâche demandée par ${peer?.name ?? 'ton compagnon'}.`;
+        const noteId = newId('msg');
+        await saveMessage(conversationId, { id: noteId, role: 'assistant', parts: [{ type: 'text', text: note }], metadata: { kind: 'chat', agentId: agent.id, createdAt: new Date().toISOString() } }, { author: 'agent', agentId: agent.id });
+        await resumeHandoff(handoff, `L'utilisateur a répondu au formulaire « ${row.title} ».\n${summary}`);
+        return createUIMessageStreamResponse({ stream: finishedTextStream(conversationId, noteId, note) });
+      }
     }
     const { stream } = runTurn(agent.id, conversationId, {
       kind: 'user',
@@ -534,6 +554,8 @@ export function createApi() {
   /** Réveille le compagnon qui avait demandé la connexion. */
   async function notifyRequester(agentId: string | undefined, text: string) {
     if (!agentId || !(await getAgent(agentId))) return;
+    const resumed = await resumePendingHandoff(agentId, 'connection', `${text}\nReprends la tâche qui nécessitait cette connexion. Les écritures attendent toujours la validation de l’utilisateur.`);
+    if (resumed) return;
     await enqueue(
       'agent.wake',
       { agentId, event: { type: 'system', title: 'Nouvelle connexion' }, text: `${text}\nReprends la tâche qui nécessitait cette connexion et confirme en une ou deux phrases à l'utilisateur ce que tu vas faire.`, depth: 0 },

@@ -1,6 +1,7 @@
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { createApproval, registerApprovalAction } from '../approvals/service.ts';
+import { trackApproval, withDelegationSummary } from '../team/handoff.ts';
 import { getAgent } from '../agents/repo.ts';
 import type { ToolContext } from '../agents/tools.ts';
 import { desktopAction, desktopActionSchema, desktopEnabled, humanControl, semanticOperation } from './desktop.ts';
@@ -72,8 +73,9 @@ export function semanticTools(ctx: ToolContext): ToolSet {
         if (!agent || agent.archived || !agent.permissions.computer) return { ok: false, error: 'Permission retirée.' };
         if (await withDesktopAgent(agent.id, humanControl)) throw new Error('L’utilisateur a pris la main.');
         if (await desktopActionNeedsApproval(agent.id, action)) {
-          const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.keyboard', summary: `Ordinateur · clavier · ${reason}`, input: { agentId: agent.id, operation: parsed.data } });
-          return { ok: true, status: 'pending_approval', approvalId: approval.id, note: 'Action PAS exécutée.' };
+          const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.keyboard', summary: withDelegationSummary(ctx.delegation, `Ordinateur · clavier · ${reason}`), input: { agentId: agent.id, operation: parsed.data } });
+          await trackApproval(ctx, approval, { tool: 'computer_keyboard', input: parsed.data });
+          return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: 'Action PAS exécutée.' };
         }
         return keyboard(agent.id, parsed.data, ctx.abortSignal ?? options.abortSignal);
       },
@@ -88,8 +90,9 @@ export function semanticTools(ctx: ToolContext): ToolSet {
         if (!agent || agent.archived || !agent.permissions.computer) return { ok: false, error: 'Permission retirée.' };
         if (await withDesktopAgent(agent.id, humanControl)) throw new Error('L’utilisateur a pris la main.');
         if (await desktopActionNeedsApproval(agent.id, 'click')) {
-          const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.semantic', summary: `Ordinateur · ${input.engine} · ${input.action} · ${reason}`, input: { agentId: agent.id, operation: parsed.data } });
-          return { ok: true, status: 'pending_approval', approvalId: approval.id, note: 'Action PAS exécutée.' };
+          const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.semantic', summary: withDelegationSummary(ctx.delegation, `Ordinateur · ${input.engine} · ${input.action} · ${reason}`), input: { agentId: agent.id, operation: parsed.data } });
+          await trackApproval(ctx, approval, { tool: 'computer_target', input: parsed.data });
+          return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: 'Action PAS exécutée.' };
         }
         return execute(agent.id, parsed.data, ctx.abortSignal ?? options.abortSignal);
       },
