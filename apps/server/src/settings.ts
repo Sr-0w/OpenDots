@@ -13,6 +13,8 @@ interface SettingsShape {
   'ollama.url': string;
   'engine.paused': boolean;
   'engine.turnStepLimit': number;
+  'engine.teamTurnStepLimit': number;
+  'engine.teamTurnTimeoutSec': number;
   'onboarding.done': boolean;
   'user.timezone': string;
   'search.config': { provider: string; apiKey?: string | null; url?: string | null }; // clés historiques ignorées
@@ -103,4 +105,19 @@ export async function getShellSettings(): Promise<ShellSettings> {
 /** Per-account, opt-in step budget. Missing means no limit. */
 export async function getTurnStepLimit(): Promise<number | null> {
   return getSetting('engine.turnStepLimit');
+}
+
+/** Un échange entre compagnons s'arrête toujours. 12 étapes et 5 minutes si rien n'est choisi. */
+export const DEFAULT_TEAM_TURN_STEPS = 12;
+export const DEFAULT_TEAM_TURN_TIMEOUT_SEC = 300;
+
+export async function getTeamTurnStepLimit(): Promise<number> {
+  const value = await getSetting('engine.teamTurnStepLimit');
+  return value && Number.isInteger(value) && value > 0 ? value : DEFAULT_TEAM_TURN_STEPS;
+}
+
+export async function getTeamTurnTimeoutMs(): Promise<number> {
+  const value = await getSetting('engine.teamTurnTimeoutSec');
+  const seconds = value && Number.isInteger(value) && value >= 30 ? value : DEFAULT_TEAM_TURN_TIMEOUT_SEC;
+  return seconds * 1000;
 }

@@ -31,6 +31,7 @@ import { getAgent } from './repo.ts';
 import type { IntegrationConfig } from '@opendots/shared';
 import { errorMessage, truncate } from '../util.ts';
 import type { ToolContext } from './tools.ts';
+import { trackApproval, trackUserCard, withDelegationSummary } from '../team/handoff.ts';
 
 /**
  * Outils de capacités partagées au niveau du compte : skills, connecteurs MCP,
@@ -130,14 +131,19 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
   }
 
   // --- Interactions structurées ------------------------------------------------
-  if (ctx.isMain) {
+  // Disponibles aussi pendant un échange entre compagnons : la carte remonte dans le fil principal.
+  if (ctx.isMain || ctx.teamTurn) {
     info.connectors.push('Catalogue prêt à connecter (ne signifie PAS connecté) : ' + CATALOG.map(entry => `${entry.name} [${entry.id}] : ${entry.description} Accès : ${entry.permissions.map(p => p.id).join(', ') || 'IMAP/SMTP'}`).join('\n'));
     info.connectors.push('Pour un service absent ou des accès insuffisants, appelle connection_request_setup avec le provider et les permissions nécessaires. Pour Gmail/envoi : kind=integration, provider=gmail, permissions=[send]. Ne demande jamais de secrets ni de passage dans les menus. OAuth nécessite une application configurée par l’administrateur ; la carte indique son état.');
     for (const row of await listConnectors()) if (row.kind === 'integration') info.connectors.push(`Connexion ${row.name} [${row.id}] : provider=${row.config.provider}, enabled=${row.enabled}, status=${row.status}, accès=${(row.config as IntegrationConfig).permissions.join(',')}.`);
     tools.computer_request_setup = tool({
       description: 'Affiche dans le chat une carte pour activer et démarrer l’ordinateur de ce compagnon. Aucun démarrage ni changement de permission avant le clic explicite de l’utilisateur. Utilise-la si le bureau n’est pas accessible ou si l’utilisateur veut le démarrer, sans l’envoyer dans les menus.',
       inputSchema: z.object({ reason: z.string().min(1).max(400) }).strict(),
-      execute: async ({ reason }) => ok({ status: 'setup_requested', reason, note: 'Carte de démarrage affichée. Cet appel ne démarre rien ; la carte affiche l’état actuel et attend un clic si nécessaire.' }),
+      execute: async ({ reason }) => {
+        const output = { ok: true as const, status: 'setup_requested' as const, reason, note: 'Carte de démarrage affichée dans le fil principal. Cet appel ne démarre rien ; la carte affiche l’état actuel et attend un clic si nécessaire.' };
+        await trackUserCard(ctx, { kind: 'desktop', detail: 'Il propose de démarrer son ordinateur. Rien ne démarre tant que tu n’as pas cliqué.', tool: 'computer_request_setup', input: { reason }, output });
+        return output;
+      },
     });
     tools.ask_user = tool({
       description: [
@@ -164,8 +170,10 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       }),
       execute: async ({ title, questions }) =>
         guard(async () => {
-          const req = await createRequest({ agentId: ctx.agent.id, conversationId: ctx.conversationId, title, questions: questions as AskQuestion[] });
-          return ok({ status: 'awaiting_user', requestId: req.id, note: "Formulaire affiché à l'utilisateur. Attends sa réponse." });
+          const req = await createRequest({ agentId: ctx.agent.id, conversationId: ctx.isMain ? ctx.conversationId : (ctx.delegation?.mainConversationId ?? ctx.conversationId), title, questions: questions as AskQuestion[] });
+          const output = ok({ status: 'awaiting_user', requestId: req.id, note: "Formulaire affiché à l'utilisateur dans son fil principal. Attends sa réponse." });
+          await trackUserCard(ctx, { kind: 'question', refId: req.id, detail: `Il te pose des questions : ${title}`, tool: 'ask_user', input: { title, questions }, output });
+          return output;
         }),
     });
 
@@ -180,15 +188,18 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
       }).superRefine((input, ctx) => {
         if (input.permissions && (input.kind !== 'integration' || !input.provider || input.permissions.some(p => !CATALOG.find(e => e.id === input.provider)?.permissions.some(v => v.id === p)))) ctx.addIssue({ code: 'custom', message: 'Permissions inconnues pour ce service.', path: ['permissions'] });
       }),
-      execute: async ({ kind, provider, permissions, reason }) =>
-        ok({
+      execute: async ({ kind, provider, permissions, reason }) => {
+        const output = ok({
           status: 'setup_requested',
           kind,
           provider,
           permissions,
           reason,
-          note: `Une carte avec un bouton « ${kind === 'mail' ? 'Connecter' : 'Configurer'} » est affichée à l'utilisateur. Tu seras réveillé quand la connexion sera établie.`,
-        }),
+          note: `Une carte avec un bouton « ${kind === 'mail' ? 'Connecter' : 'Configurer'} » est affichée dans le fil principal. Tu seras réveillé quand la connexion sera établie.`,
+        });
+        await trackUserCard(ctx, { kind: 'connection', detail: `Il demande de connecter un service (${provider ?? kind}).`, tool: 'connection_request_setup', input: { kind, provider, permissions, reason }, output });
+        return output;
+      },
     });
   }
 
@@ -287,10 +298,11 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
             conversationId: ctx.conversationId,
             toolCallId,
             action: 'mail.send',
-            summary: `Envoyer « ${truncate(draft.subject, 80)} » à ${draft.to.join(', ')}`,
+            summary: withDelegationSummary(ctx.delegation, `Envoyer « ${truncate(draft.subject, 80)} » à ${draft.to.join(', ')}`),
             input: { draftId: draft.id },
           });
           await setDraftApproval(draft.id, approval.id);
+          await trackApproval(ctx, approval, { tool: 'mail_prepare', input: { to: draft.to, subject: draft.subject }, output: { draftId: draft.id } });
           return ok({
             status: 'pending_approval',
             approvalId: approval.id,
@@ -329,9 +341,10 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
               conversationId: ctx.conversationId,
               toolCallId,
               action: 'shell.exec',
-              summary: `Exécuter : ${truncate(command, 200)}`,
+              summary: withDelegationSummary(ctx.delegation, `Exécuter : ${truncate(command, 200)}`),
               input: { agentId: ctx.agent.id, command, timeoutSeconds: timeout_seconds },
             });
+            await trackApproval(ctx, approval, { tool: 'shell_exec', input: { command } });
             return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE };
           }
           const r = await execShell(ctx.agent.id, command, { timeoutSeconds: timeout_seconds });
@@ -349,9 +362,10 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
         conversationId: ctx.conversationId,
         toolCallId,
         action: 'mcp.call',
-        summary: `${fresh?.name ?? connector.name} · ${toolName}(${truncate(JSON.stringify(args ?? {}), 160)})`,
+        summary: withDelegationSummary(ctx.delegation, `${fresh?.name ?? connector.name} · ${toolName}(${truncate(JSON.stringify(args ?? {}), 160)})`),
         input: { connectorId: connector.id, tool: toolName, args },
       });
+      await trackApproval(ctx, approval, { tool: 'mcp_call', input: { tool: toolName, args } });
       return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE };
     });
     Object.assign(tools, mcp.tools);
@@ -377,7 +391,8 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
           if (!fresh) return fail('Connexion supprimée.');
           operationFor(fresh, operation.id);
           const prepared = await integrations.prepare(row.id, operation.id, args, { agentId: ctx.agent.id });
-          const approval = await createApproval({ agentId: ctx.agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'integration.call', summary: `${row.name} · ${operation.name}${prepared.expectedSha ? ` · commit ${prepared.expectedSha}` : ''} · ${truncate(JSON.stringify(prepared.args), 240)}`, input: { connectorId: row.id, operation: operation.id, ...prepared, agentId: ctx.agent.id } });
+          const approval = await createApproval({ agentId: ctx.agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'integration.call', summary: withDelegationSummary(ctx.delegation, `${row.name} · ${operation.name}${prepared.expectedSha ? ` · commit ${prepared.expectedSha}` : ''} · ${truncate(JSON.stringify(prepared.args), 240)}`), input: { connectorId: row.id, operation: operation.id, ...prepared, agentId: ctx.agent.id } });
+          await trackApproval(ctx, approval, { tool: `svc_${row.id.slice(-8)}_${operation.id}`, input: args });
           return ok({ status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: PENDING_NOTE });
         }),
       });

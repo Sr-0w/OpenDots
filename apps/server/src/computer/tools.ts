@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { createApproval, registerApprovalAction } from '../approvals/service.ts';
+import { trackApproval, withDelegationSummary } from '../team/handoff.ts';
 import { getAgent } from '../agents/repo.ts';
 import type { ToolContext } from '../agents/tools.ts';
 import { desktopAction, desktopEnabled, humanControl, readScreenshot, screenshot } from './desktop.ts';
@@ -76,8 +77,9 @@ export async function desktopTools(ctx: ToolContext): Promise<ToolSet> {
           lastFrame = 'frameHash' in result ? result.frameHash : undefined;
           return result;
         }
-        const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.action', summary: `Bureau · ${action.action} · ${reason}`, input: { agentId: agent.id, action } });
-        return { ok: true, status: 'pending_approval', approvalId: approval.id, note: 'Action préparée, PAS exécutée. Attends la validation humaine.' };
+        const approval = await createApproval({ agentId: agent.id, conversationId: ctx.conversationId, toolCallId: options.toolCallId, action: 'computer.action', summary: withDelegationSummary(ctx.delegation, `Bureau · ${action.action} · ${reason}`), input: { agentId: agent.id, action } });
+        await trackApproval(ctx, approval, { tool: 'computer_action', input: action });
+        return { ok: true, status: 'pending_approval', approvalId: approval.id, summary: approval.summary, note: 'Action préparée, PAS exécutée. Attends la validation humaine.' };
       },
       toModelOutput: async ({ output }) => observationOutput(ctx.agent.id, output),
     }),

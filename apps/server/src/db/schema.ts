@@ -198,6 +198,30 @@ export const teamMessages = pgTable('team_messages', {
   answeredAt: ts('answered_at'),
 });
 
+/**
+ * Une carte montrée à l'utilisateur pendant un échange entre compagnons.
+ * Après sa décision, le travail reprend dans le fil d'équipe à la même profondeur.
+ */
+export const teamHandoffs = pgTable(
+  'team_handoffs',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id').notNull(),
+    kind: text('kind').$type<'approval' | 'question' | 'desktop' | 'connection'>().notNull(),
+    refId: text('ref_id'),
+    pairConversationId: text('pair_conversation_id').notNull(),
+    mainConversationId: text('main_conversation_id').notNull(),
+    teamMessageId: text('team_message_id').notNull(),
+    fromAgentId: text('from_agent_id').notNull(),
+    task: text('task').notNull(),
+    depth: integer('depth').notNull().default(0),
+    expectsReply: boolean('expects_reply').notNull().default(true),
+    status: text('status').$type<'pending' | 'resumed' | 'cancelled'>().notNull().default('pending'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('team_handoffs_agent_idx').on(t.agentId, t.status), index('team_handoffs_ref_idx').on(t.kind, t.refId)],
+);
+
 export const jobs = pgTable(
   'jobs',
   {

@@ -11,11 +11,13 @@ import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { log } from '../journal.ts';
 import { resolveModel, requireDesktopVision } from '../models/gateway.ts';
-import { getTimezone, getTurnStepLimit } from '../settings.ts';
+import { getTeamTurnStepLimit, getTeamTurnTimeoutMs, getTimezone, getTurnStepLimit } from '../settings.ts';
 import { contextMemories } from '../memory/repo.ts';
 import { listActivities } from '../activities/repo.ts';
 import { getConversation, loadMessages, messageText, resolveReply, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
-import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow } from './repo.ts';
+import { effectiveModel, getAgent, listAgentRows, mainConversationId, setAgentState, type AgentRow } from './repo.ts';
+import { getTeamMessage } from '../team/service.ts';
+import type { TeamDelegation } from '../team/handoff.ts';
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
 import { buildCapabilityTools } from './capability-tools.ts';
@@ -27,7 +29,7 @@ export type TurnTrigger =
   | { kind: 'onboarding' }
   | { kind: 'user'; message: OpenDotsUIMessage }
   | { kind: 'event'; event: NonNullable<MessageMetadata['event']>; text: string; depth: number }
-  | { kind: 'team'; teamMessageId: string; fromAgentId: string; expectsReply: boolean; depth: number; nudge?: boolean };
+  | { kind: 'team'; teamMessageId: string; fromAgentId: string; expectsReply: boolean; depth: number; nudge?: boolean; continuation?: string };
 
 export interface TurnResult {
   messageId: string | null;
@@ -377,10 +379,41 @@ async function executeTurn(
     hint = `${trigger.event.title} ${trigger.text}`;
   } else {
     // Le message du coéquipier est déjà enregistré dans le fil.
-    mode = { kind: 'team', peerName: names.get(trigger.fromAgentId) ?? 'un compagnon', expectsReply: trigger.expectsReply, nudge: trigger.nudge };
+    mode = { kind: 'team', peerName: names.get(trigger.fromAgentId) ?? 'un compagnon', expectsReply: trigger.expectsReply, nudge: trigger.nudge, continuation: Boolean(trigger.continuation) };
   }
 
   const depth = trigger.kind === 'user' || trigger.kind === 'onboarding' ? 0 : trigger.depth;
+  let delegation: TeamDelegation | undefined;
+  if (trigger.kind === 'team') {
+    const tm = await getTeamMessage(trigger.teamMessageId);
+    delegation = {
+      teamMessageId: trigger.teamMessageId,
+      fromAgentId: trigger.fromAgentId,
+      fromName: names.get(trigger.fromAgentId) ?? 'un compagnon',
+      task: (tm?.content ?? '').slice(0, 500),
+      depth,
+      expectsReply: trigger.expectsReply,
+      pairConversationId: conversationId,
+      mainConversationId: await mainConversationId(agentId),
+    };
+    if (trigger.continuation) {
+      await saveMessage(
+        conversationId,
+        {
+          id: newId('msg'),
+          role: 'user',
+          parts: [{ type: 'text', text: trigger.continuation }],
+          metadata: {
+            kind: 'event',
+            event: { type: 'system', title: 'Suite de la délégation', fromAgentId: trigger.fromAgentId },
+            createdAt: new Date().toISOString(),
+            autonomous: true,
+          },
+        },
+        { author: 'event', agentId },
+      );
+    }
+  }
   const turnStarted = Date.now();
   let replyTo: MessageReplyRef | null = null;
   const detachedStatus = new Set<string>();
@@ -393,6 +426,8 @@ async function executeTurn(
     tz,
     abortSignal: stream.abort.signal,
     peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
+    teamTurn: trigger.kind === 'team',
+    delegation,
     setReplyTo: async (messageId: string) => {
       const reply = await resolveReply(conversationId, messageId.trim());
       if (!reply) throw new Error('Message introuvable dans cette conversation.');
@@ -470,7 +505,9 @@ async function executeTurn(
   const responseId = newId('msg');
   let turnError: string | null = null;
   let finalMessage: OpenDotsUIMessage | null = null;
-  const stepLimit = await getTurnStepLimit();
+  const teamTurn = trigger.kind === 'team';
+  const stepLimit = teamTurn ? await getTeamTurnStepLimit() : await getTurnStepLimit();
+  const totalMs = teamTurn ? await getTeamTurnTimeoutMs() : 30 * 60_000;
   let limitReached = false;
   let limitNotice: string | null = null;
 
@@ -513,7 +550,7 @@ async function executeTurn(
       providerOptions: resolved.providerOptions,
       maxRetries: 2,
       abortSignal: stream.abort.signal,
-      timeout: { totalMs: 30 * 60_000, toolMs: 60_000, tools: { shell_execMs: 31 * 60_000 } } as any,
+      timeout: { totalMs, toolMs: 60_000, tools: { shell_execMs: 31 * 60_000 } } as any,
       onError: ({ error }) => {
         turnError = errorMessage(error);
       },
@@ -549,7 +586,9 @@ async function executeTurn(
 
     for await (const chunk of abortableChunks(uiStream, stream.abort.signal)) {
       if (chunk.type === 'finish' && limitReached && !turnError && !stream.abort.signal.aborted) {
-        limitNotice = `\n\nLimite de ${stepLimit} étapes de travail atteinte : ce tour est suspendu et la tâche peut être incomplète. Tu peux me demander de continuer pour reprendre.`;
+        limitNotice = teamTurn
+          ? `\n\nLimite de ${stepLimit} étapes pour un échange entre compagnons atteinte : cette délégation est suspendue et peut être incomplète.`
+          : `\n\nLimite de ${stepLimit} étapes de travail atteinte : ce tour est suspendu et la tâche peut être incomplète. Tu peux me demander de continuer pour reprendre.`;
         const id = newId('limit');
         stream.push({ type: 'text-start', id });
         stream.push({ type: 'text-delta', id, delta: limitNotice });

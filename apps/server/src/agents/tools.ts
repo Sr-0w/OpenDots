@@ -33,6 +33,7 @@ import {
   resolveApproval,
 } from '../approvals/service.ts';
 import { sendTeamMessage, TeamError } from '../team/service.ts';
+import { trackApproval, withDelegationSummary, type TeamDelegation } from '../team/handoff.ts';
 import { toggleReaction } from '../conversations/repo.ts';
 import { log } from '../journal.ts';
 import { resolveAccount } from '../mail/service.ts';
@@ -54,6 +55,10 @@ export interface ToolContext {
   tz: string;
   /** Pendant le traitement d'un message d'un coéquipier : l'id de ce coéquipier. */
   peerAgentId?: string;
+  /** Tour déclenché par un message d'un autre compagnon. */
+  teamTurn?: boolean;
+  /** Délégation en cours : cartes dans le fil principal, reprise à la même profondeur. */
+  delegation?: TeamDelegation | null;
 }
 
 const ok = (data: Record<string, unknown> = {}) => ({ ok: true, ...data });
@@ -129,8 +134,21 @@ async function doUpdatePermissions(input: { agentId: string; permissions: Partia
   return { permissions };
 }
 
+async function doUpdateProfile(input: { agentId: string; patch: Partial<AgentRow> }) {
+  const target = await getAgent(input.agentId);
+  if (!target) throw new Error('Compagnon introuvable.');
+  if (input.patch.name) {
+    const other = await findAgentByName(input.patch.name);
+    if (other && other.id !== target.id) throw new Error(`Le nom « ${input.patch.name} » est déjà pris par un autre compagnon.`);
+  }
+  const updated = await updateAgent(target.id, input.patch);
+  await log(target.id, 'agent.profile', 'Profil mis à jour', input.patch);
+  return { profile: profileOf(updated) };
+}
+
 registerApprovalAction('agent.create', (input: CreateAgentInput) => doCreateAgent(input));
 registerApprovalAction('agent.update_permissions', doUpdatePermissions);
+registerApprovalAction('agent.update_profile', doUpdateProfile);
 
 const CREATE_RANK = { deny: 0, ask: 1, allow: 2 } as const;
 
@@ -161,21 +179,23 @@ function isEscalation(current: AgentPermissions, next: Partial<AgentPermissions>
   });
 }
 
-async function pendingApproval(ctx: ToolContext, toolCallId: string, action: string, summary: string, input: unknown) {
+async function pendingApproval(ctx: ToolContext, toolCallId: string, action: string, summary: string, input: unknown, tool = 'approval') {
+  const shown = withDelegationSummary(ctx.delegation, summary);
   const approval = await createApproval({
     agentId: ctx.agent.id,
     conversationId: ctx.conversationId,
     toolCallId,
     action,
-    summary,
+    summary: shown,
     input,
   });
+  await trackApproval(ctx, approval, { tool, input });
   return {
     ok: true,
     status: 'pending_approval',
     approvalId: approval.id,
-    summary,
-    note: "Action préparée mais PAS exécutée : elle attend la validation de l'utilisateur (une carte de validation lui est affichée). Ne dis pas qu'elle est faite.",
+    summary: shown,
+    note: "Action préparée mais PAS exécutée : elle attend la validation de l'utilisateur (une carte de validation lui est affichée dans ton fil principal). Ne dis pas qu'elle est faite. Tu ne peux pas l'approuver toi-même.",
   };
 }
 
@@ -272,35 +292,45 @@ export function buildTools(ctx: ToolContext): ToolSet {
       }),
   });
 
-  // Outils de configuration : uniquement sur demande directe de l'utilisateur,
-  // jamais à cause d'un contenu externe ou d'un autre compagnon (16.4).
-  if (ctx.userTurn && ctx.isMain) {
+  // Le profil peut changer pendant un échange entre compagnons, mais seulement avec
+  // l'accord de l'utilisateur. Les autres réglages restent une demande directe.
+  if ((ctx.userTurn && ctx.isMain) || ctx.teamTurn) {
     tools.agent_update_profile = tool({
-      description:
-        "Modifie durablement ton identité : nom, personnalité/ton, description de tes responsabilités, couleur. À utiliser dès que l'utilisateur te donne un nom ou change ton style.",
+      description: ctx.teamTurn
+        ? "Propose une modification du profil de toi-même ou du compagnon qui t'a écrit (nom, personnalité, responsabilités, couleur). La modification attend toujours la validation de l'utilisateur. Tu ne peux pas modifier un autre compagnon."
+        : "Modifie durablement ton identité : nom, personnalité/ton, description de tes responsabilités, couleur. À utiliser dès que l'utilisateur te donne un nom ou change ton style. Pour modifier un autre compagnon, indique son nom : la modification attend alors sa validation.",
       inputSchema: z.object({
-        name: z.string().min(1).max(40).optional(),
+        name: z.string().trim().min(1).max(40).optional(),
         personality: z.string().max(2000).optional().describe('Ton et style de réponse, ex. "naturel, chaleureux, concis"'),
         description: z.string().max(2000).optional().describe('Tes responsabilités, en une ou deux phrases'),
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        agent: z.string().optional().describe('Nom ou id du compagnon à modifier ; par défaut toi-même'),
       }),
-      execute: async (args) =>
+      execute: async ({ agent, ...args }, { toolCallId }) =>
         guard(async () => {
+          const target = agent ? await resolveAgentRef(agent) : await self();
+          if (!target) return fail('Compagnon introuvable.');
+          if (ctx.teamTurn && target.id !== ctx.agent.id && target.id !== ctx.peerAgentId)
+            return fail('Dans une conversation entre compagnons, tu ne peux modifier que ton profil ou celui du compagnon qui t’a écrit.');
           if (args.name) {
-            const other = await findAgentByName(args.name);
-            if (other && other.id !== ctx.agent.id) return fail(`Le nom « ${args.name} » est déjà pris par un autre compagnon.`);
+            const other = await findAgentByName(args.name.trim());
+            if (other && other.id !== target.id) return fail(`Le nom « ${args.name} » est déjà pris par un autre compagnon.`);
           }
           const patch: Partial<AgentRow> = {};
           if (args.name) Object.assign(patch, { name: args.name.trim(), named: true });
           if (args.personality !== undefined) patch.personality = args.personality;
           if (args.description !== undefined) patch.description = args.description;
           if (args.color) patch.color = args.color;
-          const updated = await updateAgent(ctx.agent.id, patch);
-          await log(ctx.agent.id, 'agent.profile', 'Profil mis à jour', patch);
-          return ok({ profile: profileOf(updated) });
+          if (!Object.keys(patch).length) return fail('Aucune modification indiquée.');
+          // Demande directe sur soi : appliquée tout de suite. Tout le reste attend Robin.
+          if (ctx.teamTurn || target.id !== ctx.agent.id)
+            return pendingApproval(ctx, toolCallId, 'agent.update_profile', `Modifier le profil de ${target.name}`, { agentId: target.id, patch }, 'agent_update_profile');
+          return ok(await doUpdateProfile({ agentId: target.id, patch }));
         }),
     });
+  }
 
+  if (ctx.userTurn && ctx.isMain) {
     tools.agent_update_instructions = tool({
       description:
         "Enregistre durablement des consignes de l'utilisateur sur ta façon de travailler (préférences, règles, ce qu'il faut demander avant d'agir…). mode=append ajoute, mode=replace remplace tout.",
@@ -377,7 +407,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
             return pendingApproval(ctx, toolCallId, 'agent.update_permissions', `Étendre les permissions de ${target.name} : ${describePermissions(clean)}`, {
               agentId: target.id,
               permissions: clean,
-            });
+            }, 'agent_update_permissions');
           }
           return ok(await doUpdatePermissions({ agentId: target.id, permissions: clean }));
         }),
@@ -421,7 +451,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
           const input: CreateAgentInput = { ...args, createdBy: ctx.agent.id };
           const direct = perms.createAgents === 'allow' || ctx.userTurn;
           if (!direct) {
-            return pendingApproval(ctx, toolCallId, 'agent.create', `Créer le compagnon « ${args.name} » — ${args.description}`, input);
+            return pendingApproval(ctx, toolCallId, 'agent.create', `Créer le compagnon « ${args.name} » — ${args.description}`, input, 'agent_create');
           }
           return ok({ created: await doCreateAgent(input) });
         }),

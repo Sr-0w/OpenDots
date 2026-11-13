@@ -8,6 +8,7 @@ import { DesktopError, desktopStatus, readScreenshot, screenshot, startDesktop, 
 import { getSetting, setSetting } from '../settings.ts';
 import { getAgent, listAgentRows, updateAgent } from '../agents/repo.ts';
 import { enqueue } from '../jobs/queue.ts';
+import { resumePendingHandoff } from '../team/handoff.ts';
 import { KeyedMutex } from '../util.ts';
 import { desktopPermissionsSchema, getDesktopPermissions, setDesktopPermissions } from './permissions.ts';
 
@@ -43,7 +44,9 @@ export function desktopRoutes() {
     if (!agent.permissions.computer) await updateAgent(agent.id, { permissions: { ...agent.permissions, computer: true } });
     await setSetting(`desktop.bot.${desktopAgentId()}`, { ...await getSetting(`desktop.bot.${desktopAgentId()}`), enabled: true });
     await startDesktop();
-    if (body.notify && (!previous.running || previous.suspended)) await enqueue('agent.wake', { agentId: agent.id, event: { type: 'system', title: 'Ordinateur prêt' }, text: 'L’utilisateur a activé ton accès au bureau et démarré ton ordinateur depuis la carte du chat. Reprends la tâche qui le nécessitait. Le bureau XFCE est prêt, sans navigateur ouvert automatiquement. Observe-le avant d’agir.', depth: 0 }, { agentId: agent.id });
+    const desktopText = 'L’utilisateur a activé ton accès au bureau et démarré ton ordinateur depuis la carte du chat. Reprends la tâche qui le nécessitait. Le bureau XFCE est prêt, sans navigateur ouvert automatiquement. Observe-le avant d’agir.';
+    const resumed = body.notify ? await resumePendingHandoff(agent.id, 'desktop', desktopText) : false;
+    if (body.notify && (!previous.running || previous.suspended) && !resumed) await enqueue('agent.wake', { agentId: agent.id, event: { type: 'system', title: 'Ordinateur prêt' }, text: desktopText, depth: 0 }, { agentId: agent.id });
     return c.json(await desktopStatus());
   }));
   app.post('/desktop/stop', async (c) => { await stopDesktop(); return c.json(await desktopStatus()); });

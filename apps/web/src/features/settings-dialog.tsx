@@ -25,6 +25,8 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [providers, setProviders] = useState<string[]>([]);
   const [turnLimit, setTurnLimit] = useState("");
+  const [teamSteps, setTeamSteps] = useState("12");
+  const [teamMinutes, setTeamMinutes] = useState("5");
   const [busy, setBusy] = useState(false);
   const { theme, setTheme } = useTheme();
   const [notify, setNotify] = useState(notificationsEnabled);
@@ -38,8 +40,16 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
   }, [revision]);
 
   useEffect(() => { setTurnLimit(settings?.turnStepLimit == null ? "" : String(settings.turnStepLimit)); }, [settings?.turnStepLimit]);
+  useEffect(() => {
+    if (!settings) return;
+    setTeamSteps(String(settings.teamTurnStepLimit));
+    setTeamMinutes(String(Math.round(settings.teamTurnTimeoutSec / 60)));
+  }, [settings]);
   const parsedTurnLimit = turnLimit.trim() === "" ? null : Number(turnLimit);
   const validTurnLimit = parsedTurnLimit === null || (Number.isSafeInteger(parsedTurnLimit) && parsedTurnLimit > 0);
+  const parsedTeamSteps = Number(teamSteps);
+  const parsedTeamMinutes = Number(teamMinutes);
+  const validTeamBudget = Number.isSafeInteger(parsedTeamSteps) && parsedTeamSteps >= 1 && parsedTeamSteps <= 40 && Number.isSafeInteger(parsedTeamMinutes) && parsedTeamMinutes >= 1 && parsedTeamMinutes <= 30;
   const model = settings?.defaultModel;
   useEffect(() => {
     if (section === 'models' && model?.provider === "openrouter" && model.model) api.openrouterEndpoints(model.model).then(setProviders).catch(() => setProviders([]));
@@ -161,6 +171,15 @@ export function SettingsPanel({ section }: { section: "general" | "models" | "to
                   <Button disabled={busy || !validTurnLimit || parsedTurnLimit === settings.turnStepLimit} onClick={() => update({ turnStepLimit: parsedTurnLimit })}>{t("Enregistrer")}</Button>
                 </div>
                 <p className="text-muted-foreground text-xs">{t("Une limite choisie ici s’applique aux prochains tours de tes agents. À la limite, ils présentent leur avancement avant de faire une pause.")}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="team-step-limit">{t("Échanges entre compagnons")}</Label>
+                <p className="text-muted-foreground text-xs">{t("Un compagnon à qui on délègue s’arrête après ce nombre d’étapes et ce délai. 12 étapes et 5 minutes par défaut. La chaîne reste limitée à 6 relais.")}</p>
+                <div className="flex gap-2">
+                  <Input id="team-step-limit" type="number" min="1" max="40" step="1" inputMode="numeric" aria-label={t("Étapes")} value={teamSteps} aria-invalid={!validTeamBudget} onChange={e => setTeamSteps(e.target.value)} />
+                  <Input id="team-minute-limit" type="number" min="1" max="30" step="1" inputMode="numeric" aria-label={t("Minutes")} value={teamMinutes} aria-invalid={!validTeamBudget} onChange={e => setTeamMinutes(e.target.value)} />
+                  <Button disabled={busy || !settings || !validTeamBudget || (parsedTeamSteps === settings.teamTurnStepLimit && parsedTeamMinutes * 60 === settings.teamTurnTimeoutSec)} onClick={() => update({ teamTurnStepLimit: parsedTeamSteps, teamTurnTimeoutSec: parsedTeamMinutes * 60 })}>{t("Enregistrer")}</Button>
+                </div>
               </div>
 
               <label className="flex items-center justify-between gap-4">
