@@ -68,8 +68,9 @@ try {
     await saveMessage(tm.conversationId, { id: 'fixture-team-reply', role: 'assistant', parts: [{ type: 'text', text: 'Résultat de démonstration vérifié.' }], metadata: { kind: 'team', agentId: peer.id } }, { author: 'agent', agentId: peer.id });
     await postTeamNote(ari.id, peer.id, 'agent_reply', 'Réponse de', 'Résultat de démonstration vérifié.');
     await saveMessage(await mainConversationId(ari.id), { id: 'worked-setup-fixture', role: 'assistant', parts: [
-      { type: 'text', text: 'Commentaire intermédiaire rangé.' },
+      { type: 'text', text: 'Je vais maintenant créer ce fichier.' },
       { type: 'tool-shell_exec', toolCallId: 'worked-shell', state: 'output-available', input: { command: 'echo hidden-command-output' }, output: { ok: true, exit_code: 0, stdout: 'hidden-command-output', stderr: '' } },
+      { type: 'text', text: 'La copie locale est en cours.' },
       { type: 'tool-computer_request_setup', toolCallId: 'worked-setup', state: 'output-available', input: {}, output: { ok: true, reason: 'Carte toujours visible' } },
       { type: 'text', text: 'Réponse finale visible.' },
     ] as any, metadata: { agentId: ari.id } }, { author: 'agent', agentId: ari.id });
@@ -78,13 +79,19 @@ try {
   await page.reload();
   await page.goto(`${origin}/#/agent/${fixtureAgentId}`);
   await page.getByText('Réponse finale visible.', { exact: true }).waitFor();
+  for (const sentence of ['Je vais maintenant créer ce fichier.', 'La copie locale est en cours.']) {
+    const note = page.getByText(sentence, { exact: true });
+    await note.waitFor();
+    assert.equal(await note.evaluate(el => Boolean(el.closest('[data-worked]'))), false);
+  }
   const setup = page.getByRole('region', { name: 'Configurer l’ordinateur', exact: true });
   await setup.getByText('Carte toujours visible', { exact: true }).waitFor();
   assert.equal(await setup.evaluate(el => Boolean(el.closest('[data-worked]'))), false);
   const worked = page.locator('[data-worked]').last(); assert.equal(await worked.getAttribute('data-state'), 'closed');
-  assert.equal(await page.getByText('Commentaire intermédiaire rangé.', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('hidden-command-output', { exact: true }).count(), 0);
   await worked.getByRole('button', { name: /Worked/ }).click();
-  await page.getByText('Commentaire intermédiaire rangé.', { exact: true }).waitFor();
+  await worked.getByRole('button', { name: /echo hidden-command-output/ }).waitFor();
+  assert.equal(await worked.getByText('Je vais maintenant créer ce fichier.', { exact: true }).count(), 0);
   await worked.getByRole('button', { name: /Worked/ }).click();
   await setup.getByText('Carte toujours visible', { exact: true }).waitFor();
 

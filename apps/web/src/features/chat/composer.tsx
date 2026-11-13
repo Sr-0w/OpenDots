@@ -32,7 +32,7 @@ export function Composer({ onSubmit, onStop, busy, placeholder, autoFocus }: {
   function remove(id: string) { const old = draft.current.find((image) => image.id === id); if (old) URL.revokeObjectURL(old.preview); replace(draft.current.filter((image) => image.id !== id)); }
   async function submit() {
     const text = value.trim();
-    if ((!text && !draft.current.length) || busy || submitting.current) return;
+    if ((!text && !draft.current.length) || submitting.current) return;
     submitting.current = true; setUploading(true); setError('');
     try {
       await onSubmit(text, draft.current.map((image) => image.file));
@@ -52,7 +52,8 @@ export function Composer({ onSubmit, onStop, busy, placeholder, autoFocus }: {
         const files = items.map((item) => item.getAsFile()).filter((file): file is File => file !== null);
         if (files.length) { event.preventDefault(); add(files); }
       }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} placeholder={placeholder} aria-label={placeholder} className="max-h-[220px] min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground" />
-      {busy ? <Button type="button" size="icon" variant="secondary" className="size-9 rounded-full" onClick={onStop} aria-label={t('Arrêter')}><SquareIcon className="size-3.5 fill-current" /></Button> : <Button type="submit" size="icon" className="size-9 shrink-0 rounded-full" disabled={uploading || (!value.trim() && !images.length)} aria-label={t('Envoyer')}>{uploading ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}</Button>}
+      {busy && <Button type="button" size="icon" variant="secondary" className="size-9 rounded-full" onClick={onStop} aria-label={t('Arrêter')}><SquareIcon className="size-3.5 fill-current" /></Button>}
+      <Button type="submit" size="icon" className="size-9 shrink-0 rounded-full" disabled={uploading || (!value.trim() && !images.length)} aria-label={t('Envoyer')}>{uploading ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}</Button>
     </div>
   </form>;
 }

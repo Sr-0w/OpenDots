@@ -81,20 +81,23 @@ it('poursuit plus de 48 étapes sans plafond configuré, sans forcer une synthè
   executed = 0;
   let calls = 0;
   try {
+    let tools = 0;
     model = new MockLanguageModelV4({ doStream: async (options: any) => {
       calls++;
       expect(options.toolChoice?.type).not.toBe('none');
-      const more = calls <= 55;
       const parts: any[] = [{ type: 'stream-start', warnings: [] }];
-      if (more) parts.push({ type: 'tool-call', toolCallId: `long-${calls}`, toolName: 'fixture_read', input: '{}' });
+      const status = options.toolChoice?.toolName === 'text_user';
+      const more = !status && tools < 55;
+      if (status) parts.push({ type: 'tool-call', toolCallId: `status-${calls}`, toolName: 'text_user', input: JSON.stringify({ text: 'Je continue.' }) });
+      else if (more) { tools++; parts.push({ type: 'tool-call', toolCallId: `long-${calls}`, toolName: 'fixture_read', input: '{}' }); }
       else parts.push({ type: 'text-start', id: 'done' }, { type: 'text-delta', id: 'done', delta: '55 opérations terminées.' }, { type: 'text-end', id: 'done' });
-      parts.push({ type: 'finish', finishReason: { unified: more ? 'tool-calls' : 'stop', raw: more ? 'tool_calls' : 'stop' }, usage });
+      parts.push({ type: 'finish', finishReason: { unified: status || more ? 'tool-calls' : 'stop', raw: status || more ? 'tool_calls' : 'stop' }, usage });
       return { warnings: [], stream: new ReadableStream({ start(c) { for (const p of parts) c.enqueue(p); c.close(); } }) } as any;
     } });
     const agent = await createAgent({ name: 'Long task' });
     const conv = await mainConversationId(agent.id);
     const result = await runTurn(agent.id, conv, { kind: 'user', message: { id: 'msg_no_step_limit', role: 'user', parts: [{ type: 'text', text: 'Termine le travail' }] } }).done;
-    expect(result.error).toBeNull(); expect(executed).toBe(55); expect(calls).toBe(56);
+    expect(result.error).toBeNull(); expect(executed).toBe(55); expect(calls).toBe(69);
     expect(result.text).toBe('55 opérations terminées.');
   } finally { await setSetting('engine.turnStepLimit', 3); }
 });

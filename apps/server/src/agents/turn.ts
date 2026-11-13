@@ -38,7 +38,7 @@ export interface TurnResult {
   noReply?: boolean;
 }
 
-const agentLocks = new KeyedMutex();
+const toolLocks = new KeyedMutex();
 const HISTORY_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const SILENCE = /^\s*<(silence|no[_-]?reply)\s*\/?>\s*$/i;
@@ -50,8 +50,100 @@ const formShown: StopCondition<any> = ({ steps }) =>
     (r: any) => r.toolName === 'ask_user' && (r.output as { status?: string } | undefined)?.status === 'awaiting_user',
   );
 
+/** Après ce nombre d'étapes d'outils sans phrase pour l'utilisateur, le tour doit envoyer un statut. */
+const STATUS_GAP = 4;
+
+interface LiveTurn {
+  key: string;
+  agentId: string;
+  conversationId: string;
+  hint: string;
+  detached: boolean;
+  stream: ActiveStream;
+}
+
+interface RunSlot {
+  foreground: LiveTurn | null;
+  background: LiveTurn[];
+  idle: Array<() => void>;
+  tail: Promise<void>;
+}
+
+const runs = new Map<string, RunSlot>();
+
+function runSlot(key: string): RunSlot {
+  let slot = runs.get(key);
+  if (!slot) {
+    slot = { foreground: null, background: [], idle: [], tail: Promise.resolve() };
+    runs.set(key, slot);
+  }
+  return slot;
+}
+
+function notifyIdle(slot: RunSlot) {
+  const waiters = slot.idle;
+  slot.idle = [];
+  for (const wake of waiters) wake();
+}
+
+function waitUntilIdle(slot: RunSlot) {
+  if (!slot.foreground) return Promise.resolve();
+  return new Promise<void>((resolve) => slot.idle.push(resolve));
+}
+
+function detachTurn(turn: LiveTurn) {
+  const slot = runSlot(turn.key);
+  turn.detached = true;
+  if (slot.foreground === turn) slot.foreground = null;
+  if (!slot.background.includes(turn)) slot.background.push(turn);
+  notifyIdle(slot);
+}
+
+function releaseTurn(turn: LiveTurn) {
+  const slot = runSlot(turn.key);
+  if (slot.foreground === turn) slot.foreground = null;
+  slot.background = slot.background.filter((item) => item !== turn);
+  notifyIdle(slot);
+}
+
+function turnHint(trigger: TurnTrigger): string {
+  if (trigger.kind === 'user') return messageText(trigger.message).slice(0, 240) || 'Message';
+  if (trigger.kind === 'event') return trigger.event.title;
+  if (trigger.kind === 'team') return 'Message d’un coéquipier';
+  return 'Accueil';
+}
+
 export function isAgentBusy(agentId: string) {
-  return agentLocks.isLocked(`${accountKey()}:${agentId}`);
+  const slot = runs.get(`${accountKey()}:${agentId}`);
+  return Boolean(slot && (slot.foreground || slot.background.length));
+}
+
+/** Arrête le tour affiché et les travaux passés en arrière-plan. */
+export function stopAgent(agentId: string) {
+  const slot = runs.get(`${accountKey()}:${agentId}`);
+  if (!slot) return false;
+  const turns = [slot.foreground, ...slot.background].filter((turn): turn is LiveTurn => Boolean(turn));
+  for (const turn of turns) turn.stream.abort.abort();
+  return turns.length > 0;
+}
+
+function statusDue(steps: { text?: string; toolCalls?: { toolName?: string }[] }[]) {
+  let silent = 0;
+  for (const step of steps) {
+    const calls = step.toolCalls ?? [];
+    const spoke = Boolean(step.text?.trim()) || calls.some((call) => call.toolName === 'text_user');
+    if (spoke) silent = 0;
+    else if (calls.length) silent += 1;
+  }
+  return silent >= STATUS_GAP;
+}
+
+function serializeTools(tools: Record<string, { execute?: (...args: any[]) => any }>, key: string) {
+  for (const item of Object.values(tools)) {
+    if (typeof item?.execute !== 'function') continue;
+    const execute = item.execute;
+    item.execute = (input: unknown, options: unknown) => toolLocks.run(key, () => execute(input, options));
+  }
 }
 
 const MESSAGE_CHAR_CAP = 12_000;
@@ -152,7 +244,56 @@ export function runTurn(
   trigger: TurnTrigger,
 ): { stream: ActiveStream; done: Promise<TurnResult> } {
   const stream = new ActiveStream(conversationId);
-  const done = agentLocks.run(`${accountKey()}:${agentId}`, () => executeTurn(agentId, conversationId, trigger, stream));
+  const key = `${accountKey()}:${agentId}`;
+  const slot = runSlot(key);
+  const live: LiveTurn = { key, agentId, conversationId, hint: turnHint(trigger), detached: false, stream };
+  const empty: TurnResult = { messageId: null, text: '', silent: true, error: null };
+  const finish = (result: TurnResult) => {
+    releaseTurn(live);
+    if (live.detached && !stream.abort.signal.aborted && !result.silent && (result.text.trim() || result.error)) {
+      const summary = result.error
+        ? `Le travail en arrière-plan s'est arrêté : ${result.error.slice(0, 500)}`
+        : result.text.trim().slice(0, 4000);
+      void runTurn(agentId, conversationId, {
+        kind: 'event',
+        event: { type: 'system', title: 'Travail en arrière-plan terminé' },
+        text: `Le travail que tu faisais en arrière-plan est terminé.\n\n${summary}\n\nDis à l'utilisateur en une ou deux phrases ce qui est terminé. Ne refais pas le travail.`,
+        depth: 0,
+      }).done.catch((error) => console.error('[background]', error));
+    }
+  };
+
+  if (trigger.kind === 'user') {
+    if (slot.foreground) detachTurn(slot.foreground);
+    slot.foreground = live;
+    const done = (async () => {
+      let result = empty;
+      try {
+        result = await executeTurn(agentId, conversationId, trigger, stream, live);
+        return result;
+      } finally {
+        finish(result);
+      }
+    })();
+    done.catch(() => finishStream(stream));
+    return { stream, done };
+  }
+
+  const previous = slot.tail;
+  let releaseTail!: () => void;
+  slot.tail = new Promise<void>((resolve) => { releaseTail = resolve; });
+  const done = previous.then(async () => {
+    while (slot.foreground) await waitUntilIdle(slot);
+    slot.foreground = live;
+    let result = empty;
+    try {
+      result = await executeTurn(agentId, conversationId, trigger, stream, live);
+      return result;
+    } finally {
+      finish(result);
+      releaseTail();
+    }
+  });
   done.catch(() => finishStream(stream));
   return { stream, done };
 }
@@ -162,6 +303,7 @@ async function executeTurn(
   conversationId: string,
   trigger: TurnTrigger,
   stream: ActiveStream,
+  live: LiveTurn,
 ): Promise<TurnResult> {
   const agent = await getAgent(agentId);
   const conversation = await getConversation(conversationId);
@@ -226,11 +368,21 @@ async function executeTurn(
     tz,
     abortSignal: stream.abort.signal,
     peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
+    onStatus: async (text: string) => {
+      if (!live.detached || !text) return;
+      await saveMessage(conversationId, {
+        id: newId('msg'),
+        role: 'assistant',
+        parts: [{ type: 'text', text }],
+        metadata: { kind: pair ? 'team' : 'chat', agentId, createdAt: new Date().toISOString() },
+      }, { author: 'agent', agentId });
+    },
   };
   const capabilities = trigger.kind === 'onboarding'
     ? { tools: {}, info: { connectors: [] as string[], skills: [] }, lazy: { loaded: new Set<string>(), names: new Set<string>(), groups: [] } }
     : await buildCapabilityTools(toolCtx);
   const tools = trigger.kind === 'onboarding' ? {} : { ...capabilities.tools, ...buildTools(toolCtx) };
+  serializeTools(tools, live.key);
   const modelCfg = await effectiveModel(agent);
   if (tools.computer_screenshot) {
     try { await requireDesktopVision(modelCfg); }
@@ -273,6 +425,7 @@ async function executeTurn(
     tz,
     now: new Date(),
     toolNames: activeToolNames(tools, capabilities.lazy),
+    background: runSlot(live.key).background.filter((turn) => turn !== live).map((turn) => turn.hint),
   });
 
   const responseId = newId('msg');
@@ -282,9 +435,9 @@ async function executeTurn(
   let limitReached = false;
   let limitNotice: string | null = null;
 
-  beginStream(stream);
+  if (runSlot(live.key).foreground === live) beginStream(stream);
   publish({ type: 'turn.started', agentId, conversationId, autonomous });
-  await setAgentState(agentId, pair ? 'collaborating' : autonomous ? 'awake' : 'thinking', mode.kind === 'event' ? mode.title : null);
+  if (!live.detached) await setAgentState(agentId, pair ? 'collaborating' : autonomous ? 'awake' : 'thinking', mode.kind === 'event' ? mode.title : null);
 
   try {
     const resolved = await resolveModel(modelCfg);
@@ -295,14 +448,26 @@ async function executeTurn(
       tools,
       // Outils de services chargés à la demande : load_tools les active dès l'étape suivante.
       activeTools: activeToolNames(tools, capabilities.lazy) as any,
-      prepareStep: ({ messages, stepNumber }) => {
+      prepareStep: ({ messages, stepNumber, steps }) => {
         const prepared = compactSemanticObservations(desktopVisionMessages(messages));
-        if (stepLimit === null || stepNumber < stepLimit) return { activeTools: activeToolNames(tools, capabilities.lazy) as any, messages: prepared };
-        limitReached = true;
-        return {
-          activeTools: [], toolChoice: 'none' as const, messages: prepared,
-          instructions: system + '\n\nThe work-step budget is exhausted. Read the LAST tool result and give the user a concise, honest progress report: verified results, unfinished work and the next action. Do not call tools, claim unfinished work is complete, or return <silence/>. The server will display the limit notice.',
-        };
+        const names = activeToolNames(tools, capabilities.lazy) as any;
+        const detachedNote = live.detached
+          ? '\n\nYou were moved to the background because the user sent a new message, which another turn is answering. Finish only the task already underway. Do not answer the new message. Keep sending text_user with a short status every few steps, then end with a short factual result.'
+          : '';
+        if (stepLimit !== null && stepNumber >= stepLimit) {
+          limitReached = true;
+          return {
+            activeTools: [], toolChoice: 'none' as const, messages: prepared,
+            instructions: system + detachedNote + '\n\nThe work-step budget is exhausted. Read the LAST tool result and give the user a concise, honest progress report: verified results, unfinished work and the next action. Do not call tools, claim unfinished work is complete, or return <silence/>. The server will display the limit notice.',
+          };
+        }
+        if (trigger.kind === 'user' && tools.text_user && statusDue(steps as { text?: string; toolCalls?: { toolName?: string }[] }[])) {
+          return {
+            activeTools: names, toolChoice: { type: 'tool' as const, toolName: 'text_user' }, messages: prepared,
+            instructions: system + detachedNote + '\n\nSeveral steps passed with no update for the user. Call text_user now with one short sentence in the user\'s language saying where the work stands. Do not call any other tool in this step.',
+          };
+        }
+        return { activeTools: names, messages: prepared, ...(detachedNote ? { instructions: system + detachedNote } : {}) };
       },
       // No default step limit. If explicitly configured, reserve a synthesis.
       stopWhen: stepLimit === null ? [formShown] : [isStepCount(stepLimit + 1), formShown],
@@ -352,10 +517,10 @@ async function executeTurn(
         stream.push({ type: 'text-end', id });
       }
       stream.push(chunk);
-      if (chunk.type === 'tool-input-start') {
+      if (!live.detached && chunk.type === 'tool-input-start') {
         const label = toolActivityLabel(chunk.toolName);
         void setAgentState(agentId, chunk.toolName === 'team_send_message' ? 'collaborating' : 'working', label).catch((error) => console.error('[agent state]', error));
-      } else if (chunk.type === 'text-start') {
+      } else if (!live.detached && chunk.type === 'text-start') {
         void setAgentState(agentId, pair ? 'collaborating' : 'thinking', null).catch((error) => console.error('[agent state]', error));
       }
     }
@@ -402,10 +567,10 @@ async function executeTurn(
   publish({ type: 'turn.finished', agentId, conversationId });
 
   if (turnError) {
-    await setAgentState(agentId, 'error', turnError.slice(0, 200));
+    if (!live.detached) await setAgentState(agentId, 'error', turnError.slice(0, 200));
     await log(agentId, 'turn.error', `Erreur pendant un tour : ${turnError.slice(0, 200)}`, { conversationId, trigger: trigger.kind });
   } else {
-    await setAgentState(agentId, autonomous && trigger.kind !== 'onboarding' && !pair ? 'sleeping' : 'available', null);
+    if (!live.detached) await setAgentState(agentId, autonomous && trigger.kind !== 'onboarding' && !pair ? 'sleeping' : 'available', null);
     if (autonomous) {
       await log(agentId, silent ? 'turn.silent' : 'turn.autonomous', silent ? 'Réveil traité sans message' : 'Message autonome envoyé', {
         conversationId,

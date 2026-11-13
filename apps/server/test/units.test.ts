@@ -4,7 +4,7 @@ import { htmlToText } from '../src/tools/web.ts';
 import { decryptSecret, encryptSecret, maskSecret } from '../src/secrets.ts';
 import { KeyedMutex, singleFlight, truncate } from '../src/util.ts';
 import { buildSystemPrompt } from '../src/agents/prompt.ts';
-import { DEFAULT_PERMISSIONS } from '@opendots/shared';
+import { DEFAULT_PERMISSIONS, partitionToolNarrative } from '@opendots/shared';
 
 describe('planifications', () => {
   const from = new Date('2026-10-21T10:00:00Z');
@@ -142,6 +142,17 @@ describe('prompt système', () => {
     expect(prompt).not.toContain('Open the browser only when needed');
   });
 
+  it('demande une phrase courte avant une étape d’outils utile', () => {
+    const prompt = buildSystemPrompt({ ...base, mode: { kind: 'user' } });
+    expect(prompt).toContain('one short sentence');
+    expect(prompt).toContain('Je vais maintenant créer ce fichier');
+    expect(prompt).toContain('La copie locale est en cours');
+    expect(prompt).toContain('trivial call');
+    expect(prompt).toContain('ordinary reply text');
+    expect(prompt).toContain('text_user');
+    expect(prompt).toContain('every few steps');
+  });
+
   it('ne demande les méta-outils que lorsqu’ils sont réellement disponibles', () => {
     const without = buildSystemPrompt({ ...base, mode: { kind: 'user' } });
     expect(without).not.toContain('call list_capabilities');
@@ -149,6 +160,23 @@ describe('prompt système', () => {
     const withTools = buildSystemPrompt({ ...base, mode: { kind: 'user' }, toolNames: ['list_capabilities', 'load_tools'] });
     expect(withTools).toContain('call list_capabilities');
     expect(withTools).toContain('load_tools');
+  });
+});
+
+describe('phrases autour des outils', () => {
+  it('laisse visibles les phrases écrites avant ou entre les appels', () => {
+    const parts = [
+      { type: 'text', text: 'Je vais créer ce fichier.' },
+      { type: 'reasoning', text: 'trace' },
+      { type: 'tool-shell_exec' },
+      { type: 'text', text: 'La copie locale est en cours.' },
+      { type: 'file', url: '/tmp/a' },
+      { type: 'tool-shell_exec' },
+    ];
+    const { lead, around, work } = partitionToolNarrative(parts);
+    expect(lead.map((part) => part.type === 'text' ? part.text : part.type)).toEqual(['Je vais créer ce fichier.']);
+    expect(around.map((part) => part.type)).toEqual(['text', 'file']);
+    expect(work.map((part) => part.type)).toEqual(['reasoning', 'tool-shell_exec', 'tool-shell_exec']);
   });
 });
 

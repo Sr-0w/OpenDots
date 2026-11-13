@@ -69,6 +69,17 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
           resync().then(() => resumeStream()).catch(() => {});
         }
       }
+      if (e.type === "message.created" && e.conversationId === agent.mainConversationId && e.author === "agent" && !e.hidden) {
+        void api.messages(agent.id).then((res) => {
+          setMessages((current) => {
+            const streaming = statusRef.current === "streaming" || statusRef.current === "submitted" ? current.findLast((message) => message.role === "assistant") : undefined;
+            const remoteIds = new Set(res.messages.map((message) => message.id));
+            const pending = current.filter((message) => !remoteIds.has(message.id) && message.id !== streaming?.id);
+            const base = res.messages.filter((message) => message.id !== streaming?.id);
+            return streaming ? [...base, ...pending, streaming] : [...base, ...pending];
+          });
+        }).catch(() => {});
+      }
       if (e.type === "turn.finished" && e.conversationId === agent.mainConversationId) {
         window.setTimeout(() => void resync().catch(() => {}), 300);
       }
@@ -130,6 +141,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
           autoFocus
           placeholder={agent.named ? t("Écrire à {v0}…", { v0: agent.name }) : t("Écrire à ton compagnon…")}
           onSubmit={async (text, images) => {
+            if (busy) await chat.stop();
             const files = [];
             for (const image of images) {
               let part = uploaded.current.get(image);
