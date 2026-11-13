@@ -309,7 +309,7 @@ private fun MdTable(table: MdBlock.Table, inline: MdInlineStyle) {
     val wide = columns > 3
     Column(
         Modifier
-            .then(if (wide) Modifier.horizontalScroll(rememberScrollState()) else Modifier.fillMaxWidth())
+            .then(if (wide) Modifier.horizontalScroll(rememberScrollState()).width(IntrinsicSize.Max) else Modifier.fillMaxWidth())
             .clip(DotShapes.medium)
             .border(DotSpacing.hairline * 2, c.border, DotShapes.medium),
     ) {
