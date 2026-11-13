@@ -41,6 +41,8 @@ export interface ToolContext {
   abortSignal?: AbortSignal;
   agent: AgentRow;
   conversationId: string;
+  /** Enregistre un statut déjà détaché du tour affiché, pour qu'il reste visible. */
+  onStatus?: (text: string) => Promise<void> | void;
   /** Conversation principale avec l'utilisateur (et non un fil entre compagnons). */
   isMain: boolean;
   /** Tour déclenché directement par un message de l'utilisateur. */
@@ -209,6 +211,17 @@ export function buildTools(ctx: ToolContext): ToolSet {
   const perms = ctx.agent.permissions;
   const tools: ToolSet = {};
   const self = () => getAgent(ctx.agent.id).then((a) => a!);
+
+  tools.text_user = tool({
+    description:
+      "Envoie à l'utilisateur une courte phrase, dans sa langue, pour dire où en est le travail ou ce qui vient d'être fait. Le travail continue ensuite. À utiliser avant une étape utile, puis de temps en temps au cours d'un long travail. Pas pour chaque appel trivial, un réessai, ni un réveil qui doit rester silencieux.",
+    inputSchema: z.object({ text: z.string().min(1).max(400) }),
+    execute: async ({ text }) => {
+      const clean = text.trim().slice(0, 400);
+      await ctx.onStatus?.(clean);
+      return ok({ text: clean });
+    },
+  });
 
   tools.agent_get_profile = tool({
     description: 'Lit ton profil actuel (nom, personnalité, responsabilités, instructions, modèle, permissions).',

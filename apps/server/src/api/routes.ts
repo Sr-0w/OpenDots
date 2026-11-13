@@ -13,7 +13,7 @@ import { z } from 'zod';
 import type { BootstrapDTO, ModelConfig } from '@opendots/shared';
 import { subscribe } from '../bus.ts';
 import { getAgent, listAgentRows, listAgents, mainConversationId, toAgentDTO, updateAgent, createAgent } from '../agents/repo.ts';
-import { runTurn } from '../agents/turn.ts';
+import { runTurn, stopAgent } from '../agents/turn.ts';
 import { getActiveStream } from '../agents/streams.ts';
 import { getConversation, listTeamThreads, pairConversationId, loadMessages, type OpenDotsUIMessage } from '../conversations/repo.ts';
 import {
@@ -363,10 +363,7 @@ export function createApi() {
 
   api.post('/agents/:id/stop', async (c) => {
     if (!await getAgent(c.req.param('id'))) return c.json({ error: 'Introuvable' }, 404);
-    const conversationId = await mainConversationId(c.req.param('id'));
-    const active = getActiveStream(conversationId);
-    active?.abort.abort();
-    return c.json({ ok: true, stopped: Boolean(active) });
+    return c.json({ ok: true, stopped: stopAgent(c.req.param('id')) });
   });
 
   api.get('/conversations/:id/messages', async (c) => {

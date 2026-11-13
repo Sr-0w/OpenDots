@@ -284,12 +284,16 @@ export function MessageView({ message, streaming, agentId }: { message: ODMessag
   const assistant = message.role === 'assistant';
   const lastWork = assistant ? message.parts.findLastIndex(p => p.type === 'reasoning' || p.type.startsWith('tool-')) : -1;
   const workParts = lastWork < 0 ? [] : message.parts.slice(0, lastWork+1);
-  const narrative = partitionToolNarrative(workParts);
+  const narrative = partitionToolNarrative(workParts.flatMap((part) => {
+    if (part.type !== 'tool-text_user') return [part];
+    const text = typeof (part as { input?: { text?: unknown } }).input?.text === 'string' ? (part as { input: { text: string } }).input.text.trim() : '';
+    return text ? [{ type: 'text' as const, text }] : [];
+  }));
   const groups = groupParts(message.parts.slice(lastWork+1), streaming);
   const leadGroups = groupParts(narrative.lead, streaming);
   const aroundGroups = groupParts(narrative.around, streaming);
   const workGroups = groupParts(narrative.work, streaming);
-  const tools = workParts.filter(p => p.type.startsWith('tool-')) as ToolUIPart[];
+  const tools = workParts.filter(p => p.type.startsWith('tool-') && p.type !== 'tool-text_user') as ToolUIPart[];
   const owner = message.metadata?.agentId ?? agentId;
   const failures = tools.filter(p => p.state === 'output-error' || (p as any).output?.ok === false).length;
   const computerUse = tools.some(p => /^tool-(computer_(action|screenshot|target|keyboard|inspect)|browser_inspect)$/.test(p.type));

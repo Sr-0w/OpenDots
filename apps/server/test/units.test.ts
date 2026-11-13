@@ -149,6 +149,8 @@ describe('prompt système', () => {
     expect(prompt).toContain('La copie locale est en cours');
     expect(prompt).toContain('trivial call');
     expect(prompt).toContain('ordinary reply text');
+    expect(prompt).toContain('text_user');
+    expect(prompt).toContain('every few steps');
   });
 
   it('ne demande les méta-outils que lorsqu’ils sont réellement disponibles', () => {
