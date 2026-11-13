@@ -15,7 +15,7 @@ import { getTimezone, getTurnStepLimit } from '../settings.ts';
 import { contextMemories } from '../memory/repo.ts';
 import { listActivities } from '../activities/repo.ts';
 import { getConversation, loadMessages, finalText, messageText, resolveReply, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
-import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow } from './repo.ts';
+import { effectiveModel, getAgent, listAgentRows, mainConversationId, setAgentState, type AgentRow } from './repo.ts';
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
 import { buildCapabilityTools } from './capability-tools.ts';
@@ -36,6 +36,8 @@ export interface TurnResult {
   error: string | null;
   /** Le compagnon a explicitement indiqué qu'aucune réponse n'était nécessaire (<no_reply/>). */
   noReply?: boolean;
+  /** Pendant un échange entre compagnons, le compagnon a écrit à l'utilisateur dans son fil principal. */
+  toldUser?: boolean;
 }
 
 const toolLocks = new KeyedMutex();
@@ -383,6 +385,7 @@ async function executeTurn(
   const depth = trigger.kind === 'user' || trigger.kind === 'onboarding' ? 0 : trigger.depth;
   const turnStarted = Date.now();
   let replyTo: MessageReplyRef | null = null;
+  let toldUser = false;
   const detachedStatus = new Set<string>();
   const toolCtx = {
     agent,
@@ -399,7 +402,19 @@ async function executeTurn(
       replyTo = reply;
     },
     onStatus: async (text: string) => {
-      if (!live.detached || !text) return;
+      if (!text) return;
+      // Dans un fil entre compagnons, l'utilisateur ne lit pas ce fil : la phrase part dans son propre chat avec ce compagnon.
+      if (pair) {
+        toldUser = true;
+        await saveMessage(await mainConversationId(agentId), {
+          id: newId('msg'),
+          role: 'assistant',
+          parts: [{ type: 'text', text }],
+          metadata: { kind: 'chat', agentId, autonomous: true, createdAt: new Date().toISOString() },
+        }, { author: 'agent', agentId });
+        return;
+      }
+      if (!live.detached) return;
       detachedStatus.add(text);
       await saveMessage(conversationId, {
         id: newId('msg'),
@@ -627,5 +642,6 @@ async function executeTurn(
     silent,
     error: turnError,
     noReply: /^\s*<no[_-]?reply\s*\/?>\s*$/i.test(text),
+    toldUser,
   };
 }

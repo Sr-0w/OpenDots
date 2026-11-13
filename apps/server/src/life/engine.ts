@@ -84,7 +84,10 @@ export function registerLifeHandlers() {
 
     // Dans le fil principal du destinataire, sa réponse est un vrai message de lui (une bulle,
     // en réponse au message reçu) : l'utilisateur lit ce que le compagnon a dit, pas une notice.
-    if (decision.kind === 'reply') {
+    // S'il a déjà tenu l'utilisateur au courant lui-même (text_user), on ne répète pas sa réponse.
+    if (decision.kind === 'reply' && result.toldUser) {
+      /* rien à ajouter */
+    } else if (decision.kind === 'reply') {
       try {
         await saveMessage(
           await mainConversationId(tm.toAgentId),

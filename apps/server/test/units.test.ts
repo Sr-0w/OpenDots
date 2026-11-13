@@ -125,6 +125,13 @@ describe('prompt système', () => {
   };
   const base = { agent, team: [agent], memories: [], activities: [], pendingApprovals: [], tz: 'Europe/Paris', now: new Date(), toolNames: [] };
 
+  it("demande de tenir l'utilisateur au courant pendant un échange entre compagnons", () => {
+    const prompt = buildSystemPrompt({ ...base, mode: { kind: 'team', peerName: 'Ari', expectsReply: true } });
+    expect(prompt).toContain('Keep the user informed');
+    expect(prompt).toContain('text_user is delivered to that chat');
+    expect(prompt).toContain('never to Ari');
+  });
+
   it('invite un compagnon sans nom à demander le sien', () => {
     expect(buildSystemPrompt({ ...base, mode: { kind: 'user' } })).toContain('First meeting');
   });

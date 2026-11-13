@@ -106,5 +106,5 @@ fun Modifier.backdropBlur(
     hazeBlur(input = input, style = style)
 }
 
-/** Gentle S-curve: the blur lets go of the content without a knee at either end. */
-private val FadeEasing = CubicBezierEasing(0.4f, 0f, 0.6f, 1f)
+/** Nearly linear, softened at both ends: the blur thins out evenly over its whole fade, with no knee and no late drop. */
+private val FadeEasing = CubicBezierEasing(0.25f, 0.1f, 0.75f, 0.9f)
