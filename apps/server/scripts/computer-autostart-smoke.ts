@@ -47,7 +47,10 @@ try {
   assert.equal(absent.stdout.trim(),'absent');
   const ready = (context: typeof asA) => until(() => context(desktopStatus), value => value.running && !value.restartRequired);
   await withAccount(a, () => setSetting(`desktop.bot.${botC.id}`, { enabled: true }));
-  await run('docker',['restart','--time','2',name]);
+  await registerComputerAutostart(a);
+  const nameC = await asC(computerName);
+  assert.notEqual(nameC, name);
+  await run('docker',['restart','--time','2',name, nameC]);
   // Poll status ONLY: no start/screenshot/keyboard/tool call can start a session.
   await ready(asA); await ready(asC);
   assert.equal((await asA(() => desktopExec(['id','-u']))).toString().trim(),uid);
@@ -79,6 +82,6 @@ try {
   console.error(error); process.exitCode = 1;
 } finally {
   await stopComputerAutostart();
-  for (const account of [a,b]) await withAccount(account, () => run('docker', ['rm','-f',computerName()])).catch(() => {});
+  for (const context of [asA, asB, asC]) await context(() => run('docker', ['rm','-f',computerName()])).catch(() => {});
   await closeAllDatabases(); await closeAuthStore(); await rm(dir,{ recursive:true, force:true }).catch(() => {});
 }

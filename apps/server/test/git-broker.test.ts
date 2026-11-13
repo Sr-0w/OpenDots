@@ -10,14 +10,18 @@ import { brokerEnvironment, gitPushArgs, withApprovedSnapshot } from '../src/com
 import { createConnector } from '../src/connectors/repo.ts';
 import { IntegrationExecutor } from '../src/integrations/providers.ts';
 import { config } from '../src/config.ts';
+import { withDesktopAgent } from '../src/computer/session.ts';
 
 const exec = promisify(execFile);
 beforeAll(() => openDatabase({ memory: true }));
-afterAll(() => closeDatabase());
+afterAll(async () => {
+  for (const container of (await computerStatus()).containers ?? []) await exec('docker', ['rm','-f',container.name]).catch(() => {});
+  await closeDatabase();
+});
 
 it('imports only the approved commit, drops hostile source configuration, isolates credentials and rejects branch drift', async () => {
   expect(await dockerAvailable(), 'Docker is required for this security regression test').toBe(true);
-  await setSetting('shell.config', { mode: 'docker', approval: 'ask', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: false });
+  await setSetting('shell.config', { mode: 'docker', approval: 'ask', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: true });
   const agent = await createAgent({ name: 'Snapshot' });
   const init = await execShell(agent.id, `mkdir project && cd project && git init -q -b main && git config user.email fixture@example.com && git config user.name Fixture && echo approved > file.txt && git add file.txt && git commit -qm approved
 git config http.https://github.com/.sslVerify false
@@ -58,8 +62,8 @@ mkdir -p .git/hooks; printf '#!/bin/sh\necho SOURCE_HOOK_MUST_NOT_RUN >&2\nexit 
 
     // A real source-UID process attempts the original /proc scan while the
     // broker has a credentialed process. Only the synthetic marker is searched.
-    const status = await computerStatus();
-    const who = await execShell(agent.id, 'whoami');
+    const status = await withDesktopAgent(agent.id, computerStatus);
+    const who = await execShell(agent.id, 'sudo -n id -u');
     const child = spawn('/usr/bin/git', ['-c', 'alias.hold=!sleep 3', 'hold'], { cwd, env: { ...env, OPENDOTS_GIT_TOKEN: 'broker-test-only' }, stdio: 'ignore' });
     try {
       const scan = await exec('docker', ['exec', '-u', who.stdout.trim(), status.container!.name, 'sh', '-c', 'for f in /proc/[0-9]*/environ; do if grep -azq "^OPENDOTS_GIT_TOKEN=broker-test-only$" "$f" 2>/dev/null; then echo LEAK; exit 1; fi; done; echo ISOLATED']);
@@ -82,11 +86,11 @@ mkdir -p .git/hooks; printf '#!/bin/sh\necho SOURCE_HOOK_MUST_NOT_RUN >&2\nexit 
 it('recreates a legacy shell container to apply SELinux labels while retaining workspace files', async () => {
   const agent = await createAgent({ name: 'Upgrade' });
   const original = await execShell(agent.id, 'echo retained > migration.txt; id -u');
-  const before = await computerStatus();
+  const before = await withDesktopAgent(agent.id, computerStatus);
   const name = before.container!.name;
   const image = before.settings.image;
   await exec('docker', ['rm', '-f', name]);
-  await exec('docker', ['run', '-d', '--name', name, '--label', `opendots.image=${image}`, '--label', 'opendots.network=on', '--label', `opendots.workspaces=${config.dataDir}/workspaces`, '-v', `${config.dataDir}/workspaces:/workspaces`, image, 'sleep', 'infinity']);
+  await exec('docker', ['run', '-d', '--name', name, '--label', `opendots.image=${image}`, '--label', 'opendots.network=on', '--label', `opendots.workspaces=${config.dataDir}/workspaces`, '-v', `${config.dataDir}/workspaces:/workspaces:Z`, image, 'sleep', 'infinity']);
   // Simulate the old allocator's UID while keeping the same bot's private home.
   await exec('docker', ['exec', name, 'chown', '-hR', '1000', `/workspaces/${agent.id}`]);
   const oldId = (await exec('docker', ['inspect', '-f', '{{.Id}}', name])).stdout.trim();
@@ -96,6 +100,7 @@ it('recreates a legacy shell container to apply SELinux labels while retaining w
   expect(restored.stdout).toContain(original.stdout.trim());
   const inspected = (await exec('docker', ['inspect', '-f', '{{.Id}}|{{index .Config.Labels "opendots.revision"}}|{{json .HostConfig.Binds}}', name])).stdout.trim();
   expect(inspected.split('|')[0]).not.toBe(oldId);
-  expect(inspected).toContain('3-bot-sessions');
-  expect(inspected).toContain('/workspaces:Z');
+  expect(inspected).toContain('4-private-bot-root');
+  expect(inspected).toContain(`/workspaces/${agent.id}:Z`);
+  expect(inspected).not.toContain(':/workspaces:Z');
 }, 120_000);

@@ -122,7 +122,7 @@ export function ToolsSettings({ settings, update, busy }: { settings: SettingsDT
         <label className="flex items-center justify-between gap-4">
           <div>
             <p className="font-medium text-sm">{t("Autoriser l’administration (sudo)")}</p>
-            <p className="text-muted-foreground text-xs">{t("Les compagnons pourront installer des paquets système dans le conteneur.")}</p>
+            <p className="text-muted-foreground text-xs">{t("Chaque compagnon pourra installer des applications avec sudo dans son propre ordinateur.")}</p>
           </div>
           <Switch checked={shell.sudo} onCheckedChange={(sudo) => update({ shell: { sudo } })} />
         </label>

@@ -8,6 +8,7 @@ export function withDesktopAgent<T>(agentId: string, fn: () => T): T {
   if (!/^ag_[a-zA-Z0-9_]+$/.test(agentId)) throw new Error('Compagnon du bureau invalide.');
   return storage.run(agentId, fn);
 }
+export const computerAgentId = () => storage.getStore();
 export function desktopAgentId(): string {
   const id = storage.getStore();
   if (!id) throw new Error('Sélectionne un compagnon pour accéder à son bureau.');

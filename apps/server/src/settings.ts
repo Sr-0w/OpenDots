@@ -36,7 +36,7 @@ export interface ShellSettings {
 
 export const BUILTIN_COMPUTER_IMAGE = 'opendots/computer:9';
 
-export const DEFAULT_SHELL: ShellSettings = { mode: 'auto', approval: 'default', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: false };
+export const DEFAULT_SHELL: ShellSettings = { mode: 'auto', approval: 'default', image: BUILTIN_COMPUTER_IMAGE, network: true, sudo: true };
 
 export async function getSetting<K extends keyof SettingsShape>(key: K): Promise<SettingsShape[K] | null> {
   const [row] = await db().select().from(schema.settings).where(eq(schema.settings.key, key));

@@ -9,18 +9,16 @@ import { BUILTIN_COMPUTER_IMAGE, getShellSettings, type ShellSettings } from '..
 import { truncate, KeyedMutex } from '../util.ts';
 import { createHash } from 'node:crypto';
 import { accountKey, currentAccount, withAccount } from '../auth/context.ts';
-import { computerSlot } from './session.ts';
+import { computerSlot, computerAgentId, withDesktopAgent } from './session.ts';
 
-/**
- * L'ordinateur des compagnons (section 10) : un seul conteneur Linux partagé,
- * un utilisateur et un dossier personnel par compagnon, un dossier commun.
- * Sans Docker, les commandes s'exécutent sur la machine hôte, dans le dossier
- * du compagnon, et demandent alors une validation par défaut.
- */
+/** Each companion owns a private writable Linux container. Only its home and
+ * the account's explicit shared directory are mounted into it. */
 const run = promisify(execFile);
-export const computerName = () => (process.env.OPENDOTS_CONTAINER ?? 'opendots-computer') + (currentAccount() ? `-${createHash('sha256').update(accountKey()).digest('hex').slice(0, 12)}` : '');
+export const accountComputerName = () => (process.env.OPENDOTS_CONTAINER ?? 'opendots-computer') + (currentAccount() ? `-${createHash('sha256').update(accountKey()).digest('hex').slice(0, 12)}` : '');
+export const computerName = (agentId = computerAgentId()) => accountComputerName() + (agentId ? `-${linuxUser(agentId).slice(6)}` : '');
+const computerKey = () => computerName();
 const MAX_OUTPUT = 200_000;
-const CONTAINER_REVISION = '3-bot-sessions';
+const CONTAINER_REVISION = '4-private-bot-root';
 
 export const workspacesDir = () => join(config.dataDir, 'workspaces');
 
@@ -132,17 +130,41 @@ export async function ensureImage(image: string, force = false) {
   }
 }
 
+// Old account containers use the same persistent profiles. Stop them before
+// opening a profile in its new private PC; retain their writable layer for rollback.
+const migratedAccounts = new Set<string>();
+const migratingAccounts = new Map<string, Promise<void>>();
+async function stopLegacyComputer() {
+  const name = accountComputerName();
+  if (migratedAccounts.has(name)) return;
+  if (migratingAccounts.has(name)) return migratingAccounts.get(name);
+  const pending = (async () => {
+    let legacy: { State: { Running: boolean } }[];
+    try { legacy = JSON.parse((await run('docker', ['inspect', name], { timeout: 10_000 })).stdout); }
+    catch (error: any) {
+      if (/no such (object|container)/i.test(error.stderr ?? '')) { migratedAccounts.add(name); return; }
+      throw error;
+    }
+    if (legacy[0]?.State.Running) await run('docker', ['stop', '--time', '3', name], { timeout: 20_000 });
+    migratedAccounts.add(name);
+  })().finally(() => migratingAccounts.delete(name));
+  migratingAccounts.set(name, pending);
+  return pending;
+}
+
 const ensuring = new Map<string, Promise<void>>();
 const lifecycle = new KeyedMutex();
 
 export async function ensureContainer(settings?: ShellSettings): Promise<void> {
-  const key = accountKey();
+  const agentId = computerAgentId();
+  if (!agentId) throw new Error('Sélectionne un compagnon pour accéder à son ordinateur privé.');
+  const key = computerKey();
   if (ensuring.has(key)) return ensuring.get(key)!;
   const pending = lifecycle.run(key, async () => {
     const s = settings ?? (await getShellSettings());
-    mkdirSync(join(workspacesDir(), 'shared'), { recursive: true });
-    chmodSync(workspacesDir(), 0o755);
+    const home = ensureHostDirs(agentId);
     await ensureImage(s.image);
+    await stopLegacyComputer();
     const imageId = (await run('docker', ['image', 'inspect', '--format', '{{.Id}}', s.image], { timeout: 15_000 })).stdout.trim();
     const revision = `${CONTAINER_REVISION}:${process.env.OPENDOTS_COMPUTER_MEMORY ?? '4g'}:${process.env.OPENDOTS_COMPUTER_CPUS ?? '2'}:${process.env.OPENDOTS_COMPUTER_PIDS ?? '2048'}`;
     const state = await computerState();
@@ -189,6 +211,8 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
         '--label',
         `opendots.workspaces=${workspacesDir()}`,
         '--label', `opendots.revision=${revision}`,
+        '--label', `opendots.account=${accountKey()}`,
+        '--label', `opendots.agent=${agentId}`,
         ...(s.network ? [] : ['--network', 'none']),
         '--memory',
         process.env.OPENDOTS_COMPUTER_MEMORY ?? '4g',
@@ -199,7 +223,8 @@ export async function ensureContainer(settings?: ShellSettings): Promise<void> {
         '--shm-size', '512m',
         ...ca,
         '-v',
-        `${workspacesDir()}:/workspaces:Z`,
+        `${home}:/workspaces/${agentId}:Z`,
+        '-v', `${join(workspacesDir(), 'shared')}:/workspaces/shared:z`,
         '-w',
         '/workspaces',
         s.image,
@@ -238,7 +263,13 @@ export async function ensureComputerUser(agentId: string, sudo: boolean) {
   return { user, home, slot };
 }
 
-export async function computerStatus() {
+export async function computerStatus(): Promise<{ settings: ShellSettings; dockerAvailable: boolean; backend: Backend | null; container: { name: string; running: boolean; image: string; network: boolean } | null; containers?: { name: string; running: boolean; image: string; network: boolean }[]; approvalRequired: boolean; workspaces: string; suspended: boolean }> {
+  if (!computerAgentId()) {
+    const { listAgentRows } = await import('../agents/repo.ts');
+    const computers = await Promise.all((await listAgentRows()).map(agent => withDesktopAgent(agent.id, computerStatus)));
+    const first = computers.find(item => item.container) ?? computers[0];
+    return { settings: await getShellSettings(), dockerAvailable: await dockerAvailable(), backend: await resolveBackend(), container: first?.container ?? null, containers: computers.flatMap(item => item.container ? [item.container] : []), approvalRequired: await shellNeedsApproval(), workspaces: workspacesDir(), suspended: computers.length > 0 && computers.every(item => item.suspended) };
+  }
   const settings = await getShellSettings();
   const docker = await dockerAvailable();
   const backend = await resolveBackend(settings);
@@ -255,6 +286,11 @@ export async function computerStatus() {
 }
 
 export async function resetContainer() {
+  if (!computerAgentId()) {
+    const { listAgentRows } = await import('../agents/repo.ts');
+    for (const agent of await listAgentRows()) await withDesktopAgent(agent.id, async () => { if (await computerState()) await resetContainer(); });
+    return;
+  }
   if (!(await dockerAvailable())) throw new Error('Docker n’est pas disponible.');
   await run('docker', ['rm', '-f', computerName()], { timeout: 30_000 }).catch(() => {});
   await ensureContainer();
@@ -289,8 +325,10 @@ function collect(child: ReturnType<typeof spawn>, timeoutMs: number, onTimeout: 
 }
 
 export async function execShell(agentId: string, command: string, opts: { timeoutSeconds?: number } = {}): Promise<ShellResult> {
+  return withDesktopAgent(agentId, async () => {
   const release = leaseComputer();
   try { return await executeShell(agentId, command, opts); } finally { release(); }
+  });
 }
 async function executeShell(agentId: string, command: string, opts: { timeoutSeconds?: number }): Promise<ShellResult> {
   const settings = await getShellSettings();
@@ -312,7 +350,7 @@ async function executeShell(agentId: string, command: string, opts: { timeoutSec
       child.kill('SIGKILL');
     });
     // GNU timeout owns a command process group. Never kill every process of the
-    // bot's UID: its browser and X server now live in the same account container.
+    // bot's UID: its browser and X server live in the same private container.
     const timedOut = r.timedOut || r.code === 124 || (r.code === 137 && Date.now() - started >= timeoutMs);
     return { backend, exitCode: r.code, stdout: r.stdout, stderr: r.stderr, durationMs: Date.now() - started, timedOut, cwd: home };
   }
@@ -340,7 +378,7 @@ export function shellForModel(r: ShellResult) {
     exit_code: r.exitCode,
     timed_out: r.timedOut,
     duration_ms: r.durationMs,
-    computer: r.backend === 'docker' ? 'conteneur Linux partagé' : 'machine hôte',
+    computer: r.backend === 'docker' ? 'ordinateur Linux privé' : 'machine hôte',
     cwd: r.cwd,
     stdout: truncate(r.stdout, 12_000),
     stderr: truncate(r.stderr, 4_000),
@@ -350,20 +388,21 @@ export function shellForModel(r: ShellResult) {
 // Credential-free snapshot export; authenticated Git runs only in git-broker.ts.
 export interface GitSnapshotRequest { agentId: string; path: string; branch: string }
 
-async function companionGit(r: GitSnapshotRequest, args: string[], maxBuffer = 1024 * 1024) {
+async function companionGit(r: GitSnapshotRequest, args: string[], maxBuffer = 1024 * 1024): Promise<{ stdout: Buffer; stderr: Buffer }> {
+  return withDesktopAgent(r.agentId, async () => {
   const release = leaseComputer();
   try {
   if (!/^ag_[a-zA-Z0-9_]+$/.test(r.agentId) || !/^[a-zA-Z0-9._/-]*$/.test(r.path) || r.path.startsWith('/') || r.path.split('/').includes('..')) throw new Error('Dossier de compagnon invalide.');
   if (!/^[a-zA-Z0-9._/-]+$/.test(r.branch) || r.branch.startsWith('-') || r.branch.includes('..')) throw new Error('Branche invalide.');
   const settings = await getShellSettings();
   if ((await resolveBackend(settings)) !== 'docker' || !(await dockerAvailable())) throw new Error('Le push nécessite l’ordinateur Docker isolé du compagnon.');
-  if (settings.sudo) throw new Error('Désactive sudo avant de préparer un push.');
   if (!settings.network) throw new Error('L’ordinateur du compagnon n’a pas accès au réseau.');
   await ensureContainer(settings);
-  const { user, home } = await ensureComputerUser(r.agentId, false);
+  const { user, home } = await ensureComputerUser(r.agentId, settings.sudo);
   const cwd = !r.path || r.path === '.' ? home : `${home}/${r.path}`;
   return await run('docker', ['exec', '-u', user, '-w', cwd, '-e', `HOME=${home}`, '-e', 'GIT_TERMINAL_PROMPT=0', computerName(), '/usr/bin/git', ...args], { encoding: 'buffer', timeout: 60_000, maxBuffer });
   } finally { release(); }
+  });
 }
 
 export async function companionGitHead(r: GitSnapshotRequest): Promise<string> {
@@ -387,7 +426,7 @@ export async function setCompanionUpstream(r: GitSnapshotRequest, repo: string) 
 // Retain private sessions in RAM while idle. Never freeze active shell jobs or viewers.
 const idle = new Map<string, { leases: number; timer?: ReturnType<typeof setTimeout> }>();
 export function touchComputer() {
-  const key = accountKey();
+  const key = computerKey();
   const state = idle.get(key) ?? { leases: 0 };
   if (state.timer) clearTimeout(state.timer);
   idle.set(key, state);
@@ -404,11 +443,12 @@ export function touchComputer() {
 }
 export function leaseComputer() {
   const account = currentAccount();
-  const key = accountKey();
+  const agentId = computerAgentId();
+  const key = computerKey();
   const state = idle.get(key) ?? { leases: 0 };
   state.leases++;
   if (state.timer) clearTimeout(state.timer);
   idle.set(key, state);
   let released = false;
-  return () => { if (released) return; released = true; state.leases--; withAccount(account, touchComputer); };
+  return () => { if (released) return; released = true; state.leases--; withAccount(account, () => agentId ? withDesktopAgent(agentId, touchComputer) : touchComputer()); };
 }

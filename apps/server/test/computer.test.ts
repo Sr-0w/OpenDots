@@ -17,6 +17,7 @@ beforeAll(async () => {
   await openDatabase({ memory: true });
 });
 afterAll(async () => {
+  for (const container of (await computerStatus()).containers ?? []) await promisify(execFile)('docker', ['rm','-f',container.name]).catch(() => {});
   await closeDatabase();
 });
 
@@ -78,7 +79,7 @@ describe('shell sur la machine hôte', () => {
   });
 });
 
-describe('ordinateur partagé (Docker)', () => {
+describe('ordinateurs privés (Docker)', () => {
   it('isole chaque compagnon et partage un dossier commun', async (t) => {
     if (!(await dockerAvailable())) return t.skip();
     await setSetting('shell.config', { mode: 'docker', approval: 'auto', image: 'debian:stable-slim', network: false, sudo: false });
@@ -90,7 +91,7 @@ describe('ordinateur partagé (Docker)', () => {
     expect(ra.stdout).toContain(`/workspaces/${a.agent.id}`);
     const rb = await execShell(b.agent.id, `cat /workspaces/shared/commun.txt; cat /workspaces/${a.agent.id}/prive.txt`);
     expect(rb.stdout).toContain('bonjour');
-    expect(rb.stderr).toMatch(/Permission denied/);
+    expect(rb.stderr).toMatch(/No such file|Permission denied/);
     const net = await execShell(b.agent.id, 'getent hosts example.com || echo sans-reseau', { timeoutSeconds: 10 });
     expect(net.stdout).toContain('sans-reseau');
   }, 120_000);

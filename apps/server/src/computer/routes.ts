@@ -16,7 +16,7 @@ export function desktopRoutes() {
   const app = new Hono();
   app.onError((error, c) => c.json({ error: error instanceof DesktopError ? error.message : 'Le bureau graphique est indisponible.' }, 400));
   app.use('*', async (c, next) => {
-    if (c.req.path.includes('/desktop/permissions')) return next();
+    if (c.req.path.endsWith('/computer') || c.req.path.endsWith('/computer/reset') || c.req.path.includes('/desktop/permissions')) return next();
     const agentId = c.req.query('agentId');
     if (!agentId && c.req.path.includes('/screenshots/')) return next(); // historical account-level artifacts only
     if (!agentId || !/^ag_[a-zA-Z0-9_]+$/.test(agentId)) return c.json({ error: 'Sélectionne un compagnon.' }, 400);
