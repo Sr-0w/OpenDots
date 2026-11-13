@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ds_back">Back</string>
+    <string name="ds_show_password">Show password</string>
+    <string name="ds_hide_password">Hide password</string>
+    <string name="ds_search">Search</string>
+    <string name="ds_clear_search">Clear search</string>
+    <string name="ds_copy_code">Copy code</string>
+    <string name="ds_send">Send</string>
+    <string name="ds_stop">Stop</string>
+    <string name="ds_scroll_to_latest">Scroll to latest message</string>
+</resources>

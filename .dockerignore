@@ -13,3 +13,4 @@ data
 **/*.tgz
 **/*.tar.gz
 backups
+apps/android
