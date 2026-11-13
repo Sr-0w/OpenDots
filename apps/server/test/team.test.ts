@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { closeDatabase, db, openDatabase, schema } from '../src/db/client.ts';
 import { createAgent, getAgent, mainConversationId } from '../src/agents/repo.ts';
 import { buildTools } from '../src/agents/tools.ts';
+import { getApproval, resolveApproval } from '../src/approvals/service.ts';
 import { loadMessages, pairConversationId } from '../src/conversations/repo.ts';
 import { sendTeamMessage, TeamError } from '../src/team/service.ts';
 import { decideReply, isPureAck, PAIR_THREAD_CAP, shouldWakeSender } from '../src/team/policy.ts';
@@ -65,6 +66,47 @@ describe('service de messagerie', () => {
     const conv = await pairConversationId(a.id, b.id);
     const rows = await db().select().from(schema.teamMessages).where(eq(schema.teamMessages.conversationId, conv));
     expect(rows.length).toBe(PAIR_THREAD_CAP);
+  });
+
+  it('expose la modification du profil pendant un tour d’équipe et protège la cible par validation', async () => {
+    const sender = await createAgent({ name: 'ProfileSender' });
+    const receiver = (await getAgent((await createAgent({ name: 'ProfileReceiver' })).id))!;
+    const conv = await pairConversationId(sender.id, receiver.id);
+    const tools = buildTools({ agent: receiver, conversationId: conv, isMain: false, userTurn: false, depth: 1, tz: 'UTC', peerAgentId: sender.id, teamTurn: true });
+    expect(tools.agent_update_profile).toBeDefined();
+    expect(tools.agent_update_permissions).toBeUndefined();
+    expect(tools.agent_update_instructions).toBeUndefined();
+    const unrelated = await createAgent({ name: 'UnrelatedProfile' });
+    const denied: any = await tools.agent_update_profile.execute!({ agent: unrelated.id, color: '#0000ff' } as any, { toolCallId: 'profile-denied', messages: [] } as any);
+    expect(denied.ok).toBe(false);
+    expect((await getAgent(unrelated.id))?.color).not.toBe('#0000ff');
+
+    const out: any = await tools.agent_update_profile.execute!({ agent: 'ProfileSender', color: '#0000ff' } as any, { toolCallId: 'profile-change', messages: [] } as any);
+    expect(out).toMatchObject({ ok: true, status: 'pending_approval' });
+    expect((await getAgent(sender.id))?.color).not.toBe('#0000ff');
+    expect((await getApproval(out.approvalId))?.action).toBe('agent.update_profile');
+
+    const approved = await resolveApproval(out.approvalId, 'approve', { by: 'ui', notifyAgent: false });
+    expect(approved.status).toBe('executed');
+    expect((await getAgent(sender.id))?.color).toBe('#0000ff');
+
+    const selfChange: any = await tools.agent_update_profile.execute!({ color: '#1122aa' } as any, { toolCallId: 'profile-self', messages: [] } as any);
+    expect(selfChange.status).toBe('pending_approval');
+    expect((await getAgent(receiver.id))?.color).not.toBe('#1122aa');
+    const rejected = await resolveApproval(selfChange.approvalId, 'reject', { by: 'ui', notifyAgent: false });
+    expect(rejected.status).toBe('rejected');
+    expect((await getAgent(receiver.id))?.color).not.toBe('#1122aa');
+  });
+
+  it('permet une demande utilisateur directe de modifier le profil d’un autre compagnon', async () => {
+    const sender = (await getAgent((await createAgent({ name: 'DirectSender' })).id))!;
+    const target = await createAgent({ name: 'DirectTarget' });
+    const tools = buildTools({ agent: sender, conversationId: await mainConversationId(sender.id), isMain: true, userTurn: true, depth: 0, tz: 'UTC' });
+    const out: any = await tools.agent_update_profile.execute!({ agent: target.id, color: '#1234ab' } as any, { toolCallId: 'direct-profile', messages: [] } as any);
+    expect(out.ok).toBe(true);
+    expect(out.status).not.toBe('pending_approval');
+    expect((await getAgent(target.id))?.color).toBe('#1234ab');
+    expect((await getAgent(sender.id))?.color).not.toBe('#1234ab');
   });
 
   it("refuse team_send_message pour répondre au coéquipier qui écrit", async () => {

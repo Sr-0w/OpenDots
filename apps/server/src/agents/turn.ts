@@ -368,6 +368,7 @@ async function executeTurn(
     tz,
     abortSignal: stream.abort.signal,
     peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
+    teamTurn: trigger.kind === 'team',
     onStatus: async (text: string) => {
       if (!live.detached || !text) return;
       await saveMessage(conversationId, {
