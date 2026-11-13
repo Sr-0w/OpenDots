@@ -1,10 +1,13 @@
 name: Android release
 
 # Builds the native Android app (apps/android) and publishes the APK as a GitHub pre-release.
-# Runs when a tag such as android-v0.1.0-alpha.1 is pushed, or manually with a tag name.
+# Runs when apps/android/RELEASE changes (it holds the tag to publish, e.g. android-v0.1.0-alpha.1),
+# when such a tag is pushed, or manually with a tag name.
 on:
   push:
     tags: ['android-v*']
+    branches: ['**']
+    paths: ['apps/android/RELEASE']
   workflow_dispatch:
     inputs:
       tag:
@@ -17,10 +20,17 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then tag="$INPUT_TAG"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then tag="$GITHUB_REF_NAME"
+          else tag="$(tr -d '[:space:]' < apps/android/RELEASE)"; fi
+          case "$tag" in android-v[0-9]*) ;; *) echo "Bad tag: $tag"; exit 1;; esac
+          echo "TAG=$tag" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
