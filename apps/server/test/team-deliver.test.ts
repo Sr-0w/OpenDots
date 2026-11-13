@@ -51,7 +51,12 @@ describe('livraison des messages entre compagnons', () => {
     const done = await waitAnswered(tm.id);
     expect(done.reply).toBe('Voici le résultat.');
     expect(calls.filter((c) => c.kind === 'team').map((c) => !!c.nudge)).toEqual([false, true]);
-    expect(await titles(b.id)).toEqual(expect.arrayContaining(['Message reçu de Sender', 'Réponse envoyée à Sender']));
+    expect(await titles(b.id)).toEqual(expect.arrayContaining(['Message reçu de Sender']));
+    // La réponse apparaît dans le fil du destinataire comme un message de lui, en réponse au message reçu.
+    const own = (await loadMessages(await mainConversationId(b.id), { limit: 50 })).messages.find((m) => m.id === `msg_ans_${tm.id}`);
+    expect(own?.role).toBe('assistant');
+    expect(own?.parts).toEqual([{ type: 'text', text: 'Voici le résultat.' }]);
+    expect(own?.metadata?.replyTo?.messageId).toBe(`msg_rcv_${tm.id}`);
     const jobs = await db().select().from(schema.jobs).where(eq(schema.jobs.agentId, a.id));
     expect(jobs.some((j) => j.type === 'agent.wake')).toBe(true);
   });

@@ -281,6 +281,29 @@ private fun EventLine(message: ChatMessage, env: MessageEnv, modifier: Modifier)
     val text = remember(message.parts) { message.parts.filterIsInstance<Part.Text>().joinToString("\n") { it.text }.trim() }
     val from = event?.fromAgentId?.let { id -> env.agents.firstOrNull { it.id == id } }
     val c = Dot.colors
+    // An exchange with a teammate is content, not a footnote: who, when, and the start of what was said.
+    if (from != null && (event?.type == "agent_reply" || event?.type == "agent_message")) {
+        val preview = remember(text, event.type) {
+            if (event.type == "agent_reply") text.substringAfter("Sa réponse :\n", text).substringBefore("\n\nPoursuis ta tâche").trim() else text
+        }
+        Column(
+            modifier.fillMaxWidth().clip(DotShapes.large).border(DotSpacing.hairline * 2, c.border, DotShapes.large)
+                .clickable(role = Role.Button, enabled = preview.isNotEmpty()) { open = !open }
+                .padding(horizontal = DotSpacing.m, vertical = 10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CompanionOrb(from, size = 16.dp)
+                Spacer(Modifier.width(DotSpacing.s))
+                Text(shortEventTitle(event.title) ?: agentDisplayName(from), style = Dot.type.label, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                formatWhen(message.meta.createdAt).takeIf { it.isNotEmpty() }?.let { Text("  ·  $it", style = Dot.type.caption, color = c.textTertiary, maxLines = 1) }
+            }
+            if (preview.isNotEmpty()) {
+                Spacer(Modifier.height(DotSpacing.xs))
+                Text(preview, style = Dot.type.callout, color = c.textSecondary, maxLines = if (open) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        return
+    }
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.heightIn(min = 40.dp).clip(DotShapes.pill).clickable(role = Role.Button, enabled = text.isNotEmpty()) { open = !open }, contentAlignment = Alignment.Center) {
             Row(

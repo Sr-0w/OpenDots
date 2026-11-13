@@ -18,6 +18,23 @@ export function messageText(msg: Pick<UIMessage, 'parts'>): string {
   return text || (images ? `[${images} image${images > 1 ? 's' : ''} jointe${images > 1 ? 's' : ''}]` : '');
 }
 
+/**
+ * Ce qu'un compagnon a répondu au terme d'un tour : le texte écrit après son dernier
+ * appel d'outil. Les phrases d'étape (« Je vais vérifier… ») émises entre deux outils
+ * n'en font pas partie. Sans texte final, on retombe sur tout le texte du tour.
+ */
+export function finalText(msg: Pick<UIMessage, 'parts'>): string {
+  let lastTool = -1;
+  msg.parts.forEach((part, index) => { if (part.type === 'dynamic-tool' || part.type.startsWith('tool-')) lastTool = index; });
+  const tail = msg.parts
+    .slice(lastTool + 1)
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n')
+    .trim();
+  return tail || messageText(msg);
+}
+
 export async function getConversation(id: string) {
   const [row] = await db().select().from(schema.conversations).where(eq(schema.conversations.id, id));
   return row ?? null;

@@ -237,3 +237,18 @@ describe('description des horaires', () => {
     expect(describeSchedule({ type: 'cron', expr: '30 8 * * 1-5' })).toBe('en semaine à 08:30');
   });
 });
+
+describe('finalText', () => {
+  it('ne garde que le texte écrit après le dernier outil', async () => {
+    const { finalText } = await import('../src/conversations/repo.ts');
+    expect(finalText({ parts: [
+      { type: 'text', text: 'Je vais vérifier.' },
+      { type: 'tool-shell_exec', toolCallId: 'a', state: 'output-available', input: {}, output: {} },
+      { type: 'text', text: 'Voici le résultat.' },
+    ] as never })).toBe('Voici le résultat.');
+    expect(finalText({ parts: [
+      { type: 'text', text: 'Je vais vérifier.' },
+      { type: 'tool-shell_exec', toolCallId: 'a', state: 'output-available', input: {}, output: {} },
+    ] as never })).toBe('Je vais vérifier.');
+  });
+});

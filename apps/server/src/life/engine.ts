@@ -73,6 +73,8 @@ export function registerLifeHandlers() {
     }
     if (result.error) {
       await updateTeamMessage(tm.id, { status: 'failed', reply: result.error });
+      // L'échec se voit aussi chez le destinataire : sans cela, il semble n'avoir rien fait.
+      await postTeamNote(tm.toAgentId, tm.fromAgentId, 'agent_message', 'Échec du traitement du message de', truncate(result.error, 300), `msg_fail_${tm.id}`);
       await postTeamNote(tm.fromAgentId, tm.toAgentId, 'agent_reply', 'Échec de la réponse de', `${toName} n'a pas pu traiter ton message : ${truncate(result.error, 300)}`, `msg_err_${tm.id}`);
       throw new Error(result.error);
     }
@@ -80,15 +82,32 @@ export function registerLifeHandlers() {
     await updateTeamMessage(tm.id, { status: 'answered', reply: replyText || null, answeredAt: new Date() });
     publish({ type: 'team.changed', conversationId: tm.conversationId });
 
-    // Notice dans le fil principal du destinataire : ce qu'il a répondu.
-    await postTeamNote(
-      tm.toAgentId,
-      tm.fromAgentId,
-      'agent_message',
-      decision.kind === 'reply' ? 'Réponse envoyée à' : 'Message traité, sans réponse à',
-      decision.kind === 'reply' ? replyText : `Aucune réponse nécessaire au message de ${fromName}.`,
-      `msg_ans_${tm.id}`,
-    );
+    // Dans le fil principal du destinataire, sa réponse est un vrai message de lui (une bulle,
+    // en réponse au message reçu) : l'utilisateur lit ce que le compagnon a dit, pas une notice.
+    if (decision.kind === 'reply') {
+      try {
+        await saveMessage(
+          await mainConversationId(tm.toAgentId),
+          {
+            id: `msg_ans_${tm.id}`,
+            role: 'assistant',
+            parts: [{ type: 'text', text: replyText }],
+            metadata: {
+              kind: 'chat',
+              agentId: tm.toAgentId,
+              autonomous: true,
+              createdAt: new Date().toISOString(),
+              replyTo: { messageId: `msg_rcv_${tm.id}`, preview: truncate(tm.content, 180), role: 'user' },
+            },
+          },
+          { author: 'agent', agentId: tm.toAgentId },
+        );
+      } catch {
+        /* déjà enregistré (nouvelle tentative du job) */
+      }
+    } else {
+      await postTeamNote(tm.toAgentId, tm.fromAgentId, 'agent_message', 'Message traité, sans réponse à', `Aucune réponse nécessaire au message de ${fromName}.`, `msg_ans_${tm.id}`);
+    }
 
     if (!tm.expectsReply) return;
     const threadCount = await countThreadMessages(tm.conversationId);

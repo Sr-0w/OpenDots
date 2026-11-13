@@ -14,7 +14,7 @@ import { resolveModel, requireDesktopVision } from '../models/gateway.ts';
 import { getTimezone, getTurnStepLimit } from '../settings.ts';
 import { contextMemories } from '../memory/repo.ts';
 import { listActivities } from '../activities/repo.ts';
-import { getConversation, loadMessages, messageText, resolveReply, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
+import { getConversation, loadMessages, finalText, messageText, resolveReply, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
 import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow } from './repo.ts';
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
@@ -582,7 +582,8 @@ async function executeTurn(
 
   // 2. Persistance de la réponse
   const response = finalMessage as OpenDotsUIMessage | null;
-  const text = response ? messageText(response) : '';
+  // Dans un fil entre compagnons, la réponse transmise est le texte final, pas les phrases d'étape.
+  const text = response ? (pair ? finalText(response) : messageText(response)) : '';
   // Un réveil n'est masqué que s'il n'a rien produit de visible pour l'utilisateur.
   const acted = (response?.parts ?? []).some((p: any) => typeof p.type === 'string' && VISIBLE_EFFECT_TOOLS.test(p.type.slice(5)) && p.output?.ok !== false);
   // Une réponse d'un coéquipier est toujours montrée à l'utilisateur (jamais masquée).
