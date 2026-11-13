@@ -4,8 +4,8 @@ For the complete Linux container deployment, volumes, HTTPS, backup and upgrade
 commands, see [Docker Compose](docker-compose.md).
 
 The **Computer / Ordinateur** page selects a companion's own Linux desktop:
-XFCE, Xvfb, Chromium, xdotool and a noVNC viewer. The account owns **one Docker
-container** combining shell and GUI. Each companion has its own stable Linux UID,
+XFCE, Xvfb, Chromium, xdotool and a noVNC viewer. Each companion owns **one private Docker
+container** combining shell and GUI, with passwordless sudo enabled by default. Each companion has its own stable Linux UID,
 1280 × 800 X display, X authentication cookie, clipboard, VNC password, D-Bus
 session, home directory and Chromium profile. Shell and GUI use the same home:
 `data/users/<account>/workspaces/<agent>`, mounted at `/workspaces/<agent>`.
@@ -23,8 +23,7 @@ is not an instant start. To rebuild: `pnpm desktop:build -- --rebuild`.
 Grant desktop access to a companion to let its tools start its session on demand.
 The Computer page lets you select, start, stop and take over each bot independently.
 Stopping a bot's desktop does not stop its teammates or shell. Homes/profiles
-persist through restarts. Default account limits are 4 GiB, 2 CPUs and 2048 PIDs
-(shared by all its bots): `OPENDOTS_COMPUTER_MEMORY`, `OPENDOTS_COMPUTER_CPUS`,
+persist through restarts. Default per-companion limits are 4 GiB, 2 CPUs and 2048 PIDs: `OPENDOTS_COMPUTER_MEMORY`, `OPENDOTS_COMPUTER_CPUS`,
 `OPENDOTS_COMPUTER_PIDS`. Old `OPENDOTS_DESKTOP_MEMORY/CPUS` are no longer used.
 Custom shell images must include the account session controller and GUI tools;
 plain Debian images support shell only. Old built-in `opendots/computer:1` settings
@@ -33,7 +32,7 @@ and `:3` through `:6` settings upgrade automatically to `:7`.
 ## Fast on-demand resume
 
 After `OPENDOTS_COMPUTER_IDLE_SECONDS` without a shell command, desktop action or
-connected viewer (300 by default, 0 disables), the account container is **paused**.
+connected viewer (300 by default, 0 disables), that companion’s container is **paused**.
 Its screens, browsers and processes remain in RAM. The next tool action or viewer
 connection unpauses it without rebooting Chromium. Active commands and noVNC
 connections hold leases so the container cannot pause mid-operation. Closing the
@@ -43,7 +42,7 @@ must run continuously. A fully stopped container needs a cold start and relaunch
 sessions, preserving files and browser profiles. Latency depends on the host;
 use the live test's measured resume time rather than assuming an instant cold boot.
 
-An upgrade recreates the account container when its image/resources/network change;
+An upgrade recreates each companion’s container when its image/resources/network change;
 packages installed only in the old container layer are lost. Persistent workspace
 files remain. Prepare a custom image for persistent system packages. The previous
 shared desktop under `data/users/<account>/desktop` is retained as legacy data and
@@ -207,13 +206,12 @@ and support long connections. Caddy's `reverse_proxy` already does this; for ngi
 include the usual Upgrade/Connection headers and an appropriate read timeout.
 Local Vite development forwards this WebSocket with the normal `/api` proxy.
 
-The account container runs each bot as a distinct Linux UID and mounts only that
-account's workspaces, with no Docker socket or host credential mounts. Chromium uses `--no-sandbox`
+Each bot container runs its desktop as a distinct Linux UID and mounts only that
+bot's home plus the explicit account shared directory, with no Docker socket or host credential mounts. Chromium uses `--no-sandbox`
 inside this container; the Docker container is its isolation boundary. This is
 not a hardened environment for mutually hostile tenants; use a dedicated host or
-VM for untrusted public registrations. Granting a bot unrestricted sudo also grants
-control of the other sessions within its own account container; keep sudo off for
-mutual Linux-user isolation. Runtime proxy CA trust is configured without
+VM for untrusted public registrations. Unrestricted sudo gives root access inside that bot’s container. Other bots’
+homes, processes and profiles are absent from its mounts and PID namespace. Runtime proxy CA trust is configured without
 disabling browser TLS verification.
 
 ## Verification
@@ -299,7 +297,7 @@ recognition with one provider and no fallback.
 
 OpenDots restores all authorized, enabled bot desktops in the background when
 an account runtime starts. It also watches Docker container-start events and
-restarts those desktops after the account container is restarted externally.
+restarts those desktops after their private containers are restarted externally.
 After a Docker daemon interruption, the watcher reconnects and reconciles
 missed starts. No manual start click or first agent tool call is required.
 
@@ -325,7 +323,7 @@ custom image names remain unchanged and must include the equivalent launcher
 configuration. Account containers are recreated on next use when the image changes;
 bot home folders persist.
 
-Neither the account container nor the XFCE desktop automatically opens Chromium.
+Neither the private container nor the XFCE desktop automatically opens Chromium.
 The desktop becomes ready when XFCE is visible, independently of any browser.
 `browser_inspect` and `computer_target` (browser engine) then start Chromium
 when the desktop is authorized and no browser session is already running.
@@ -483,3 +481,37 @@ Validated on 2026-11-12 with the rebuilt computer image:
   Its persistent profile runs the content-addressed worker, verified via CDP.
 - Docker autostart regression, semantic/controller unit tests, Codex adapter tests
   and server TypeScript checks passed. Native competing Codex tools stay disabled.
+
+### Private PCs and administrator access
+
+Each companion now owns a separate writable container, with passwordless sudo
+on by default. The normal desktop identity stays stable for Chromium/AT-SPI;
+`sudo -n` runs administrative commands as root. For example:
+`sudo -n apt-get update && sudo -n apt-get install -y tree`.
+Existing explicit sudo settings are respected; enable Administration in settings
+for accounts previously configured without it.
+
+Only the companion's own persistent home and `/workspaces/shared` are mounted.
+Even root cannot read another companion's home, desktop runtime or processes.
+The Docker socket, server filesystem, OAuth tokens and host PID namespace remain
+outside the computer. The shared directory is intentionally visible to teammates.
+Container lifecycle locks, idle suspension and leases are per companion.
+
+Migration retains home paths, stable UID/display allocation and Chromium profiles.
+Before starting a private computer, OpenDots stops the former account-wide
+container to avoid two Chromium processes writing the same profile. Its old
+writable layer is retained for rollback. System installations persist through
+container/app restarts; resetting/recreating the computer or changing its image
+replaces that system layer, while the mounted home survives.
+
+Codex's native `read-only` sandbox protects the application host. It does not
+restrict `shell_exec` on the separate OpenDots PC. Instructions explicitly require
+checking actual tool results instead of inferring a read-only PC from that flag.
+Native Codex tools remain disabled.
+
+Validation: `scripts/computer-root-smoke.ts` installs and executes a real `.deb`,
+checks system writes and persistence across Docker restart, and verifies that
+another bot with root cannot see the package or private files. Existing desktop
+startup, Git credential broker and browser inspection regression checks also run.
+A real OpenDots/Codex conversation installed `tree` through apt and verified
+`tree v2.1.0`, with `sudo -n id -u` returning `0`.

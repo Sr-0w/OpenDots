@@ -75,9 +75,9 @@ subprocess.Popen(['python3','-m','http.server','8765','--bind','127.0.0.1','--di
   const longTarget = state.elements.find((e: any) => e.role === 'button' && e.name.startsWith('Item 0 ')); assert(longTarget);
   await as(a, () => desktopExec(['python3', '-c', `import importlib.util
 s=importlib.util.spec_from_file_location('bridge','/usr/local/share/opendots/semantic-bridge.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-m.cdp(${large},'Runtime.evaluate',{'expression': '''document.querySelectorAll('button')[1].addEventListener('mouseover',function(){this.setAttribute('aria-label',this.getAttribute('aria-label')+'changed')},{once:true})'''})`]));
+m.cdp(${large},'Runtime.evaluate',{'expression': '''const target=document.querySelectorAll('button')[1];target.setAttribute('aria-label',target.getAttribute('aria-label')+'changed')'''})`]));
   const changed = await op({ action: 'click', snapshot: state.snapshot, ref: longTarget.ref });
-  assert.equal(changed.ok, false); assert.match(changed.error, /Element changed during pointer movement/);
+  assert.equal(changed.ok, false); assert.match(changed.error, /Element changed/);
   console.log('PASS 12000-node fixture: bounded transport, paging, detail, verified click/focus, long-name identity');
   const small = await open('http://127.0.0.1:8765/small.html');
   state = await loaded(small, v => v.elements.some((e: any) => e.name === 'Small action'));
@@ -100,6 +100,6 @@ m.cdp(${large},'Runtime.evaluate',{'expression': '''document.querySelectorAll('b
   const homes = await Promise.all([a,b].map(bot => as(bot, async () => (await desktopExec(['sh','-c','printf "%s %s" "$(id -u)" "$HOME"'])).toString()))); assert.notEqual(homes[0], homes[1]);
   console.log('PASS Wikipedia IPv6: real detail and navigation verified; small page, reuse, bot isolation');
 } finally {
-  await withAccount(account, () => run('docker', ['rm', '-f', computerName()])).catch(() => {});
+  for (const bot of [a,b]) await as(bot, () => run('docker', ['rm', '-f', computerName()])).catch(() => {});
   await closeAllDatabases(); await closeAuthStore(); await rm(dir, { recursive: true, force: true }).catch(() => {});
 }

@@ -11,7 +11,7 @@ vi.mock('../src/agents/repo.ts', () => ({ listAgentRows: async () => state.agent
 vi.mock('../src/settings.ts', () => ({ getShellSettings: async () => state.settings, getSetting: async (key: string) => state.disabled.has(key) ? { enabled: false } : null }));
 vi.mock('../src/computer/shell.ts', async () => {
   const { currentAccount } = await import('../src/auth/context.ts');
-  return { computerName: () => `computer-${currentAccount()!.id}`, dockerAvailable: async () => true };
+  return { accountComputerName: () => `computer-${currentAccount()!.id}`, dockerAvailable: async () => true };
 });
 vi.mock('../src/computer/desktop.ts', async () => {
   const { currentAccount } = await import('../src/auth/context.ts');
@@ -37,7 +37,7 @@ it('filtre les événements Docker et restaure uniquement le compte concerné', 
   await registerComputerAutostart(a); await registerComputerAutostart(b);
   expect(state.children).toHaveLength(1); state.started = [];
   state.children[0].stdout.write('invalid\n' + JSON.stringify({ Type: 'container', Action: 'start', Actor: { Attributes: { name: 'unrelated-container' } } }) + '\n');
-  state.children[0].stdout.write(JSON.stringify({ Type: 'container', Action: 'start', Actor: { Attributes: { name: 'computer-account-b' } } }) + '\n');
+  state.children[0].stdout.write(JSON.stringify({ Type: 'container', Action: 'start', Actor: { Attributes: { name: 'computer-account-b-bot', 'opendots.account': 'account-b' } } }) + '\n');
   await vi.waitFor(() => expect(state.started).toEqual(['account-b:ag_ready']));
 });
 it('se reconnecte après une perte du daemon sans ressusciter les bureaux désactivés', async () => {

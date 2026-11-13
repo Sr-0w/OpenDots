@@ -64,6 +64,8 @@ describe('Codex adapter', () => {
     expect(calls[0].params.baseInstructions).toContain('one short user-visible sentence');
     expect(calls[0].params.dynamicTools[0].name).toBe('computer_action');
     expect(calls[0].params.sandbox).toBe('read-only'); expect(rpc.closed).toBe(true);
+    expect(calls[0].params.baseInstructions).toContain('not to the separate computer reached through OpenDots dynamic tools');
+    expect(calls[0].params.baseInstructions).toContain('Use shell_exec to check its actual permissions');
   });
   it('forwards images and disables tools for the final synthesis', async () => {
     const { model, calls } = fake({ method: 'turn/completed', params: { turn: {} } });

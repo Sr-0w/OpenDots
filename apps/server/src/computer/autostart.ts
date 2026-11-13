@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { withAccount, type AccountContext } from '../auth/context.ts';
 import { listAgentRows } from '../agents/repo.ts';
 import { getSetting, getShellSettings } from '../settings.ts';
-import { computerName, dockerAvailable } from './shell.ts';
+import { accountComputerName, dockerAvailable } from './shell.ts';
 import { startDesktop } from './desktop.ts';
 import { withDesktopAgent } from './session.ts';
 
@@ -47,7 +47,7 @@ function watch() {
       try {
         const event = JSON.parse(line);
         if (event.Type !== 'container' || (event.Action ?? event.status) !== 'start') continue;
-        const account = accounts.get(event.Actor?.Attributes?.name);
+        const account = accounts.get(event.Actor?.Attributes?.['opendots.account']) ?? accounts.get(event.Actor?.Attributes?.name);
         if (account) restore(account);
       } catch { /* A malformed event cannot stop other account restores. */ }
     }
@@ -61,7 +61,7 @@ function watch() {
     retry = setTimeout(() => {
       retry = undefined; watch();
       // Reconcile missed starts after a daemon/socket interruption.
-      for (const account of accounts.values()) restore(account);
+      for (const account of new Set(accounts.values())) restore(account);
     }, 5000);
     retry.unref();
   });
@@ -69,7 +69,8 @@ function watch() {
 
 /** Background startup does not delay login or HTTP readiness. */
 export function registerComputerAutostart(account: AccountContext): Promise<void> {
-  accounts.set(withAccount(account, computerName), account);
+  accounts.set(account.id, account);
+  accounts.set(withAccount(account, accountComputerName), account);
   watch();
   return restoreAccountDesktops(account);
 }

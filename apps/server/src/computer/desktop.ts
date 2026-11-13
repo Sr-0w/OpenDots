@@ -34,7 +34,7 @@ export const desktopEnabled = async () => {
   return (await getSetting(settingKey()))?.enabled ?? agent.permissions.computer;
 };
 export async function buildDesktopImage(force = false) {
-  // The account's one image contains both shell and independent desktop sessions.
+  // One common image supplies each companion's private shell and desktop.
   await ensureImage(DESKTOP_IMAGE, force);
 }
 async function session() {

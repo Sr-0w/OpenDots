@@ -307,11 +307,11 @@ export async function buildCapabilityTools(ctx: ToolContext): Promise<{ tools: T
   if (backend) {
     const needsApproval = await shellNeedsApproval();
     info.connectors.push(
-      `Ordinateur : ${backend === 'docker' ? `conteneur Linux partagé (Debian avec python3, pip, node, npm, git, curl, jq, sqlite3), ton dossier personnel est ton répertoire courant, dossier commun : /workspaces/shared${(await getShellSettings()).sudo ? ', sudo autorisé pour installer des paquets' : ' ; pas de sudo : installe les paquets Python avec pip install --user'}` : "machine hôte de l'utilisateur, dans ton dossier personnel ; dossier commun : $OPENDOTS_SHARED"}${needsApproval ? ' — chaque commande demande une validation' : ''}`,
+      `Ordinateur : ${backend === 'docker' ? `ordinateur Linux privé (Debian avec python3, pip, node, npm, git, curl, jq, sqlite3), ton dossier personnel est ton répertoire courant, dossier commun : /workspaces/shared${(await getShellSettings()).sudo ? ', accès root via sudo sans mot de passe pour installer des applications et paquets système ; utilise sudo -n apt-get update puis sudo -n apt-get install -y NOM_DU_PAQUET. Le système est accessible en écriture ; vérifie une erreur avec shell_exec avant de déclarer une impossibilité' : ' ; pas de sudo : installe les paquets Python avec pip install --user'}` : "machine hôte de l'utilisateur, dans ton dossier personnel ; dossier commun : $OPENDOTS_SHARED"}${needsApproval ? ' — chaque commande demande une validation' : ''}`,
     );
     tools.shell_exec = tool({
       description: [
-        `Exécute une commande bash sur ton ordinateur (${backend === 'docker' ? 'conteneur Linux partagé avec les autres compagnons' : 'machine hôte'}).`,
+        `Exécute une commande bash sur ton ordinateur (${backend === 'docker' ? 'conteneur Linux privé de ce compagnon' : 'machine hôte'}).`,
         'Ton dossier personnel est persistant ; un dossier commun permet de partager des fichiers avec les autres compagnons.',
         'Utilise-le pour manipuler des fichiers, lancer des scripts, installer et utiliser des outils en ligne de commande (curl, python, git…).',
         'Préfère les commandes non interactives et courtes ; enchaîne-les avec && si besoin.',

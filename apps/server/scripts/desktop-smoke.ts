@@ -407,10 +407,10 @@ import os
     assert.equal((await desktopExec(['sh', '-c', `test ! -e /workspaces/${botA.id}/private-alice.txt && echo isolated`])).toString().trim(), 'isolated');
   });
   console.log('PASS deux conteneurs réels : fichiers et profils isolés entre comptes.');
-  // Two bots of the same account share one kernel/container, never their screen/profile.
+  // Two bots of the same account own separate containers, screens and profiles.
   const nameA = await asA(computerName);
   await asC(startDesktop);
-  assert.equal(await asC(computerName), nameA);
+  assert.notEqual(await asC(computerName), nameA);
   const uidA = (await asA(() => desktopExec(['id', '-u']))).toString().trim();
   const uidC = (await asC(() => desktopExec(['id', '-u']))).toString().trim();
   assert.notEqual(uidA, uidC);
@@ -424,7 +424,9 @@ import os
   const otherApps = await asC(() => semanticOperation({ engine: 'native', action: 'apps' }));
   assert.equal(otherApps.ok, true, JSON.stringify(otherApps));
   assert(!otherApps.apps.some((app: any) => /chromium|semantic-fixture/i.test(app.name)));
-  assert.equal((await asC(() => semanticOperation({ engine: 'browser', action: 'tabs' }))).ok, false, 'A bot without a browser must not discover another bot’s socket');
+  const isolatedTabs = await asC(() => semanticOperation({ engine: 'browser', action: 'tabs' }));
+  assert.equal(isolatedTabs.ok, true);
+  assert(!isolatedTabs.tabs.some((tab: any) => /semantic-form|semantic-scroll/.test(tab.url || '')));
   const slotA = await asA(async () => (await import('../src/settings.ts')).getSetting(`desktop.bot.${botA.id}`));
   await assert.rejects(() => asC(() => desktopExec(['sh', '-c', `DISPLAY=:${slotA!.slot} xdotool getdisplaygeometry`])));
   await asC(() => desktopExec(['sh', '-c', 'test ! -e "$HOME/private-alice.txt" && echo private']));
@@ -433,7 +435,7 @@ import os
   await asA(() => setHumanControl(true));
   await asC(screenshot); await assert.rejects(() => asA(screenshot), /pris la main/);
   await asA(() => setHumanControl(false));
-  console.log('PASS deux bots, un seul conteneur : UID, écran X11 authentifié, profil, captures et contrôle manuel séparés ; shell et bureau du même bot cohérents.');
+  console.log('PASS deux bots, deux conteneurs : UID, écran X11 authentifié, profil, captures et contrôle manuel séparés ; shell et bureau du même bot cohérents.');
   const longJob = asA(() => execShell(botA.id, 'sleep 3; echo active-job'));
   await new Promise((resolve) => setTimeout(resolve, 2500));
   assert.equal((await asA(computerState))?.paused, false);
@@ -449,7 +451,7 @@ import os
   assert(resumeMs < 5000, `Reprise trop lente : ${resumeMs} ms`);
   console.log(`PASS pause automatique et reprise mesurée : ${resumeMs} ms (sessions conservées).`);
   assert.equal(await browserPid(), preservedPid);
-  await run('docker', ['restart', '--time', '2', nameA]);
+  await run('docker', ['restart', '--time', '2', nameA, await asC(computerName)]);
   assert.equal((await asA(desktopStatus)).running, false);
   assert.equal((await asA(desktopStatus)).restartRequired, true);
   await asC(startDesktop); await asA(startDesktop);
@@ -653,6 +655,6 @@ import os
   console.error(error); process.exitCode = 1;
 } finally {
   await browser?.close(); closeSockets(); await new Promise<void>((resolve) => server.close(() => resolve()));
-  for (const account of [a, b]) await withAccount(account, () => run('docker', ['rm', '-f', computerName()])).catch(() => {});
+  for (const context of [asA,asB,asC]) await context(() => run('docker', ['rm', '-f', computerName()])).catch(() => {});
   await closeAllDatabases(); await closeAuthStore(); await rm(dir, { recursive: true, force: true }).catch(() => {});
 }

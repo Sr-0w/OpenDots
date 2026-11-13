@@ -364,7 +364,7 @@ export const EN: Record<string, string> = {
   "Le {date}": "On {date}",
   "Le {days} à {time}": "{days} at {time}",
   "Lecture, relève automatique et réponses préparées — l’envoi attend ton accord.": "Reading, automatic checks and drafted replies — sending waits for your approval.",
-  "Les compagnons pourront installer des paquets système dans le conteneur.": "Companions will be able to install system packages in the container.",
+  "Chaque compagnon pourra installer des applications avec sudo dans son propre ordinateur.": "Each companion can install applications with sudo on its own computer.",
   "Les opérations importantes apparaîtront ici.": "Important operations will show up here.",
   "Les responsabilités permanentes de tes compagnons : routines, surveillances et déclencheurs. Elles se créent en leur parlant ; ici tu peux les suspendre ou les ajuster.": "Your companions’ standing responsibilities: routines, watches and triggers. They’re created by talking to them; here you can pause or adjust them.",
   "Les services que tes compagnons peuvent utiliser. Partagés par toute l’équipe ; les actions sensibles demandent toujours ta validation.": "The services your companions can use. Shared by the whole team; sensitive actions always require your approval.",

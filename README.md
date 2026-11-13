@@ -100,7 +100,7 @@ When a companion needs something only you can provide, it asks you through a sma
 | **MCP connectors** | HTTP, SSE or local stdio servers, encrypted secrets, per-connector approval, a failing server stays isolated |
 | **Plugins** | Bundles of skills and MCP connectors described in a JSON manifest, with a preview before install |
 | **Tools** | Free web search through Mwmbl and SearXNG, without accounts or API keys; web page reading, date and time |
-| **Shared computer** | A Linux shell in a Docker container (Python, Node, git, curl, jq, sqlite…), one Linux user and private home per companion plus a shared folder. Network and sudo are configurable, with a host fallback that approves each command |
+| **Private computers** | Each companion owns a writable Linux container with shell and desktop, passwordless sudo by default, a persistent private home and browser profile, plus an explicit shared folder. Network and sudo remain configurable |
 | **Models** | Any OpenRouter model (reasoning effort, preferred provider) or local Ollama, set per companion or as the default |
 | **Security** | Secrets are encrypted at rest (AES-256-GCM) and never sent to the model or the browser. External content is marked untrusted, SSRF protection is built in, and config tools are disabled during autonomous wake-ups |
 | **Interface** | Black and white, with color reserved for companion avatars. Built with React, shadcn/ui, AI Elements and the Vercel AI SDK. Dark mode, mobile layout, browser notifications, English and French |
