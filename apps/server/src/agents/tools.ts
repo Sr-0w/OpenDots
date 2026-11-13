@@ -51,6 +51,8 @@ export interface ToolContext {
   tz: string;
   /** Pendant le traitement d'un message d'un coéquipier : l'id de ce coéquipier. */
   peerAgentId?: string;
+  /** Tour déclenché par un message d'un autre compagnon. */
+  teamTurn?: boolean;
 }
 
 const ok = (data: Record<string, unknown> = {}) => ({ ok: true, ...data });
@@ -69,6 +71,7 @@ function profileOf(a: AgentRow) {
     id: a.id,
     name: a.name,
     named: a.named,
+    color: a.color,
     description: a.description,
     personality: a.personality,
     instructions: a.instructions,
@@ -128,6 +131,16 @@ async function doUpdatePermissions(input: { agentId: string; permissions: Partia
 
 registerApprovalAction('agent.create', (input: CreateAgentInput) => doCreateAgent(input));
 registerApprovalAction('agent.update_permissions', doUpdatePermissions);
+
+async function doUpdateProfile(input: { agentId: string; patch: Partial<AgentRow> }) {
+  const target = await getAgent(input.agentId);
+  if (!target) throw new Error('Compagnon introuvable.');
+  const updated = await updateAgent(target.id, input.patch);
+  await log(target.id, 'agent.profile', 'Profil mis à jour', input.patch);
+  return { profile: profileOf(updated) };
+}
+
+registerApprovalAction('agent.update_profile', doUpdateProfile);
 
 const CREATE_RANK = { deny: 0, ask: 1, allow: 2 } as const;
 
@@ -244,35 +257,44 @@ export function buildTools(ctx: ToolContext): ToolSet {
       }),
   });
 
-  // Outils de configuration : uniquement sur demande directe de l'utilisateur,
-  // jamais à cause d'un contenu externe ou d'un autre compagnon (16.4).
-  if (ctx.userTurn && ctx.isMain) {
+  // A teammate's message is untrusted: expose only profile editing, with
+  // mandatory user approval. Other configuration remains user-turn-only.
+  if ((ctx.userTurn && ctx.isMain) || ctx.teamTurn) {
     tools.agent_update_profile = tool({
-      description:
-        "Modifie durablement ton identité : nom, personnalité/ton, description de tes responsabilités, couleur. À utiliser dès que l'utilisateur te donne un nom ou change ton style.",
+      description: ctx.teamTurn
+        ? "Propose une modification de ton profil ou de celui du compagnon qui t'a écrit. La modification attend toujours la validation de l'utilisateur."
+        : "Modifie durablement le profil de toi-même ou d'un autre compagnon à la demande directe de l'utilisateur.",
       inputSchema: z.object({
-        name: z.string().min(1).max(40).optional(),
-        personality: z.string().max(2000).optional().describe('Ton et style de réponse, ex. "naturel, chaleureux, concis"'),
-        description: z.string().max(2000).optional().describe('Tes responsabilités, en une ou deux phrases'),
+        name: z.string().trim().min(1).max(40).optional(),
+        personality: z.string().max(2000).optional(),
+        description: z.string().max(2000).optional(),
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        agent: z.string().optional().describe('Nom ou id du compagnon à modifier ; par défaut toi-même'),
       }),
-      execute: async (args) =>
-        guard(async () => {
-          if (args.name) {
-            const other = await findAgentByName(args.name);
-            if (other && other.id !== ctx.agent.id) return fail(`Le nom « ${args.name} » est déjà pris par un autre compagnon.`);
-          }
-          const patch: Partial<AgentRow> = {};
-          if (args.name) Object.assign(patch, { name: args.name.trim(), named: true });
-          if (args.personality !== undefined) patch.personality = args.personality;
-          if (args.description !== undefined) patch.description = args.description;
-          if (args.color) patch.color = args.color;
-          const updated = await updateAgent(ctx.agent.id, patch);
-          await log(ctx.agent.id, 'agent.profile', 'Profil mis à jour', patch);
-          return ok({ profile: profileOf(updated) });
-        }),
+      execute: async ({ agent, ...args }, { toolCallId }) => guard(async () => {
+        const target = agent ? await resolveAgentRef(agent) : await self();
+        if (!target) return fail('Compagnon introuvable.');
+        if (ctx.teamTurn && target.id !== ctx.agent.id && target.id !== ctx.peerAgentId)
+          return fail('Dans une conversation entre compagnons, tu ne peux modifier que ton profil ou celui du compagnon qui t’a écrit.');
+        if (args.name) {
+          const other = await findAgentByName(args.name.trim());
+          if (other && other.id !== target.id) return fail(`Le nom « ${args.name} » est déjà pris par un autre compagnon.`);
+        }
+        const patch: Partial<AgentRow> = {};
+        if (args.name) Object.assign(patch, { name: args.name.trim(), named: true });
+        if (args.personality !== undefined) patch.personality = args.personality;
+        if (args.description !== undefined) patch.description = args.description;
+        if (args.color) patch.color = args.color;
+        if (!Object.keys(patch).length) return fail('Aucune modification indiquée.');
+        if (ctx.teamTurn)
+          return pendingApproval(ctx, toolCallId, 'agent.update_profile', `Modifier le profil de ${target.name}`, { agentId: target.id, patch });
+        return ok(await doUpdateProfile({ agentId: target.id, patch }));
+      }),
     });
+  }
 
+  // Les autres outils de configuration globale restent réservés à une demande utilisateur directe.
+  if (ctx.userTurn && ctx.isMain) {
     tools.agent_update_instructions = tool({
       description:
         "Enregistre durablement des consignes de l'utilisateur sur ta façon de travailler (préférences, règles, ce qu'il faut demander avant d'agir…). mode=append ajoute, mode=replace remplace tout.",
