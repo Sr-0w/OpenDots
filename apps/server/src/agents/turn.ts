@@ -6,7 +6,7 @@ import { hydrateMessageImages } from '../attachments/service.ts';
 import { accountKey } from '../auth/context.ts';
 import { convertToModelMessages, isStepCount, streamText, toUIMessageStream, type StopCondition, type UIMessageChunk } from 'ai';
 import { and, eq } from 'drizzle-orm';
-import { cleanModelText, type MessageMetadata } from '@opendots/shared';
+import { cleanModelText, type MessageMetadata, type MessageReplyRef } from '@opendots/shared';
 import { db, schema } from '../db/client.ts';
 import { publish } from '../bus.ts';
 import { log } from '../journal.ts';
@@ -14,7 +14,7 @@ import { resolveModel, requireDesktopVision } from '../models/gateway.ts';
 import { getTimezone, getTurnStepLimit } from '../settings.ts';
 import { contextMemories } from '../memory/repo.ts';
 import { listActivities } from '../activities/repo.ts';
-import { getConversation, loadMessages, messageText, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
+import { getConversation, loadMessages, messageText, resolveReply, saveMessage, type OpenDotsUIMessage } from '../conversations/repo.ts';
 import { effectiveModel, getAgent, listAgentRows, setAgentState, type AgentRow } from './repo.ts';
 import { buildSystemPrompt, type TurnMode } from './prompt.ts';
 import { buildTools, toolActivityLabel } from './tools.ts';
@@ -216,6 +216,7 @@ export function historyForModel(
         parts: compactAssistantParts(msg.parts as any[], preserveScreenshots) as OpenDotsUIMessage['parts'],
       };
     }
+    msg = withModelNote(msg, modelNote(msg, names));
     budget -= JSON.stringify(msg.parts).length;
     if (budget < 0 && out.length >= 2) break;
     out.push(msg);
@@ -231,6 +232,26 @@ export function historyForModel(
   // L'historique doit commencer par un message utilisateur.
   while (out.length && out[0].role !== 'user') out.shift();
   return out;
+}
+
+/** Identifiants, réponse citée et réactions, pour que le modèle puisse réagir ou répondre. */
+function modelNote(msg: OpenDotsUIMessage, names: Map<string, string>): string {
+  const lines = [`[message ${msg.id}]`];
+  const reply = msg.metadata?.replyTo;
+  if (reply?.messageId) lines.push(`[replying to ${reply.messageId}: ${reply.preview ?? ''}]`);
+  const reactions = msg.metadata?.reactions ?? [];
+  if (reactions.length) {
+    lines.push(`[reactions: ${reactions.map((reaction) => `${reaction.emoji} ${reaction.actor === 'user' ? 'user' : (names.get(reaction.actor) ?? reaction.actor)}`).join(', ')}]`);
+  }
+  return lines.join('\n');
+}
+
+function withModelNote(msg: OpenDotsUIMessage, note: string): OpenDotsUIMessage {
+  const parts = msg.parts.map((part) => ({ ...part }));
+  const index = parts.findIndex((part) => part.type === 'text');
+  if (index >= 0 && parts[index].type === 'text') parts[index] = { ...parts[index], text: `${note}\n${parts[index].text}` };
+  else parts.unshift({ type: 'text', text: note });
+  return { ...msg, parts };
 }
 
 /**
@@ -341,6 +362,7 @@ async function executeTurn(
     hint = messageText(msg);
   } else if (trigger.kind === 'event') {
     triggerMessageId = newId('msg');
+    const reaction = trigger.event.type === 'reaction';
     await saveMessage(
       conversationId,
       {
@@ -349,7 +371,7 @@ async function executeTurn(
         parts: [{ type: 'text', text: trigger.text }],
         metadata: { kind: 'event', event: trigger.event, createdAt: new Date().toISOString(), autonomous: true },
       },
-      { author: 'event', agentId },
+      { author: 'event', agentId, hidden: reaction },
     );
     mode = { kind: 'event', title: trigger.event.title, eventType: trigger.event.type };
     hint = `${trigger.event.title} ${trigger.text}`;
@@ -359,6 +381,9 @@ async function executeTurn(
   }
 
   const depth = trigger.kind === 'user' || trigger.kind === 'onboarding' ? 0 : trigger.depth;
+  const turnStarted = Date.now();
+  let replyTo: MessageReplyRef | null = null;
+  const detachedStatus = new Set<string>();
   const toolCtx = {
     agent,
     conversationId,
@@ -368,8 +393,14 @@ async function executeTurn(
     tz,
     abortSignal: stream.abort.signal,
     peerAgentId: trigger.kind === 'team' ? trigger.fromAgentId : undefined,
+    setReplyTo: async (messageId: string) => {
+      const reply = await resolveReply(conversationId, messageId.trim());
+      if (!reply) throw new Error('Message introuvable dans cette conversation.');
+      replyTo = reply;
+    },
     onStatus: async (text: string) => {
       if (!live.detached || !text) return;
+      detachedStatus.add(text);
       await saveMessage(conversationId, {
         id: newId('msg'),
         role: 'assistant',
@@ -395,6 +426,14 @@ async function executeTurn(
   const { messages: stored } = await loadMessages(conversationId, { limit: HISTORY_LIMIT });
   if (trigger.kind === 'team' && !hint) hint = messageText(stored[stored.length - 1] ?? { parts: [] });
   const history = historyForModel(stored, agent, names, pair);
+  if (trigger.kind === 'event' && trigger.event.type === 'reaction' && triggerMessageId) {
+    history.push({
+      id: triggerMessageId,
+      role: 'user',
+      parts: [{ type: 'text', text: `[message ${triggerMessageId}]\n[Événement : ${trigger.event.title}]\n${trigger.text}` }],
+      metadata: { kind: 'event', event: trigger.event },
+    });
+  }
   if (trigger.kind === 'onboarding') history.push({ id: newId('msg'), role: 'user', parts: [{ type: 'text', text: 'L’utilisateur vient de terminer la configuration et de te rencontrer. Engage maintenant la conversation avec un bref accueil et une seule question pour faire connaissance.' }] });
   if (trigger.kind === 'team' && trigger.nudge) {
     history.push({
@@ -550,12 +589,14 @@ async function executeTurn(
   const mustSurface = trigger.kind === 'event' && trigger.event.type === 'agent_reply';
   const silent = autonomous && !pair && !acted && !mustSurface && (SILENCE.test(text) || (!text && !turnError));
   if (response && response.parts.length) {
-    const parts = (SILENCE.test(text) ? response.parts.filter((p) => p.type !== 'text') : response.parts).map((p) =>
-      p.type === 'text' ? { ...p, text: cleanModelText(p.text) } : p,
-    );
-    await saveMessage(
+    const parts = (SILENCE.test(text) ? response.parts.filter((p) => p.type !== 'text') : response.parts).filter((p) => {
+      if (p.type !== 'tool-text_user') return true;
+      const said = typeof (p as { input?: { text?: unknown } }).input?.text === 'string' ? (p as { input: { text: string } }).input.text.trim() : '';
+      return !detachedStatus.has(said);
+    }).map((p) => p.type === 'text' ? { ...p, text: cleanModelText(p.text) } : p);
+    if (parts.length) await saveMessage(
       conversationId,
-      { ...response, id: responseId, role: 'assistant', parts, metadata: { ...(response.metadata ?? {}), createdAt: new Date().toISOString() } },
+      { ...response, id: responseId, role: 'assistant', parts, metadata: { ...(response.metadata ?? {}), createdAt: new Date().toISOString(), workedMs: Date.now() - turnStarted, ...(replyTo ? { replyTo } : {}) } },
       { author: 'agent', agentId, hidden: silent },
     );
   }

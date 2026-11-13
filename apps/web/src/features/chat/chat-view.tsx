@@ -10,6 +10,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { api, type ODMessage } from "@/lib/api";
+import type { MessageReplyRef } from "@opendots/shared";
 import { useServerEvent } from "@/lib/store";
 import { DotAvatar } from "../dot-avatar";
 import { Composer } from "./composer";
@@ -80,6 +81,9 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
           });
         }).catch(() => {});
       }
+      if (e.type === "message.reaction" && e.conversationId === agent.mainConversationId) {
+        setMessages((current) => current.map((message) => message.id === e.messageId ? { ...message, metadata: { ...message.metadata, reactions: e.reactions } } : message));
+      }
       if (e.type === "turn.finished" && e.conversationId === agent.mainConversationId) {
         window.setTimeout(() => void resync().catch(() => {}), 300);
       }
@@ -92,6 +96,7 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
     if (status === "ready") void api.markRead(agent.id).catch(() => {});
   }, [agent.id, status, messages.length]);
 
+  const [reply, setReply] = useState<MessageReplyRef | null>(null);
   const busy = status === "submitted" || status === "streaming";
   const actions = useMemo(
     () => ({
@@ -112,7 +117,25 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
         <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-4 pt-6 pb-10 sm:px-6">
           {empty && <EmptyState agent={agent} />}
           {messages.map((m, i) => (
-            <MessageView key={m.id} message={m} agentId={agent.id} streaming={busy && i === messages.length - 1 && m.role === "assistant"} />
+            <MessageView
+              key={m.id}
+              message={m}
+              agentId={agent.id}
+              streaming={busy && i === messages.length - 1 && m.role === "assistant"}
+              onReply={setReply}
+              onReact={(messageId, emoji) => {
+                setMessages((current) => current.map((message) => {
+                  if (message.id !== messageId) return message;
+                  const reactions = message.metadata?.reactions ?? [];
+                  const mine = reactions.some((reaction) => reaction.emoji === emoji && reaction.actor === "user");
+                  const next = mine ? reactions.filter((reaction) => !(reaction.emoji === emoji && reaction.actor === "user")) : [...reactions, { emoji, actor: "user" }];
+                  return { ...message, metadata: { ...message.metadata, reactions: next } };
+                }));
+                void api.react(messageId, emoji).then((result) => {
+                  setMessages((current) => current.map((message) => message.id === messageId ? { ...message, metadata: { ...message.metadata, reactions: result.reactions } } : message));
+                }).catch(() => { void resync().catch(() => {}); });
+              }}
+            />
           ))}
           {waiting && (
             <div className="flex items-center gap-2.5 text-sm">
@@ -139,6 +162,8 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
         <Composer
           busy={busy}
           autoFocus
+          reply={reply}
+          onClearReply={() => setReply(null)}
           placeholder={agent.named ? t("Écrire à {v0}…", { v0: agent.name }) : t("Écrire à ton compagnon…")}
           onSubmit={async (text, images) => {
             if (busy) await chat.stop();
@@ -148,7 +173,9 @@ function ChatInner({ agent, initial }: { agent: AgentDTO; initial: ODMessage[] }
               if (!part) { const attachment = await api.uploadImage(image); part = { type: 'file' as const, url: attachment.url, filename: attachment.filename, mediaType: attachment.mediaType }; uploaded.current.set(image, part); }
               files.push(part);
             }
-            void sendMessage({ text, files });
+            const pending = reply;
+            void sendMessage({ text, files, metadata: pending ? { replyTo: pending } : undefined });
+            setReply(null);
           }}
           onStop={() => {
             void api.stop(agent.id);

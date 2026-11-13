@@ -15,7 +15,7 @@ import { subscribe } from '../bus.ts';
 import { getAgent, listAgentRows, listAgents, mainConversationId, toAgentDTO, updateAgent, createAgent } from '../agents/repo.ts';
 import { runTurn, stopAgent } from '../agents/turn.ts';
 import { getActiveStream } from '../agents/streams.ts';
-import { getConversation, listTeamThreads, pairConversationId, loadMessages, type OpenDotsUIMessage } from '../conversations/repo.ts';
+import { getConversation, listTeamThreads, pairConversationId, loadMessages, resolveReply, toggleReaction, type OpenDotsUIMessage } from '../conversations/repo.ts';
 import {
   checkModel,
   listOllamaModels,
@@ -337,6 +337,12 @@ export function createApi() {
     const conversationId = await mainConversationId(agent.id);
     let finalParts = parts;
     const metadata: OpenDotsUIMessage['metadata'] = {};
+    const replyToId = (message.metadata as { replyTo?: { messageId?: string } } | undefined)?.replyTo?.messageId;
+    if (typeof replyToId === 'string' && replyToId.trim()) {
+      const reply = await resolveReply(conversationId, replyToId.trim().slice(0, 64));
+      if (!reply) return c.json({ error: 'Message d’origine introuvable' }, 400);
+      metadata.replyTo = reply;
+    }
     const answer = (message.metadata as { answer?: { requestId: string; answers: Record<string, unknown> } } | undefined)?.answer;
     if (answer?.requestId) {
       // Réponse à un formulaire : validée et résumée côté serveur.
@@ -359,6 +365,17 @@ export function createApi() {
     const active = getActiveStream(conversationId);
     if (!active) return c.body(null, 204);
     return createUIMessageStreamResponse({ stream: active.readable() });
+  });
+
+  api.post('/messages/:id/reactions', async (c) => {
+    const { emoji } = z.object({ emoji: z.string().min(1).max(16) }).parse(await c.req.json());
+    try {
+      const result = await toggleReaction(c.req.param('id'), 'user', emoji);
+      if (!result) return c.json({ error: 'Introuvable' }, 404);
+      return c.json(result);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Réaction invalide' }, 400);
+    }
   });
 
   api.post('/agents/:id/stop', async (c) => {

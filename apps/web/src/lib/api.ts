@@ -163,6 +163,7 @@ export const api = {
       `/agents/${id}/messages${before ? `?before=${before}` : ""}`,
     ),
   stop: (id: string) => request<{ ok: boolean }>("POST", `/agents/${id}/stop`),
+  react: (messageId: string, emoji: string) => request<{ added: boolean; reactions: { emoji: string; actor: string }[] }>("POST", `/messages/${messageId}/reactions`, { emoji }),
   conversation: (id: string) =>
     request<{ conversation: { id: string; agentA: string; agentB: string }; messages: ODMessage[]; active: boolean }>(
       "GET",
