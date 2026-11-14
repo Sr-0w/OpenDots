@@ -85,6 +85,8 @@ it('poursuit plus de 48 étapes sans plafond configuré, sans forcer une synthè
     model = new MockLanguageModelV4({ doStream: async (options: any) => {
       calls++;
       expect(options.toolChoice?.type).not.toBe('none');
+      // Un statut n'est jamais imposé : un modèle qui n'appelle pas text_user ne fait pas échouer le tour.
+      expect(options.toolChoice?.toolName).toBeUndefined();
       const parts: any[] = [{ type: 'stream-start', warnings: [] }];
       const status = options.toolChoice?.toolName === 'text_user';
       const more = !status && tools < 55;
@@ -97,7 +99,7 @@ it('poursuit plus de 48 étapes sans plafond configuré, sans forcer une synthè
     const agent = await createAgent({ name: 'Long task' });
     const conv = await mainConversationId(agent.id);
     const result = await runTurn(agent.id, conv, { kind: 'user', message: { id: 'msg_no_step_limit', role: 'user', parts: [{ type: 'text', text: 'Termine le travail' }] } }).done;
-    expect(result.error).toBeNull(); expect(executed).toBe(55); expect(calls).toBe(69);
+    expect(result.error).toBeNull(); expect(executed).toBe(55); expect(calls).toBe(56);
     expect(result.text).toBe('55 opérations terminées.');
   } finally { await setSetting('engine.turnStepLimit', 3); }
 });

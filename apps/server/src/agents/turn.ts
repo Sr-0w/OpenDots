@@ -53,7 +53,7 @@ const formShown: StopCondition<any> = ({ steps }) =>
   );
 
 /** Après ce nombre d'étapes d'outils sans phrase pour l'utilisateur, le tour doit envoyer un statut. */
-const STATUS_GAP = 4;
+const STATUS_GAP = 8;
 
 interface LiveTurn {
   key: string;
@@ -62,6 +62,10 @@ interface LiveTurn {
   hint: string;
   detached: boolean;
   stream: ActiveStream;
+  /** Phrases d'étape déjà envoyées à l'utilisateur pendant ce tour. */
+  notes: string[];
+  /** Consignes ajoutées par l'utilisateur pendant que ce tour continue en arrière-plan. */
+  steers: string[];
 }
 
 interface RunSlot {
@@ -269,7 +273,7 @@ export function runTurn(
   const stream = new ActiveStream(conversationId);
   const key = `${accountKey()}:${agentId}`;
   const slot = runSlot(key);
-  const live: LiveTurn = { key, agentId, conversationId, hint: turnHint(trigger), detached: false, stream };
+  const live: LiveTurn = { key, agentId, conversationId, hint: turnHint(trigger), detached: false, stream, notes: [], steers: [] };
   const empty: TurnResult = { messageId: null, text: '', silent: true, error: null };
   const finish = (result: TurnResult) => {
     releaseTurn(live);
@@ -401,8 +405,14 @@ async function executeTurn(
       if (!reply) throw new Error('Message introuvable dans cette conversation.');
       replyTo = reply;
     },
+    steerBackground: (instruction: string) => {
+      const targets = runSlot(live.key).background.filter((turn) => turn !== live && !turn.stream.abort.signal.aborted);
+      for (const turn of targets) turn.steers.push(instruction);
+      return targets.map((turn) => turn.hint);
+    },
     onStatus: async (text: string) => {
       if (!text) return;
+      live.notes.push(text);
       // Dans un fil entre compagnons, l'utilisateur ne lit pas ce fil : la phrase part dans son propre chat avec ce compagnon.
       if (pair) {
         toldUser = true;
@@ -479,7 +489,7 @@ async function executeTurn(
     tz,
     now: new Date(),
     toolNames: activeToolNames(tools, capabilities.lazy),
-    background: runSlot(live.key).background.filter((turn) => turn !== live).map((turn) => turn.hint),
+    background: runSlot(live.key).background.filter((turn) => turn !== live).map((turn) => ({ task: turn.hint, progress: turn.notes.slice(-4) })),
   });
 
   const responseId = newId('msg');
@@ -506,7 +516,7 @@ async function executeTurn(
         const prepared = compactSemanticObservations(desktopVisionMessages(messages));
         const names = activeToolNames(tools, capabilities.lazy) as any;
         const detachedNote = live.detached
-          ? '\n\nYou were moved to the background because the user sent a new message, which another turn is answering. Finish only the task already underway. Do not answer the new message. Keep sending text_user with a short status every few steps, then end with a short factual result.'
+          ? '\n\nYou were moved to the background because the user sent a new message, which another turn is answering. Finish the task already underway: do not drop it and do not answer the new message. Send a text_user status only when there is something new to report, then end with a short factual result of what was actually done.'
           : '';
         if (stepLimit !== null && stepNumber >= stepLimit) {
           limitReached = true;
@@ -515,12 +525,15 @@ async function executeTurn(
             instructions: system + detachedNote + '\n\nThe work-step budget is exhausted. Read the LAST tool result and give the user a concise, honest progress report: verified results, unfinished work and the next action. Do not call tools, claim unfinished work is complete, or return <silence/>. The server will display the limit notice.',
           };
         }
-        if (trigger.kind === 'user' && tools.text_user && statusDue(steps as { text?: string; toolCalls?: { toolName?: string }[] }[])) {
-          return {
-            activeTools: names, toolChoice: { type: 'tool' as const, toolName: 'text_user' }, messages: prepared,
-            instructions: system + detachedNote + '\n\nSeveral steps passed with no update for the user. Call text_user now with one short sentence in the user\'s language saying where the work stands. Do not call any other tool in this step.',
-          };
-        }
+        // Un rappel, jamais une obligation : forcer l'outil faisait échouer le tour quand le modèle ne l'appelait pas,
+        // et produisait des annonces répétées sans action.
+        const statusNote = trigger.kind === 'user' && tools.text_user && statusDue(steps as { text?: string; toolCalls?: { toolName?: string }[] }[])
+          ? '\n\nThe user has had no update for several steps. If something concrete happened since your last message (a result, a file changed, a blocker), you may say it with one text_user sentence, then keep working. Do not repeat an earlier status and do not announce a step instead of doing it.'
+          : '';
+        const steerNote = live.steers.length
+          ? `\n\nWhile you were working, the user added these instructions for THIS task. Apply them from now on, they override the original request where they differ:\n${live.steers.map((line) => `- ${line}`).join('\n')}`
+          : '';
+        if (statusNote || steerNote) return { activeTools: names, messages: prepared, instructions: system + detachedNote + steerNote + statusNote };
         return { activeTools: names, messages: prepared, ...(detachedNote ? { instructions: system + detachedNote } : {}) };
       },
       // No default step limit. If explicitly configured, reserve a synthesis.

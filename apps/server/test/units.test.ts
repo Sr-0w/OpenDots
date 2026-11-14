@@ -132,6 +132,19 @@ describe('prompt système', () => {
     expect(prompt).toContain('never to Ari');
   });
 
+  it("décrit le travail en arrière-plan et la façon de lui transmettre une consigne", () => {
+    const prompt = buildSystemPrompt({ ...base, mode: { kind: 'user' }, background: [{ task: 'Intégration Vaultwarden', progress: ['Dépôt cloné'] }] });
+    expect(prompt).toContain('Intégration Vaultwarden');
+    expect(prompt).toContain('Latest progress: Dépôt cloné');
+    expect(prompt).toContain('steer_task');
+    expect(prompt).toContain('Do not restart, redo or re-announce');
+  });
+
+  it("n'annonce une capture comme visible qu'après un partage réussi", () => {
+    const prompt = buildSystemPrompt({ ...base, mode: { kind: 'user' }, toolNames: ['share_screenshot'] });
+    expect(prompt).toContain('status "attached"');
+  });
+
   it('invite un compagnon sans nom à demander le sien', () => {
     expect(buildSystemPrompt({ ...base, mode: { kind: 'user' } })).toContain('First meeting');
   });
@@ -159,15 +172,14 @@ describe('prompt système', () => {
   it('demande une phrase courte avant une étape d’outils utile', () => {
     const prompt = buildSystemPrompt({ ...base, mode: { kind: 'user' } });
     expect(prompt).toContain('one short sentence');
-    expect(prompt).toContain('Je vais maintenant créer ce fichier');
-    expect(prompt).toContain('La copie locale est en cours');
     expect(prompt).toContain('trivial call');
     expect(prompt).toContain('ordinary reply text');
+    expect(prompt).toContain('Never send two messages that say the same thing');
+    expect(prompt).toContain('never announce a step instead of doing it');
     expect(prompt).toContain('text_user');
     expect(prompt).toContain('react_to_message');
     expect(prompt).toContain('reply_to');
-    expect(prompt).toContain('chat bubbles');
-    expect(prompt).toContain('every few steps');
+    expect(prompt).toContain('instant-messaging thread');
   });
 
   it('ne demande les méta-outils que lorsqu’ils sont réellement disponibles', () => {
@@ -257,5 +269,18 @@ describe('finalText', () => {
       { type: 'text', text: 'Je vais vérifier.' },
       { type: 'tool-shell_exec', toolCallId: 'a', state: 'output-available', input: {}, output: {} },
     ] as never })).toBe('Je vais vérifier.');
+  });
+});
+
+describe('captures partagées', () => {
+  it("une capture jointe devient une image du fil, un échec reste dans le travail", () => {
+    const view = presentAssistantTurn([
+      { type: 'tool-share_screenshot', state: 'output-available', toolCallId: 'a', input: {}, output: { ok: true, status: 'attached', url: '/api/attachments/x', filename: 'capture.jpg', mediaType: 'image/jpeg' } },
+      { type: 'tool-share_screenshot', state: 'output-available', toolCallId: 'b', input: {}, output: { ok: false, status: 'not_found', error: 'expirée' } },
+      { type: 'text', text: 'La voici.' },
+    ]);
+    expect(view.bubbles).toHaveLength(2);
+    expect((view.bubbles[0] as unknown as { image: { url: string } }).image.url).toBe('/api/attachments/x');
+    expect(view.work).toHaveLength(1);
   });
 });

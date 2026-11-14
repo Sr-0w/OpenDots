@@ -1,3 +1,4 @@
+import { storeImage } from '../attachments/service.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
@@ -53,6 +54,21 @@ export async function desktopTools(ctx: ToolContext): Promise<ToolSet> {
         const shot = await withDesktopAgent(agent.id, screenshot); observed = true; lastFrame = shot.frameHash; return shot;
       },
       toModelOutput: async ({ output }) => observationOutput(ctx.agent.id, output),
+    }),
+    share_screenshot: tool({
+      description: "Montre à l'utilisateur une capture de ton bureau : tes captures ne sont visibles que par toi tant que tu ne les partages pas. Donne le screenshotId renvoyé par computer_screenshot ou computer_action. L'image est jointe à la conversation seulement si le résultat indique status \"attached\" ; sinon dis à l'utilisateur qu'elle n'a pas pu être jointe, sans prétendre qu'elle est visible.",
+      inputSchema: z.object({ screenshot_id: z.string().regex(/^[a-f0-9]{32}$/), caption: z.string().max(200).optional() }).strict(),
+      execute: async ({ screenshot_id, caption }) => {
+        const png = await withDesktopAgent(ctx.agent.id, () => readScreenshot(screenshot_id));
+        if (!png) return { ok: false as const, status: 'not_found', error: "Capture introuvable ou expirée : reprends une capture, puis partage-la." };
+        try {
+          // Copiée dans les pièces jointes du compte : elle reste lisible après la rotation des captures du bureau.
+          const attachment = await storeImage(new Uint8Array(png), `capture-${screenshot_id.slice(0, 8)}.png`);
+          return { ok: true as const, status: 'attached', url: attachment.url, filename: attachment.filename, mediaType: attachment.mediaType, caption: caption?.trim() || null };
+        } catch (error) {
+          return { ok: false as const, status: 'failed', error: error instanceof Error ? error.message : 'La capture n’a pas pu être jointe.' };
+        }
+      },
     }),
     computer_action: tool({
       description: 'DERNIER RECOURS pour une cible absente des outils d’accessibilité : commence par browser_inspect/computer_inspect et computer_target. Après un clic par coordonnées inefficace, reviens à ces outils, sans répéter ni ajuster des coordonnées devinées. Exécute un clic, une saisie, une touche ou un défilement sur ton bureau privé selon les permissions choisies par l’utilisateur. Par défaut, les actions sont exécutées directement. Si une validation est requise, le résultat pending_approval signifie que rien n’a été exécuté. Utilise les coordonnées en pixels de la dernière capture (origine en haut à gauche, 1280 × 800), au centre de la cible réellement visible, et explique le résultat attendu. Le curseur X11 réel est inclus ; cursor.x/y donne son point actif réel, pas la cible. Si tu ne vois pas la cible, reprends une capture ou lance une application avec shell_exec ; ne devine pas un placement habituel. Une capture est jointe après exécution. type saisit le texte par de vraies pressions et relâchements de touches X11, sans collage ni presse-papiers et sans Entrée par défaut : garde submit:false pour remplir un formulaire sans l’envoyer. text accepte au plus 2000 caractères imprimables par appel (fractionne les textes longs) ; les retours à la ligne et tabulations doivent être des actions key explicites. Pour ouvrir une URL : key ctrl+l puis type avec submit:true. Vérifie le résultat visible ; ne répète pas une saisie pour valider, utilise Return.',

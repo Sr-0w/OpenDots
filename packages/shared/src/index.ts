@@ -490,6 +490,14 @@ export function presentAssistantTurn<T extends Presentable>(parts: T[]): { bubbl
       bubbles.push({ key: `image-${index}`, image: part });
       return;
     }
+    // Une capture partagée par le compagnon est une image du fil, pas une trace d'outil.
+    if (part.type === 'tool-share_screenshot') {
+      const out = part.output as { ok?: boolean; status?: string; url?: string; filename?: string; mediaType?: string } | undefined;
+      if (part.state === 'output-available' && out?.ok && out.status === 'attached' && out.url) {
+        bubbles.push({ key: `image-${index}`, image: { type: 'file', url: out.url, filename: out.filename, mediaType: out.mediaType ?? 'image/jpeg' } as unknown as T });
+        return;
+      }
+    }
     if (part.type === 'step-start') return;
     if (isActionToolPart(part)) {
       actions.push(part);

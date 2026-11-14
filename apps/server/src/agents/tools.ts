@@ -44,6 +44,8 @@ export interface ToolContext {
   conversationId: string;
   /** Enregistre un statut déjà détaché du tour affiché, pour qu'il reste visible. */
   onStatus?: (text: string) => Promise<void> | void;
+  /** Transmet une consigne aux travaux de ce compagnon qui continuent en arrière-plan ; renvoie les tâches touchées. */
+  steerBackground?: (instruction: string) => string[];
   /** Marque le message de ce tour comme réponse à un message précis. */
   setReplyTo?: (messageId: string) => Promise<void>;
   /** Conversation principale avec l'utilisateur (et non un fil entre compagnons). */
@@ -232,6 +234,18 @@ export function buildTools(ctx: ToolContext): ToolSet {
       return ok({ text: clean });
     },
   });
+
+  if (ctx.steerBackground && ctx.userTurn) {
+    tools.steer_task = tool({
+      description:
+        "Transmet une nouvelle consigne de l'utilisateur à ton travail qui continue en arrière-plan (précision, contrainte, changement de priorité), sans l'arrêter ni le recommencer. À utiliser quand le nouveau message concerne cette tâche. La consigne est appliquée dès l'étape suivante du travail.",
+      inputSchema: z.object({ instruction: z.string().min(1).max(1000).describe("La consigne, complète et autonome, dans les mots de l'utilisateur") }),
+      execute: async ({ instruction }) => {
+        const tasks = ctx.steerBackground!(instruction.trim());
+        return tasks.length ? ok({ status: 'delivered', tasks }) : fail("Aucun travail en arrière-plan : traite la demande toi-même dans ce tour.");
+      },
+    });
+  }
 
   tools.react_to_message = tool({
     description:
