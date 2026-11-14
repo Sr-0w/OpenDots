@@ -40,11 +40,14 @@ export function ModelPicker({
   const [query, setQuery] = useState("");
 
   useEffect(() => {
+    let active = true;
     setModels(null);
     setError(null);
+    setQuery("");
     (provider === "codex" ? api.codexModels() : provider === "ollama" ? api.ollamaModels() : api.openrouterModels())
-      .then(setModels)
-      .catch((e) => setError(e.message));
+      .then((result) => { if (active) setModels(result.filter((model) => model.provider === provider)); })
+      .catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
   }, [provider]);
 
   const list = useMemo(() => {

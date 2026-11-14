@@ -134,7 +134,7 @@ export function createApi() {
 
   api.post('/onboarding/complete', async (c) => onboardingLock.run(accountKey(), async () => {
     const body = z.object({ model: modelSchema, timezone: z.string().optional() }).parse(await c.req.json());
-    if (await getSetting('onboarding.done')) return c.json({ ok: true });
+    if (await getSetting('onboarding.done') && (await listAgentRows()).length > 0) return c.json({ ok: true });
     if (body.model.provider === 'openrouter' && !(await getOpenRouterKey())) return c.json({ error: "La clé OpenRouter n'est pas configurée." }, 400);
     const check = await checkModel(body.model as ModelConfig);
     if (!check.ok) return c.json({ error: check.error }, 400);

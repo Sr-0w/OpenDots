@@ -16,7 +16,7 @@ import { createApplication } from '../src/app.ts';
 import { withAccount } from '../src/auth/context.ts';
 import { authStore, closeAuthStore, createSession, registerUser } from '../src/auth/store.ts';
 import { openDatabase, closeAllDatabases, db, schema } from '../src/db/client.ts';
-import { getSetting, setOpenRouterKey } from '../src/settings.ts';
+import { getSetting, setSetting, setOpenRouterKey } from '../src/settings.ts';
 import { createAgent, getAgent, listAgentRows, mainConversationId } from '../src/agents/repo.ts';
 import { loadMessages, saveMessage } from '../src/conversations/repo.ts';
 import { startQueue, stopQueue } from '../src/jobs/queue.ts';
@@ -35,6 +35,8 @@ it('ne termine pas la configuration sans clé personnelle', async () => {
   expect(await withAccount(account, listAgentRows)).toHaveLength(0);
 });
 it('engage la conversation sans message utilisateur, une seule fois même après doubles requêtes et rejeu', async () => withAccount(account, async () => {
+  // A reset can remove all companions while preserving account settings.
+  await setSetting('onboarding.done', true);
   await setOpenRouterKey('fixture-personal-key');
   const responses = await Promise.all([complete(), complete()]);
   expect(responses.map(r => r.status)).toEqual([200, 200]);

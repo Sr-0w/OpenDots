@@ -9,13 +9,14 @@ import { ModelPicker } from "./model-picker";
 
 import { t } from "@/lib/i18n";
 /**
- * Onboarding volontairement minimal : une clé OpenRouter et un modèle.
+ * Chaque fournisseur garde sa connexion et son propre catalogue de modèles.
  * Tout le reste se fait ensuite en parlant au premier compagnon.
  */
 export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; onDone: () => void }) {
   const [provider, setProvider] = useState<"openrouter" | "codex">("openrouter");
   const [step, setStep] = useState<"key" | "model">(keyConfigured ? "model" : "key");
   const [key, setKey] = useState("");
+  const [openrouterReady, setOpenrouterReady] = useState(keyConfigured);
   const [model, setModel] = useState<ModelInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +27,7 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
     setError(null);
     try {
       await api.saveKey(key.trim());
+      setOpenrouterReady(true);
       setStep("model");
     } catch (err) {
       setError((err as Error).message);
@@ -34,8 +36,16 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
     }
   }
 
+  function chooseProvider(next: "openrouter" | "codex") {
+    if (next === provider) return;
+    setProvider(next);
+    setModel(null);
+    setError(null);
+    setStep(next === "openrouter" && openrouterReady ? "model" : "key");
+  }
+
   async function finish() {
-    if (!model) return;
+    if (!model || model.provider !== provider) return;
     setBusy(true);
     setError(null);
     try {
@@ -71,9 +81,21 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
           <span className={step === "model" ? "font-medium text-foreground" : ""}>{t("2. Modèle")}</span>
         </div>
 
-        {step === "key" ? (
+        <div className="grid w-full grid-cols-2 gap-2" role="group" aria-label={t("Fournisseur du modèle")}>
+          <Button type="button" variant={provider === "openrouter" ? "default" : "outline"} aria-pressed={provider === "openrouter"} disabled={busy} onClick={() => chooseProvider("openrouter")}>
+            OpenRouter · {t("Clé API")}
+          </Button>
+          <Button type="button" variant={provider === "codex" ? "default" : "outline"} aria-pressed={provider === "codex"} disabled={busy} onClick={() => chooseProvider("codex")}>
+            ChatGPT / Codex · OAuth
+          </Button>
+        </div>
+
+        {step === "key" && provider === "codex" ? (
+          <div className="w-full">
+            <CodexConnection onConnected={() => { setModel(null); setStep("model"); }} />
+          </div>
+        ) : step === "key" ? (
           <form onSubmit={submitKey} className="flex w-full flex-col gap-3">
-            <CodexConnection onConnected={() => { setProvider("codex"); setStep("model"); }} />
             <div className="relative">
               <KeyRoundIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -102,12 +124,16 @@ export function Onboarding({ keyConfigured, onDone }: { keyConfigured: boolean; 
           </form>
         ) : (
           <div className="flex w-full flex-col gap-3">
-            <ModelPicker provider={provider} value={model?.id ?? null} onChange={setModel} className="h-80" />
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <p className="font-medium">{provider === "codex" ? t("Modèles Codex · abonnement ChatGPT") : t("Modèles OpenRouter · clé API")}</p>
+              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => { setModel(null); setError(null); setStep("key"); }}>{t("Connexion")}</Button>
+            </div>
+            <ModelPicker key={provider} provider={provider} value={model?.id ?? null} onChange={setModel} className="h-80" />
             {model && !model.tools && (
               <p className="text-foreground font-medium text-xs">{t("Ce modèle ne sait pas utiliser d’outils : ton compagnon pourra parler, mais pas agir.")}</p>
             )}
             {error && <p className="text-destructive text-sm">{error}</p>}
-            <Button size="lg" onClick={finish} disabled={busy || !model}>
+            <Button size="lg" onClick={finish} disabled={busy || !model || model.provider !== provider}>
               {busy ? <LoaderIcon className="animate-spin" /> : <>{t("Rencontrer mon compagnon")} <ArrowRightIcon /></>}
             </Button>
           </div>
