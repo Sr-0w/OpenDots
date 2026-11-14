@@ -56,7 +56,7 @@ import app.dot.design.components.dotShimmer
 import app.dot.opendots.chat.presentAssistantTurn
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -127,7 +127,7 @@ private class PendingImage(val uri: Uri) {
 }
 
 @Composable
-fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> Unit, onOpenCompanion: () -> Unit) {
+fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onBack: () -> Unit, onOpenCompanion: () -> Unit) {
     val session = remember(agent.id) { app.session(agent.id) }
     LaunchedEffect(session) { session.open() }
     val chat by session.state.collectAsStateWithLifecycle()
@@ -199,7 +199,7 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
         Box(Modifier.weight(1f)) {
             FrostedHeaderLayout(
                 backdrop = backdrop,
-                header = { ChatHeader(agent, ui, onOpenDrawer, onOpenCompanion, onOpenWork = { workSheet = true }) },
+                header = { ChatHeader(agent, ui, chat.reconnecting, onBack, onOpenCompanion, onOpenWork = { workSheet = true }) },
             ) { padding ->
                 val direction = LocalLayoutDirection.current
                 // In landscape the navigation bar or a display cutout can sit beside the content.
@@ -216,7 +216,7 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
                     modifier = Modifier.fillMaxSize().backdropSource(backdrop),
                 ) {
                     chat.error?.let { message ->
-                        item(key = "error") { TurnError(agentDisplayName(agent), message, session::dismissError, Modifier.padding(top = DotSpacing.xl)) }
+                        item(key = "error") { TurnError(if (chat.notSent) stringResource(R.string.not_sent) else stringResource(R.string.turn_failed, agentDisplayName(agent)), message, session::dismissError, Modifier.padding(top = DotSpacing.xl)) }
                     }
                     // The thread only shows *that* the companion works and on what; the detail lives in the work panel.
                     if (chat.busy) item(key = "live") {
@@ -319,19 +319,19 @@ fun ChatScreen(app: AppState, ui: AppUiState, agent: Agent, onOpenDrawer: () -> 
  * other, and in the middle the companion itself - its dot, with its name on a small glass pill underneath.
  */
 @Composable
-private fun ChatHeader(agent: Agent, ui: AppUiState, onOpenDrawer: () -> Unit, onOpenCompanion: () -> Unit, onOpenWork: () -> Unit) {
+private fun ChatHeader(agent: Agent, ui: AppUiState, reconnecting: Boolean, onBack: () -> Unit, onOpenCompanion: () -> Unit, onOpenWork: () -> Unit) {
     val c = Dot.colors
     val elsewhere = ui.agents.any { it.id != agent.id && it.unread > 0 } || ui.pendingApprovals.isNotEmpty()
     val name = agentDisplayName(agent)
     val status = when {
-        !ui.connected -> stringResource(R.string.reconnecting)
+        !ui.connected || reconnecting -> stringResource(R.string.reconnecting)
         agent.state == "error" -> agentStateLabel("error")
         ui.paused -> stringResource(R.string.paused_short)
         else -> null
     }
     Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = DotSpacing.m, vertical = 6.dp)) {
         Box(Modifier.align(Alignment.TopStart)) {
-            DotIconButton(Icons.Outlined.Menu, stringResource(R.string.menu), onClick = onOpenDrawer)
+            DotIconButton(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.companions), onClick = onBack)
             if (elsewhere) UnreadDot(Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp))
         }
         Column(
@@ -411,13 +411,13 @@ private fun EmptyConversation(agent: Agent, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun TurnError(name: String, message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+private fun TurnError(title: String, message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     DotCard(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.Top) {
             Icon(Icons.Outlined.ErrorOutline, null, Modifier.padding(top = 2.dp).size(18.dp), tint = Dot.colors.danger)
             Spacer(Modifier.width(DotSpacing.m))
             Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.turn_failed, name), style = Dot.type.bodyStrong, color = Dot.colors.textPrimary)
+                Text(title, style = Dot.type.bodyStrong, color = Dot.colors.textPrimary)
                 if (message.isNotBlank()) Text(message, style = Dot.type.caption, color = Dot.colors.textSecondary, maxLines = 6, overflow = TextOverflow.Ellipsis)
             }
             DotIconButton(Icons.Outlined.Close, stringResource(R.string.close), onClick = onDismiss, tint = Dot.colors.textSecondary)

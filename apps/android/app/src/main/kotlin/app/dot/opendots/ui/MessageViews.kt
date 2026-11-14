@@ -183,7 +183,10 @@ private fun AssistantMessage(message: ChatMessage, env: MessageEnv, streaming: B
                         when (bubble) {
                             is Bubble.Text -> DotReplyBubble {
                                 if (bubble.key == firstText) message.meta.replyTo?.let { ReplyQuote(it, env) }
-                                DotMarkdown(bubble.text, onCopyCode = env.onCopy)
+                                DotMarkdown(
+                                    bubble.text, onCopyCode = env.onCopy, resolveUrl = env.resolveUrl,
+                                    image = { url, alt -> AttachedImage(Part.File(url, "image/*", alt.ifBlank { null }), env) },
+                                )
                             }
                             is Bubble.Image -> AttachedImage(bubble.file, env)
                         }

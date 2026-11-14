@@ -66,6 +66,8 @@ fun presentAssistantTurn(message: ChatMessage): AssistantTurn {
             is Part.Tool -> when {
                 part.name == "text_user" -> cleanModelText(part.input?.let { (it as? kotlinx.serialization.json.JsonObject)?.str("text") }.orEmpty())
                     .takeIf { it.isNotEmpty() && !isSilence(it) }?.let { bubbles += Bubble.Text("text-$index", it) }
+                part.name == "share_screenshot" && part.state == "output-available" && !part.failed && part.outputObject?.str("status") == "attached" && part.outputObject?.str("url") != null ->
+                    bubbles += Bubble.Image("image-$index", Part.File(part.outputObject!!.str("url")!!, part.outputObject!!.str("mediaType") ?: "image/jpeg", part.outputObject!!.str("filename")))
                 part.isAction() -> actions += part
                 else -> tools += part
             }

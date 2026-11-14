@@ -65,15 +65,26 @@ import app.dot.opendots.BuildInfo
 import app.dot.opendots.R
 import app.dot.opendots.data.Activity
 
-/** A secondary screen: content scrolling under the same frosted header as the conversation, with a Back capsule. */
+/**
+ * A full page: content scrolling under the same frosted header as the conversation. With [onBack] it is a pushed page
+ * with a Back capsule; without, it is one of the top-level tabs and leaves the bottom to the navigation bar.
+ */
 @Composable
-fun QuietPage(title: String, onBack: () -> Unit, content: LazyListScope.() -> Unit) {
+fun QuietPage(title: String, onBack: (() -> Unit)?, inTabs: Boolean = false, subtitle: String? = null, content: LazyListScope.() -> Unit) {
     val backdrop = rememberQuietBackdrop()
     Box(Modifier.fillMaxSize().background(Dot.colors.background)) {
-        FrostedHeaderLayout(backdrop, header = { DotTopBar(title = title, navigation = { Box(Modifier.padding(start = DotSpacing.s)) { BackButton(onBack) } }) }) { padding ->
+        FrostedHeaderLayout(
+            backdrop,
+            header = {
+                DotTopBar(title = title, subtitle = subtitle, navigation = if (onBack == null) null else { { Box(Modifier.padding(start = DotSpacing.s)) { BackButton(onBack) } } })
+            },
+        ) { padding ->
             LazyColumn(
                 Modifier.fillMaxSize().backdropSource(backdrop),
-                contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + DotSpacing.xxl),
+                contentPadding = PaddingValues(
+                    top = padding.calculateTopPadding(),
+                    bottom = (if (inTabs) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()) + DotSpacing.xxl,
+                ),
                 content = content,
             )
         }
@@ -83,12 +94,12 @@ fun QuietPage(title: String, onBack: () -> Unit, content: LazyListScope.() -> Un
 // --- Scheduled tasks ---------------------------------------------------------------------------
 
 @Composable
-fun TasksScreen(app: AppState, ui: AppUiState, onBack: () -> Unit) {
+fun TasksScreen(app: AppState, ui: AppUiState) {
     LaunchedEffect(Unit) { app.loadActivities() }
     val started = stringResource(R.string.task_started)
     var deleting by remember { mutableStateOf<Activity?>(null) }
     val activities = ui.activities
-    QuietPage(stringResource(R.string.tasks), onBack) {
+    QuietPage(stringResource(R.string.tasks), onBack = null, inTabs = true) {
         when {
             activities == null -> item { Box(Modifier.fillMaxWidth().padding(DotSpacing.xxxl), contentAlignment = Alignment.Center) { DotSpinner(size = 24.dp) } }
             activities.isEmpty() -> item { EmptyState(Icons.Outlined.CalendarMonth, stringResource(R.string.tasks_empty_title), stringResource(R.string.tasks_empty_body)) }
@@ -143,13 +154,13 @@ private fun TaskRow(activity: Activity, onToggle: (Boolean) -> Unit, onRun: () -
 // --- Approvals ------------------------------------------------------------------------------------
 
 @Composable
-fun ApprovalsScreen(app: AppState, ui: AppUiState, onBack: () -> Unit) {
+fun ApprovalsScreen(app: AppState, ui: AppUiState) {
     val env = remember(ui.approvals, ui.agents) {
         MessageEnv(ui.agents, ui.approvals, emptyMap(), emptyMap(), false, { it }, {}, {}, { _, _ -> }, { id, approve -> app.decide(id, approve) }, { _, _, _ -> }, {}, {}, {}, {})
     }
     val pending = ui.pendingApprovals
     val recent = remember(ui.approvals) { ui.approvals.values.filter { it.status != "pending" }.sortedByDescending { it.createdAt }.take(20) }
-    QuietPage(stringResource(R.string.approvals), onBack) {
+    QuietPage(stringResource(R.string.approvals), onBack = null, inTabs = true) {
         if (pending.isEmpty() && recent.isEmpty()) item { EmptyState(Icons.Outlined.Shield, stringResource(R.string.approvals_empty_title), stringResource(R.string.approvals_empty_body)) }
         if (pending.isNotEmpty()) item { SectionLabel(stringResource(R.string.approvals_waiting)) }
         items(pending, key = { it.id }) { approval ->
@@ -172,9 +183,9 @@ fun ApprovalsScreen(app: AppState, ui: AppUiState, onBack: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(app: AppState, ui: AppUiState, onBack: () -> Unit, onOpenCatalog: () -> Unit, onOpenWeb: () -> Unit) {
+fun SettingsScreen(app: AppState, ui: AppUiState, onOpenCatalog: () -> Unit, onOpenWeb: () -> Unit) {
     var confirmSignOut by remember { mutableStateOf(false) }
-    QuietPage(stringResource(R.string.settings), onBack) {
+    QuietPage(stringResource(R.string.settings), onBack = null, inTabs = true) {
         item {
             SectionLabel(stringResource(R.string.appearance))
             FlowRow(Modifier.padding(horizontal = DotSpacing.gutter), horizontalArrangement = Arrangement.spacedBy(DotSpacing.s)) {

@@ -137,6 +137,8 @@ class OpenDotsClient(private val store: SessionStore, baseClient: OkHttpClient =
     suspend fun bootstrap(): Bootstrap = get("/bootstrap")
     suspend fun saveOpenRouterKey(key: String) { json("POST", "/onboarding/key", buildJsonObject { put("key", key.trim()) }) }
     suspend fun openRouterModels(): List<ModelInfo> = get("/models/openrouter")
+    /** Models of one provider: "openrouter" or "codex" (ChatGPT sign-in, configured from the web app). */
+    suspend fun models(provider: String): List<ModelInfo> = get("/models/$provider")
     suspend fun completeOnboarding(model: String, timezone: String) {
         json("POST", "/onboarding/complete", buildJsonObject {
             putJsonObject("model") { put("provider", "openrouter"); put("model", model) }

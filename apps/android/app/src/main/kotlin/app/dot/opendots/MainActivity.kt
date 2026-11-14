@@ -26,11 +26,8 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -56,14 +53,23 @@ import app.dot.design.DotMotion
 import app.dot.design.DotTheme
 import app.dot.design.ThemeMode
 import app.dot.design.catalog.QuietCatalogScreen
+import app.dot.design.components.DotBottomBar
+import app.dot.design.components.DotBottomBarItem
 import app.dot.design.components.DotSnackbar
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
 import app.dot.design.components.LocalReduceTransparency
 import app.dot.design.rememberReducedMotion
 import app.dot.opendots.ui.ApprovalsScreen
 import app.dot.opendots.ui.ChatScreen
-import app.dot.opendots.ui.CompanionSheet
+import app.dot.opendots.ui.CompanionProfilePage
+import app.dot.opendots.ui.CompanionsPage
+import app.dot.opendots.ui.ModelPickerPage
 import app.dot.opendots.ui.DesktopScreen
-import app.dot.opendots.ui.DrawerContent
 import app.dot.opendots.ui.OnboardingScreen
 import app.dot.opendots.ui.ServerScreen
 import app.dot.opendots.ui.SettingsScreen
@@ -100,8 +106,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Chat, Tasks, Approvals, Settings, Catalog, Desktop }
-
 @Composable
 fun OpenDotsRoot(app: AppState, ui: AppUiState) {
     // Realtime only while visible.
@@ -135,58 +139,72 @@ fun OpenDotsRoot(app: AppState, ui: AppUiState) {
 }
 
 
+/** Top-level destinations, shown with the bottom navigation bar. */
+private enum class Tab { Companions, Tasks, Approvals, Settings }
+
+/** Pages pushed on top of a tab. Back always leads to the page that opened them. */
+private enum class Page { None, Chat, Profile, Model, Desktop, Catalog }
+
 @Composable
 private fun MainScreens(app: AppState, ui: AppUiState) {
-    var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
-    var companionSheet by rememberSaveable { mutableStateOf(false) }
-    val drawer = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    var tab by rememberSaveable { mutableStateOf(Tab.Companions) }
+    // The app reopens on the conversation it was left on; Back leads to the Companions page.
+    var page by rememberSaveable { mutableStateOf(if (ui.currentAgentId != null) Page.Chat else Page.None) }
     val keyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
     val reduced = rememberReducedMotion()
     val openWeb = { ui.serverUrl.takeIf { it.isNotBlank() }?.let { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } }; Unit }
 
-    fun go(next: Screen) { scope.launch { drawer.close() }; screen = next }
-
+    fun back() {
+        keyboard?.hide()
+        page = when (page) {
+            Page.Model, Page.Desktop -> Page.Profile
+            Page.Profile -> Page.Chat
+            else -> Page.None
+        }
+    }
     // Predictive back: the system animates these; they only decide where "back" leads.
-    BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
-    BackHandler(enabled = screen != Screen.Chat && !drawer.isOpen) { screen = if (screen == Screen.Catalog) Screen.Settings else Screen.Chat }
+    BackHandler(enabled = page != Page.None) { back() }
+    BackHandler(enabled = page == Page.None && tab != Tab.Companions) { tab = Tab.Companions }
 
     AnimatedContent(
-        targetState = screen,
+        targetState = page,
         transitionSpec = {
             if (reduced) fadeIn(DotMotion.spec(0)) togetherWith fadeOut(DotMotion.spec(0)) else {
                 val forward = targetState.ordinal > initialState.ordinal
-                (fadeIn(DotMotion.mediumSpec(easing = DotMotion.decelerate)) + slideInHorizontally(DotMotion.mediumSpec()) { if (forward) it / 12 else -it / 12 }) togetherWith
-                    (fadeOut(DotMotion.fastSpec(easing = DotMotion.accelerate)) + slideOutHorizontally(DotMotion.fastSpec()) { if (forward) -it / 12 else it / 12 })
+                (fadeIn(DotMotion.mediumSpec(easing = DotMotion.decelerate)) + slideInHorizontally(DotMotion.mediumSpec()) { if (forward) it / 10 else -it / 10 }) togetherWith
+                    (fadeOut(DotMotion.fastSpec(easing = DotMotion.accelerate)) + slideOutHorizontally(DotMotion.fastSpec()) { if (forward) -it / 10 else it / 10 })
             }
         },
-        label = "screen",
+        label = "page",
     ) { current ->
-        when (current) {
-            Screen.Chat -> ModalNavigationDrawer(
-                drawerState = drawer,
-                scrimColor = Dot.colors.scrim,
-                drawerContent = {
-                    DrawerContent(
-                        ui,
-                        onSelect = { agent -> app.selectAgent(agent.id); scope.launch { drawer.close() } },
-                        onTasks = { go(Screen.Tasks) }, onApprovals = { go(Screen.Approvals) }, onSettings = { go(Screen.Settings) },
-                    )
-                },
-            ) {
-                val agent = ui.currentAgent
-                if (agent == null) StartingScreen() else {
-                    ChatScreen(app, ui, agent, onOpenDrawer = { keyboard?.hide(); scope.launch { drawer.open() } }, onOpenCompanion = { companionSheet = true })
-                    if (companionSheet) CompanionSheet(agent, { companionSheet = false }, onOpenComputer = { companionSheet = false; screen = Screen.Desktop }) { patch -> app.updateAgent(agent.id, patch) }
+        val agent = ui.currentAgent
+        when {
+            current == Page.None || agent == null && current != Page.Catalog -> Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f)) {
+                    when (tab) {
+                        Tab.Companions -> CompanionsPage(ui) { picked -> app.selectAgent(picked.id); page = Page.Chat }
+                        Tab.Tasks -> TasksScreen(app, ui)
+                        Tab.Approvals -> ApprovalsScreen(app, ui)
+                        Tab.Settings -> SettingsScreen(app, ui, onOpenCatalog = { page = Page.Catalog }, onOpenWeb = openWeb)
+                    }
                 }
+                DotBottomBar(
+                    items = listOf(
+                        DotBottomBarItem(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.companions), badge = ui.agents.any { it.unread > 0 }),
+                        DotBottomBarItem(Icons.Outlined.CalendarMonth, stringResource(R.string.tasks_short)),
+                        DotBottomBarItem(Icons.Outlined.Shield, stringResource(R.string.approvals), badge = ui.pendingApprovals.isNotEmpty()),
+                        DotBottomBarItem(Icons.Outlined.Settings, stringResource(R.string.settings)),
+                    ),
+                    selected = tab.ordinal,
+                    onSelect = { tab = Tab.entries[it] },
+                )
             }
-            Screen.Tasks -> TasksScreen(app, ui) { screen = Screen.Chat }
-            Screen.Approvals -> ApprovalsScreen(app, ui) { screen = Screen.Chat }
-            Screen.Settings -> SettingsScreen(app, ui, onBack = { screen = Screen.Chat }, onOpenCatalog = { screen = Screen.Catalog }, onOpenWeb = openWeb)
-            Screen.Catalog -> QuietCatalogScreen(onBack = { screen = Screen.Settings })
-            Screen.Desktop -> ui.currentAgent?.let { DesktopScreen(app, it) { screen = Screen.Chat } } ?: StartingScreen()
+            current == Page.Catalog -> QuietCatalogScreen(onBack = ::back)
+            current == Page.Chat -> ChatScreen(app, ui, agent!!, onBack = ::back, onOpenCompanion = { page = Page.Profile })
+            current == Page.Profile -> CompanionProfilePage(agent!!, onBack = ::back, onOpenComputer = { page = Page.Desktop }, onChangeModel = { page = Page.Model }) { patch -> app.updateAgent(agent.id, patch) }
+            current == Page.Model -> ModelPickerPage(app, agent!!, onBack = ::back)
+            else -> DesktopScreen(app, agent!!, onBack = ::back)
         }
     }
 }
-

@@ -58,6 +58,8 @@ sealed interface MdBlock {
     data class ListItem(val depth: Int, val marker: String, val text: String) : MdBlock
     data class Quote(val text: String) : MdBlock
     data class Table(val header: List<String>, val rows: List<List<String>>) : MdBlock
+    /** A paragraph that is only an image, optionally wrapped in a link. */
+    data class Image(val alt: String, val url: String) : MdBlock
     data object Rule : MdBlock
 }
 
@@ -66,6 +68,7 @@ private val FENCE = Regex("^\\s{0,3}(```+|~~~+)\\s*([\\w+#.-]*)\\s*$")
 private val BULLET = Regex("^(\\s*)([-*+])\\s+(.*)$")
 private val ORDERED = Regex("^(\\s*)(\\d{1,9})[.)]\\s+(.*)$")
 private val RULE = Regex("^\\s{0,3}([-*_])(\\s*\\1){2,}\\s*$")
+private val IMAGE_ONLY = Regex("^\\s*\\[?!\\[([^\\]]*)]\\(\\s*([^)\\s]+)[^)]*\\)(?:]\\([^)]*\\))?\\s*$")
 private val TABLE_DIVIDER = Regex("^\\s*\\|?\\s*:?-{1,}:?\\s*(\\|\\s*:?-{1,}:?\\s*)*\\|?\\s*$")
 
 private fun tableCells(line: String): List<String> =
@@ -77,7 +80,17 @@ fun parseMarkdown(source: String): List<MdBlock> {
     val out = ArrayList<MdBlock>()
     val para = StringBuilder()
     fun flush() {
-        if (para.isNotBlank()) out += MdBlock.Paragraph(para.toString().trim('\n'))
+        if (para.isNotBlank()) {
+            // Lines that are only an image become image blocks; the text around them stays a paragraph.
+            val text = StringBuilder()
+            fun flushText() { if (text.isNotBlank()) out += MdBlock.Paragraph(text.toString().trim('\n')); text.setLength(0) }
+            for (line in para.toString().trim('\n').split('\n')) {
+                val image = IMAGE_ONLY.matchEntire(line)
+                if (image != null) { flushText(); out += MdBlock.Image(image.groupValues[1], image.groupValues[2]) }
+                else { if (text.isNotEmpty()) text.append('\n'); text.append(line) }
+            }
+            flushText()
+        }
         para.setLength(0)
     }
     var i = 0
@@ -148,9 +161,10 @@ fun parseMarkdown(source: String): List<MdBlock> {
 }
 
 @Immutable
-internal data class MdInlineStyle(val code: SpanStyle, val link: TextLinkStyles)
+internal data class MdInlineStyle(val code: SpanStyle, val link: TextLinkStyles, val resolveUrl: (String) -> String = { it })
 
-private fun inlineStyle(c: DotColors) = MdInlineStyle(
+private fun inlineStyle(c: DotColors, resolveUrl: (String) -> String) = MdInlineStyle(
+    resolveUrl = resolveUrl,
     code = SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.9.em, background = c.surfaceRaised),
     link = TextLinkStyles(SpanStyle(color = c.accent, textDecoration = TextDecoration.Underline)),
 )
@@ -216,12 +230,15 @@ private fun AnnotatedString.Builder.appendInline(text: String, style: MdInlineSt
                     i = close + 1
                 }
             }
+            ch == '!' && i + 1 < n && text[i + 1] == '[' -> i++ // an inline image reads as a link to it
             ch == '[' -> {
                 val closeLabel = text.indexOf(']', i + 1)
                 val openUrl = if (closeLabel > 0 && closeLabel + 1 < n && text[closeLabel + 1] == '(') closeLabel + 1 else -1
                 val closeUrl = if (openUrl > 0) text.indexOf(')', openUrl) else -1
                 if (closeUrl > 0) {
-                    val url = text.substring(openUrl + 1, closeUrl).trim().substringBefore(' ')
+                    // A server-relative link ("/api/…") is resolved against the server the app talks to.
+                    val raw = text.substring(openUrl + 1, closeUrl).trim().substringBefore(' ')
+                    val url = if (raw.startsWith("/") && !raw.startsWith("//")) style.resolveUrl(raw) else raw
                     val safe = url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:")
                     if (safe) pushLink(LinkAnnotation.Url(url, style.link))
                     appendInline(text.substring(i + 1, closeLabel), style)
@@ -257,16 +274,20 @@ fun DotMarkdown(
     style: TextStyle = Dot.type.body,
     color: Color = Dot.colors.textPrimary,
     onCopyCode: ((String) -> Unit)? = null,
+    /** Turns a server-relative URL into an absolute one (links and images). */
+    resolveUrl: (String) -> String = { it },
+    /** Draws an image block. Without it, an image is shown as a link to it. */
+    image: (@Composable (url: String, alt: String) -> Unit)? = null,
 ) {
     val blocks = remember(text) { parseMarkdown(text) }
     val c = Dot.colors
-    val inline = remember(c) { inlineStyle(c) }
+    val inline = remember(c, resolveUrl) { inlineStyle(c, resolveUrl) }
     Column(modifier) {
         blocks.forEachIndexed { index, block ->
             key(index) {
                 val gap = gapBefore(blocks.getOrNull(index - 1), block)
                 if (gap > 0.dp) Spacer(Modifier.height(gap))
-                MdBlockView(block, style, color, inline, onCopyCode)
+                MdBlockView(block, style, color, inline, onCopyCode, image)
             }
         }
     }
@@ -279,7 +300,7 @@ private fun MdText(source: String, style: TextStyle, color: Color, inline: MdInl
 }
 
 @Composable
-private fun MdBlockView(block: MdBlock, style: TextStyle, color: Color, inline: MdInlineStyle, onCopyCode: ((String) -> Unit)?) {
+private fun MdBlockView(block: MdBlock, style: TextStyle, color: Color, inline: MdInlineStyle, onCopyCode: ((String) -> Unit)?, image: (@Composable (String, String) -> Unit)?) {
     val c = Dot.colors
     when (block) {
         is MdBlock.Paragraph -> MdText(block.text, style, color, inline)
@@ -299,6 +320,10 @@ private fun MdBlockView(block: MdBlock, style: TextStyle, color: Color, inline: 
         }
         MdBlock.Rule -> Hairline(Modifier.padding(vertical = DotSpacing.xs))
         is MdBlock.Table -> MdTable(block, inline)
+        is MdBlock.Image -> {
+            val url = remember(block.url, inline) { if (block.url.startsWith("/") && !block.url.startsWith("//")) inline.resolveUrl(block.url) else block.url }
+            if (image != null) image(url, block.alt) else MdText("[${block.alt.ifBlank { url }}]($url)", style, color, inline)
+        }
     }
 }
 

@@ -32,6 +32,10 @@ data class ChatUiState(
     val loadError: String? = null,
     val cursor: Long? = null,
     val loadingOlder: Boolean = false,
+    /** The connection dropped while a turn was running; catching up. */
+    val reconnecting: Boolean = false,
+    /** The last message could not be delivered to the server. */
+    val notSent: Boolean = false,
 ) {
     val busy: Boolean get() = status != ChatStatus.Ready
     /** Waiting for the companion's first visible output. */
@@ -104,7 +108,7 @@ class ChatSession(
         if (parts.isEmpty()) return
         val mine = ChatMessage(id, "user", parts, MessageMeta(kind = "chat", replyTo = replyTo, answer = answer))
         streamJob?.cancel()
-        _state.update { it.copy(messages = it.messages + mine, status = ChatStatus.Submitted, error = null) }
+        _state.update { it.copy(messages = it.messages + mine, status = ChatStatus.Submitted, error = null, notSent = false) }
         follow(resume = false) { client.chat(agentId, id, text.trim(), files, replyTo, answer) }
     }
 
@@ -118,7 +122,7 @@ class ChatSession(
         }
     }
 
-    fun dismissError() = _state.update { it.copy(error = null) }
+    fun dismissError() = _state.update { it.copy(error = null, notSent = false) }
 
     fun react(messageId: String, emoji: String) {
         _state.update { s ->
@@ -192,12 +196,43 @@ class ChatSession(
                 throw e
             } catch (e: Exception) {
                 fail(e)
-                if (!resume || sawChunk) _state.update { it.copy(error = e.message ?: "") }
+                when {
+                    // The server answered with an error: that is a real failure.
+                    e is ApiException -> if (!resume || sawChunk) _state.update { it.copy(error = e.message ?: "") }
+                    // The connection dropped while following a turn. The turn belongs to the server and keeps running:
+                    // this is a sync problem, not "the companion couldn't answer". Catch up quietly.
+                    resume || sawChunk -> { reconnect(); return@launch }
+                    // The message itself may never have reached the server: say so.
+                    else -> _state.update { it.copy(error = e.message ?: "", notSent = true) }
+                }
             }
             _state.update { it.copy(status = ChatStatus.Ready) }
             resync(allowFollow = sawChunk)
             markRead()
         }
+    }
+
+    /** After a dropped connection: re-read history and rejoin the turn if it is still running, with a short backoff. */
+    private suspend fun reconnect() {
+        _state.update { it.copy(status = ChatStatus.Ready, reconnecting = true) }
+        var wait = 1_000L
+        repeat(6) {
+            delay(wait)
+            wait = (wait * 2).coerceAtMost(8_000L)
+            val history = try { client.messages(agentId) } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (e is ApiException) { fail(e); _state.update { it.copy(reconnecting = false) }; return }
+                null
+            }
+            if (history != null) {
+                _state.update { it.copy(reconnecting = false) }
+                resync(allowFollow = true)
+                markRead()
+                return
+            }
+        }
+        // Still offline: the app-wide reconnection will resync this conversation when the server is reachable again.
+        _state.update { it.copy(reconnecting = false) }
     }
 
     private fun upsert(message: ChatMessage) = _state.update { s ->

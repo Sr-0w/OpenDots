@@ -131,6 +131,21 @@ class ProtocolTest {
         assertEquals(16, app.dot.opendots.data.RfbSession.vncResponse(ByteArray(16) { it.toByte() }, "secret").size)
     }
 
+    @Test fun sharedScreenshotsAndMarkdownImagesBecomeImages() {
+        val message = parseMessage(obj("""{"id":"m","role":"assistant","parts":[
+            {"type":"tool-share_screenshot","toolCallId":"a","state":"output-available","input":{},"output":{"ok":true,"status":"attached","url":"/api/attachments/x","filename":"capture.jpg","mediaType":"image/jpeg"}},
+            {"type":"tool-share_screenshot","toolCallId":"b","state":"output-available","input":{},"output":{"ok":false,"status":"not_found","error":"expirée"}},
+            {"type":"text","text":"La voici."}
+        ]}"""))!!
+        val view = presentAssistantTurn(message)
+        assertEquals("/api/attachments/x", (view.bubbles[0] as Bubble.Image).file.url)
+        assertEquals(1, view.tools.size)
+        val blocks = parseMarkdown("Essai :\n![Bureau](/api/computer/screenshots/abc?agentId=ag_1)\n[Ouvrir la capture](/api/computer/screenshots/abc?agentId=ag_1)")
+        assertEquals(MdBlock.Paragraph("Essai :"), blocks[0])
+        assertEquals(MdBlock.Image("Bureau", "/api/computer/screenshots/abc?agentId=ag_1"), blocks[1])
+        assertTrue(blocks[2] is MdBlock.Paragraph)
+    }
+
     @Test fun markdownBlocksIncludingAnOpenFence() {
         val blocks = parseMarkdown("# Title\n\nSome **bold** text\nsecond line\n\n- one\n- two\n  1. nested\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```kotlin\nval x = 1")
         assertEquals(MdBlock.Heading(1, "Title"), blocks[0])

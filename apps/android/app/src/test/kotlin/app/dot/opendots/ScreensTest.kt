@@ -3,6 +3,8 @@ package app.dot.opendots
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -159,25 +161,34 @@ class ScreensTest {
         shoot("work-dark")
     }
 
-    @Test fun drawerTasksApprovalsSettings() {
+    private fun tab(label: String) = compose.onNode(hasText(label) and isSelectable()).performClick()
+
+    @Test fun pagesReplaceTheDrawer() {
         launch(ThemeMode.DARK)
-        waitFor("12,418 lines")
-        compose.onNodeWithContentDescription("Companions and navigation").performClick()
+        waitFor("I drafted the reply")
+        // Back from a conversation leads to the full-screen Companions page.
+        compose.onNodeWithContentDescription("Companions").performClick()
         waitFor("Venty")
-        shoot("drawer-dark")
-        compose.onNodeWithText("Scheduled tasks").performClick()
+        waitFor("Reads an email")
+        shoot("companions-dark")
+        tab("Tasks")
         waitFor("Weekly recap")
         shoot("tasks-dark")
-        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithContentDescription("Companions and navigation").performClick()
-        compose.onNodeWithText("Approvals").performClick()
-        waitFor("Waiting for you")
+        tab("Approvals")
+        waitFor("Pousser (git push)")
         shoot("approvals-dark")
-        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithContentDescription("Companions and navigation").performClick()
-        compose.onNodeWithText("Settings").performClick()
+        tab("Settings")
         waitFor("OLED black")
         shoot("settings-dark")
+        // Android back from a tab returns to Companions, and a companion opens its conversation.
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor("Venty")
+        compose.onNodeWithText("Ari").performClick()
+        waitFor("I drafted the reply")
+        compose.onNodeWithContentDescription("Companion details").performClick()
+        waitFor("Read public web pages")
+        waitFor("anthropic/claude-sonnet-5.5")
+        shoot("profile-dark")
     }
 
     @Test fun signInThenEnter() {
